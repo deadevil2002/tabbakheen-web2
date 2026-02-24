@@ -16,7 +16,7 @@ const COLLECTION = 'users';
 
 const FORBIDDEN_FIELDS = [
   'uid', 'role', 'email', 'createdAt',
-  'successfulOrders', 'ratingAverage', 'ratingCount',
+  'successfulOrders', 'ratingAvg', 'ratingAverage', 'ratingCount',
 ];
 
 function toUser(id: string, data: Record<string, any>): User {
@@ -88,8 +88,9 @@ export async function fsUpdateUser(
   const db = getFirebaseFirestore();
   const clean: Record<string, any> = { ...partial };
   for (const f of FORBIDDEN_FIELDS) delete clean[f];
+  console.log('[fsUsers] updating user', uid, 'with fields:', Object.keys(clean).join(', '));
   await updateDoc(doc(db, COLLECTION, uid), clean);
-  console.log('[fsUsers] updated:', uid);
+  console.log('[fsUsers] updated successfully:', uid);
 }
 
 export function fsSubscribeByRole(

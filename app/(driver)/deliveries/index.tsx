@@ -17,11 +17,12 @@ import { useData } from '@/contexts/DataContext';
 import { EmptyState } from '@/components/EmptyState';
 import { Order } from '@/types';
 import { formatPrice, formatDate } from '@/utils/helpers';
+import { sendLocalNotification } from '@/services/notifications';
 
 export default function AvailableDeliveriesScreen() {
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { getAvailableDeliveries, assignDriver, getProviderById } = useData();
+  const { getAvailableDeliveries, driverAcceptDelivery, getProviderById } = useData();
 
   const [refreshing, setRefreshing] = React.useState<boolean>(false);
 
@@ -49,9 +50,15 @@ export default function AvailableDeliveriesScreen() {
             text: t('confirm'),
             onPress: async () => {
               try {
-                await assignDriver(order.id, user.uid);
+                console.log('[AvailableDeliveries] Driver accepting order:', order.id, 'driverUid:', user.uid);
+                await driverAcceptDelivery(order.id, user.uid);
+                sendLocalNotification(
+                  t('deliveryAccepted'),
+                  t('deliveryAcceptedBody'),
+                );
                 Alert.alert(t('success'), locale === 'ar' ? 'تم قبول التوصيلة' : 'Delivery accepted');
-              } catch {
+              } catch (err: any) {
+                console.log('[AvailableDeliveries] Accept error:', err?.message || err);
                 Alert.alert(t('error'), t('error'));
               }
             },
@@ -59,7 +66,7 @@ export default function AvailableDeliveriesScreen() {
         ],
       );
     },
-    [user, assignDriver, t, locale],
+    [user, driverAcceptDelivery, t, locale],
   );
 
   const renderDelivery = useCallback(

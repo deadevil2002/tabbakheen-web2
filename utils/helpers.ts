@@ -206,3 +206,21 @@ export function daysRemaining(dateStr: string): number {
   const diff = target - now;
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
+
+export function formatSaudiPhoneForWhatsApp(raw: string): string {
+  let digits = raw.replace(/[^0-9]/g, '');
+  console.log('[helpers] formatSaudiPhone input:', raw, '-> digits:', digits);
+
+  if (digits.startsWith('00966')) {
+    digits = '966' + digits.slice(5);
+  } else if (digits.startsWith('966') && digits.length === 12) {
+    // already correct
+  } else if (digits.startsWith('0') && digits.length === 10) {
+    digits = '966' + digits.slice(1);
+  } else if (digits.length === 9 && !digits.startsWith('0')) {
+    digits = '966' + digits;
+  }
+
+  console.log('[helpers] formatSaudiPhone result:', digits);
+  return digits;
+}

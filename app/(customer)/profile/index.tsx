@@ -7,6 +7,7 @@ import {
   Pressable,
   Alert,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -23,6 +24,8 @@ import {
   Shield,
   Info,
   Camera,
+  Edit3,
+  Save,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -39,6 +42,12 @@ export default function CustomerProfileScreen() {
   const Arrow = isRTL ? ChevronLeft : ChevronRight;
   const [showSupport, setShowSupport] = useState<boolean>(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState<boolean>(false);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [editName, setEditName] = useState<string>(user?.displayName ?? '');
+  const [editPhone, setEditPhone] = useState<string>(user?.phone ?? '');
+  const [editCity, setEditCity] = useState<string>(user?.city ?? '');
+  const [editAddress, setEditAddress] = useState<string>(user?.address ?? '');
+  const [isSaving, setIsSaving] = useState<boolean>(false);
 
   const handleChangeAvatar = useCallback(async () => {
     const result = await pickImageFromGallery();
@@ -55,6 +64,38 @@ export default function CustomerProfileScreen() {
       setIsUploadingAvatar(false);
     }
   }, [updateUser, t]);
+
+  const handleStartEdit = useCallback(() => {
+    setEditName(user?.displayName ?? '');
+    setEditPhone(user?.phone ?? '');
+    setEditCity(user?.city ?? '');
+    setEditAddress(user?.address ?? '');
+    setIsEditing(true);
+  }, [user]);
+
+  const handleSaveProfile = useCallback(async () => {
+    setIsSaving(true);
+    try {
+      const updates: Record<string, any> = {};
+      if (editName.trim() !== (user?.displayName ?? '')) updates.displayName = editName.trim();
+      if (editPhone.trim() !== (user?.phone ?? '')) updates.phone = editPhone.trim();
+      if (editCity.trim() !== (user?.city ?? '')) updates.city = editCity.trim();
+      if (editAddress.trim() !== (user?.address ?? '')) updates.address = editAddress.trim();
+      if (Object.keys(updates).length === 0) {
+        setIsEditing(false);
+        return;
+      }
+      console.log('[CustomerProfile] Saving profile updates:', JSON.stringify(updates));
+      await updateUser(updates);
+      Alert.alert(t('success'), t('profileUpdated'));
+      setIsEditing(false);
+    } catch (e) {
+      console.log('[CustomerProfile] Save profile error:', e);
+      Alert.alert(t('error'), t('profileUpdateError'));
+    } finally {
+      setIsSaving(false);
+    }
+  }, [editName, editPhone, editCity, editAddress, user, updateUser, t]);
 
   const handleLogout = useCallback(() => {
     Alert.alert(
@@ -103,22 +144,59 @@ export default function CustomerProfileScreen() {
         </View>
 
         <View style={styles.infoSection}>
-          <View style={[styles.infoRow, isRTL && styles.rowRTL]}>
-            <Mail size={18} color={Colors.textTertiary} />
-            <Text style={[styles.infoText, isRTL && styles.rtlText]}>{user?.email}</Text>
-          </View>
-          {user?.phone ? (
-            <View style={[styles.infoRow, isRTL && styles.rowRTL]}>
-              <Phone size={18} color={Colors.textTertiary} />
-              <Text style={[styles.infoText, isRTL && styles.rtlText]}>{user.phone}</Text>
-            </View>
-          ) : null}
-          {user?.address ? (
-            <View style={[styles.infoRow, isRTL && styles.rowRTL]}>
-              <MapPin size={18} color={Colors.textTertiary} />
-              <Text style={[styles.infoText, isRTL && styles.rtlText]}>{user.address}</Text>
-            </View>
-          ) : null}
+          {!isEditing ? (
+            <>
+              <View style={[styles.infoRow, isRTL && styles.rowRTL]}>
+                <Mail size={18} color={Colors.textTertiary} />
+                <Text style={[styles.infoText, isRTL && styles.rtlText]}>{user?.email}</Text>
+              </View>
+              {user?.phone ? (
+                <View style={[styles.infoRow, isRTL && styles.rowRTL]}>
+                  <Phone size={18} color={Colors.textTertiary} />
+                  <Text style={[styles.infoText, isRTL && styles.rtlText]}>{user.phone}</Text>
+                </View>
+              ) : null}
+              {user?.city ? (
+                <View style={[styles.infoRow, isRTL && styles.rowRTL]}>
+                  <MapPin size={18} color={Colors.textTertiary} />
+                  <Text style={[styles.infoText, isRTL && styles.rtlText]}>{user.city}</Text>
+                </View>
+              ) : null}
+              {user?.address ? (
+                <View style={[styles.infoRow, isRTL && styles.rowRTL]}>
+                  <MapPin size={18} color={Colors.textTertiary} />
+                  <Text style={[styles.infoText, isRTL && styles.rtlText]}>{user.address}</Text>
+                </View>
+              ) : null}
+              <Pressable style={styles.editBtn} onPress={handleStartEdit}>
+                <Edit3 size={16} color={Colors.primary} />
+                <Text style={styles.editBtnText}>{t('editProfile')}</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <View style={[styles.infoRow, isRTL && styles.rowRTL]}>
+                <Mail size={18} color={Colors.textTertiary} />
+                <Text style={[styles.infoText, { color: Colors.textTertiary }]}>{user?.email}</Text>
+              </View>
+              <Text style={[styles.fieldLabel, isRTL && styles.rtlText]}>{t('displayName')}</Text>
+              <TextInput style={[styles.input, isRTL && styles.rtlText]} value={editName} onChangeText={setEditName} placeholder={t('fullName')} placeholderTextColor={Colors.textTertiary} textAlign={isRTL ? 'right' : 'left'} />
+              <Text style={[styles.fieldLabel, isRTL && styles.rtlText]}>{t('phoneNumber')}</Text>
+              <TextInput style={[styles.input, isRTL && styles.rtlText]} value={editPhone} onChangeText={setEditPhone} placeholder={t('phone')} placeholderTextColor={Colors.textTertiary} keyboardType="phone-pad" textAlign={isRTL ? 'right' : 'left'} />
+              <Text style={[styles.fieldLabel, isRTL && styles.rtlText]}>{t('cityLabel')}</Text>
+              <TextInput style={[styles.input, isRTL && styles.rtlText]} value={editCity} onChangeText={setEditCity} placeholder={t('cityLabel')} placeholderTextColor={Colors.textTertiary} textAlign={isRTL ? 'right' : 'left'} />
+              <Text style={[styles.fieldLabel, isRTL && styles.rtlText]}>{t('addressLabel')}</Text>
+              <TextInput style={[styles.input, isRTL && styles.rtlText]} value={editAddress} onChangeText={setEditAddress} placeholder={t('address')} placeholderTextColor={Colors.textTertiary} textAlign={isRTL ? 'right' : 'left'} />
+              <View style={styles.editActions}>
+                <Pressable style={styles.saveBtn} onPress={handleSaveProfile} disabled={isSaving}>
+                  {isSaving ? <ActivityIndicator size="small" color={Colors.white} /> : <><Save size={16} color={Colors.white} /><Text style={styles.saveBtnText}>{t('save')}</Text></>}
+                </Pressable>
+                <Pressable style={styles.cancelBtn} onPress={() => setIsEditing(false)}>
+                  <Text style={styles.cancelBtnText}>{t('cancel')}</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
         </View>
 
         <View style={styles.menuSection}>
@@ -314,5 +392,67 @@ const styles = StyleSheet.create({
   rtlText: {
     textAlign: 'right',
     writingDirection: 'rtl',
+  },
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  editBtnText: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.primary,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    color: Colors.textTertiary,
+    marginBottom: 4,
+    marginTop: 8,
+  },
+  input: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    color: Colors.text,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  editActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  saveBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: Colors.primary,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  saveBtnText: {
+    color: Colors.white,
+    fontSize: 15,
+    fontWeight: '700' as const,
+  },
+  cancelBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  cancelBtnText: {
+    fontSize: 15,
+    fontWeight: '600' as const,
+    color: Colors.textSecondary,
   },
 });

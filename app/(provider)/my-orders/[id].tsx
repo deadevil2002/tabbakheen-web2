@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor } from '@/utils/helpers';
+import { sendLocalNotification } from '@/services/notifications';
 
 export default function ProviderOrderDetailScreen() {
   const router = useRouter();
@@ -71,7 +72,17 @@ export default function ProviderOrderDetailScreen() {
     if (!order) return;
     Alert.alert(t('markReady'), locale === 'ar' ? 'هل الطلب جاهز للاستلام؟' : 'Is the order ready for pickup?', [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('confirm'), onPress: async () => { await updateOrderStatus(order.id, 'ready_for_pickup'); Alert.alert(t('success'), locale === 'ar' ? 'الطلب جاهز للاستلام' : 'Order ready for pickup'); } },
+      {
+        text: t('confirm'),
+        onPress: async () => {
+          await updateOrderStatus(order.id, 'ready_for_pickup');
+          sendLocalNotification(
+            t('orderReadyForDelivery'),
+            t('orderReadyForDeliveryBody'),
+          );
+          Alert.alert(t('success'), locale === 'ar' ? 'الطلب جاهز للاستلام' : 'Order ready for pickup');
+        },
+      },
     ]);
   }, [order, updateOrderStatus, t, locale]);
 

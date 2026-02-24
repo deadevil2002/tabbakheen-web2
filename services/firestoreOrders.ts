@@ -176,16 +176,15 @@ export function fsSubscribeAvailableDeliveries(
   const db = getFirebaseFirestore();
   const q = query(
     collection(db, COLLECTION),
-    where('status', '==', 'ready_for_pickup'),
-    where('deliveryMethod', '==', 'driver_delivery'),
+    where('deliveryStatus', '==', 'ready_for_driver'),
+    where('driverUid', '==', null),
   );
+  console.log('[fsOrders] subscribing to available deliveries: deliveryStatus==ready_for_driver, driverUid==null');
   return onSnapshot(
     q,
     (snap) => {
-      const orders = snap.docs
-        .map((d) => toOrder(d.id, d.data()))
-        .filter((o) => !o.driverUid);
-      console.log('[fsOrders] available deliveries:', orders.length);
+      const orders = snap.docs.map((d) => toOrder(d.id, d.data()));
+      console.log('[fsOrders] available deliveries snapshot:', orders.length, 'orders');
       cb(orders);
     },
     (err) => {
@@ -203,6 +202,19 @@ export async function fsUpdateDeliveryStatus(
   console.log('[fsOrders] updating delivery status', orderId, '->', deliveryStatus);
   await updateDoc(doc(db, COLLECTION, orderId), { deliveryStatus });
   console.log('[fsOrders] delivery status updated:', orderId);
+}
+
+export async function fsDriverAcceptOrder(
+  orderId: string,
+  driverUid: string,
+): Promise<void> {
+  const db = getFirebaseFirestore();
+  console.log('[fsOrders] driver accepting order', orderId, 'driverUid:', driverUid);
+  await updateDoc(doc(db, COLLECTION, orderId), {
+    driverUid,
+    deliveryStatus: 'driver_assigned',
+  });
+  console.log('[fsOrders] driver accepted order:', orderId);
 }
 
 export async function fsSubmitProviderRating(

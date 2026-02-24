@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { RatingStars } from '@/components/RatingStars';
-import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor, calculateDistance, formatDistance } from '@/utils/helpers';
+import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor, calculateDistance, formatDistance, formatSaudiPhoneForWhatsApp } from '@/utils/helpers';
 import { User } from '@/types';
 import MapLocationPicker from '@/components/MapLocationPicker';
 import { pickImageFreeAspect } from '@/utils/imagePicker';
@@ -124,17 +124,21 @@ export default function CustomerOrderDetailScreen() {
 
   const handleWhatsAppProof = useCallback(() => {
     if (!order || !provider) return;
-    const whatsappPhone = provider.paymentMethods?.stcPay?.phone || provider.phone;
-    const cleanPhone = whatsappPhone.replace(/[^0-9]/g, '');
+    const rawPhone = provider.paymentMethods?.stcPay?.phone || provider.phone;
+    const phone = formatSaudiPhoneForWhatsApp(rawPhone);
+    console.log('[OrderDetail] WhatsApp proof - raw:', rawPhone, 'formatted:', phone);
     const message = locale === 'ar'
       ? `إثبات دفع - طلب رقم: ${order.orderNumber}\nالمبلغ: ${order.priceSnapshot} ر.س\nطريقة الدفع: ${order.paymentMethod === 'stc_pay' ? 'STC Pay' : 'تحويل بنكي'}`
       : `Payment Proof - Order: ${order.orderNumber}\nAmount: ${order.priceSnapshot} SAR\nPayment: ${order.paymentMethod === 'stc_pay' ? 'STC Pay' : 'Bank Transfer'}`;
-    Linking.openURL(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`).catch(() => console.log('Cannot open WhatsApp'));
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    console.log('[OrderDetail] Opening WhatsApp URL:', url);
+    Linking.openURL(url).catch((err) => console.log('[OrderDetail] Cannot open WhatsApp:', err));
   }, [order, provider, locale]);
 
   const handleContactDriverWhatsApp = useCallback(async (coords?: { lat: number; lng: number }) => {
     if (!order || !driver) return;
-    const driverPhone = driver.phone?.replace(/[^0-9]/g, '') || '';
+    const driverPhone = formatSaudiPhoneForWhatsApp(driver.phone || '');
+    console.log('[OrderDetail] Contact driver WhatsApp - raw:', driver.phone, 'formatted:', driverPhone);
     if (!driverPhone) {
       Alert.alert(t('error'), t('whatsappNotAvailable'));
       return;

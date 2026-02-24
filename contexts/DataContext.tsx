@@ -38,6 +38,7 @@ import {
   fsUpdateOrder,
   fsUpdateDeliveryStatus,
   fsSubscribeAvailableDeliveries,
+  fsDriverAcceptOrder,
   fsSubmitProviderRating,
   fsSubmitDriverRating,
   fsSubscribeAppSettings,
@@ -417,8 +418,11 @@ export const [DataProvider, useData] = createContextHook(() => {
         if (status === 'cancelled' && order?.paymentStatus === 'paid') {
           changes.paymentStatus = 'payment_rejected';
         }
+        if (status === 'ready_for_pickup') {
+          changes.deliveryStatus = 'ready_for_driver';
+        }
         await fsUpdateOrder(orderId, changes);
-        console.log('[DataContext] Order status updated via Firestore:', orderId, '->', status);
+        console.log('[DataContext] Order status updated via Firestore:', orderId, '->', status, 'changes:', JSON.stringify(changes));
         return;
       }
 
@@ -435,6 +439,9 @@ export const [DataProvider, useData] = createContextHook(() => {
           if (o.paymentStatus === 'paid') {
             updates.paymentStatus = 'refunded';
           }
+        }
+        if (status === 'ready_for_pickup') {
+          updates.deliveryStatus = 'ready_for_driver';
         }
         return { ...o, ...updates };
       });
@@ -601,6 +608,30 @@ export const [DataProvider, useData] = createContextHook(() => {
       });
       await saveOrders(updated);
       console.log('[DataContext] Driver assigned:', driverUid, 'to order:', orderId, 'fee:', deliveryFee);
+    },
+    [orders, fb],
+  );
+
+  const driverAcceptDelivery = useCallback(
+    async (orderId: string, driverUid: string) => {
+      if (fb) {
+        await fsDriverAcceptOrder(orderId, driverUid);
+        console.log('[DataContext] Driver self-accepted delivery via Firestore:', driverUid, 'order:', orderId);
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const updated = orders.map((o) => {
+        if (o.id !== orderId) return o;
+        return {
+          ...o,
+          driverUid,
+          deliveryStatus: 'driver_assigned' as DeliveryStatus,
+          updatedAt: now,
+        };
+      });
+      await saveOrders(updated);
+      console.log('[DataContext] Driver self-accepted delivery:', driverUid, 'order:', orderId);
     },
     [orders, fb],
   );
@@ -900,7 +931,7 @@ export const [DataProvider, useData] = createContextHook(() => {
   const getAvailableDeliveries = useCallback((): Order[] => {
     return orders.filter(
       (o) =>
-        o.status === 'ready_for_pickup' && o.deliveryMethod === 'driver_delivery' && !o.driverUid,
+        o.deliveryStatus === 'ready_for_driver' && !o.driverUid,
     );
   }, [orders]);
 
@@ -1033,6 +1064,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     updateProviderPaymentMethods,
     updateDriverAvailability,
     updateDeliveryStatusAsDriver,
+    driverAcceptDelivery,
     computeDeliveryFee,
   };
 });
