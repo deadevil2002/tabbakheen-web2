@@ -13,6 +13,8 @@ export type DeliveryStatus =
   | 'driver_assigned'
   | 'driver_rejected'
   | 'in_transit'
+  | 'picked_up'
+  | 'arrived'
   | 'delivered'
   | 'cancelled';
 

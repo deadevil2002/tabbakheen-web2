@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Linking } from 'react-native';
-import { ArrowLeft, ArrowRight, CreditCard, Banknote, Building2, Truck, Phone, Copy, PackageCheck, Star, MessageCircle, Upload, FileCheck, CheckCircle2, XCircle, ImageIcon, MapPin, Navigation } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight, CreditCard, Banknote, Building2, Truck, Phone, Copy, PackageCheck, Star, MessageCircle, Upload, FileCheck, CheckCircle2, XCircle, ImageIcon } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -176,7 +176,7 @@ export default function CustomerOrderDetailScreen() {
               if (Platform.OS === 'web') {
                 navigator.geolocation.getCurrentPosition(
                   (position) => {
-                    handleContactDriverWhatsApp({
+                    void handleContactDriverWhatsApp({
                       lat: position.coords.latitude,
                       lng: position.coords.longitude,
                     });
@@ -190,7 +190,7 @@ export default function CustomerOrderDetailScreen() {
               let ExpoLocation: any = null;
               try { ExpoLocation = require('expo-location'); } catch {}
               if (!ExpoLocation) {
-                handleContactDriverWhatsApp();
+                void handleContactDriverWhatsApp();
                 return;
               }
               const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
@@ -199,7 +199,7 @@ export default function CustomerOrderDetailScreen() {
                 return;
               }
               const loc = await ExpoLocation.getCurrentPositionAsync({ accuracy: ExpoLocation.Accuracy.Balanced });
-              handleContactDriverWhatsApp({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+              void handleContactDriverWhatsApp({ lat: loc.coords.latitude, lng: loc.coords.longitude });
             } catch (e) {
               console.log('[OrderDetail] GPS error:', e);
               Alert.alert(t('error'), t('locationError'));
@@ -216,7 +216,7 @@ export default function CustomerOrderDetailScreen() {
   }, [driver, t, handleContactDriverWhatsApp]);
 
   const handleLocationPickerSave = useCallback(async (coords: { lat: number; lng: number }) => {
-    handleContactDriverWhatsApp(coords);
+    void handleContactDriverWhatsApp(coords);
   }, [handleContactDriverWhatsApp]);
 
   const handleSelfPickupDelivered = useCallback(async () => {
@@ -429,9 +429,27 @@ export default function CustomerOrderDetailScreen() {
 
         {order.deliveryStatus && (
           <View style={cs.sectionCard}>
-            <View style={[cs.cardRow, r && cs.rowRTL]}>
-              <Text style={[cs.label, r && cs.rtlText]}>{t('deliveryStatusLabel')}</Text>
-              <Text style={s.deliveryStatusText}>{t(order.deliveryStatus as any)}</Text>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('deliveryStatusLabel')}</Text>
+            <View style={s.trackingSteps}>
+              {(['driver_assigned', 'picked_up', 'arrived', 'delivered'] as const).map((step, idx) => {
+                const stepLabels: Record<string, string> = {
+                  driver_assigned: t('driver_assigned'),
+                  picked_up: t('picked_up'),
+                  arrived: t('arrived'),
+                  delivered: t('delivered'),
+                };
+                const stepOrder = ['driver_assigned', 'picked_up', 'arrived', 'delivered'];
+                const currentIdx = stepOrder.indexOf(order.deliveryStatus ?? '');
+                const isCompleted = idx <= currentIdx;
+                const isCurrent = idx === currentIdx;
+                return (
+                  <View key={step} style={s.trackingStep}>
+                    <View style={[s.trackingDot, isCompleted && s.trackingDotActive, isCurrent && s.trackingDotCurrent]} />
+                    {idx < 3 && <View style={[s.trackingLine, isCompleted && idx < currentIdx && s.trackingLineActive]} />}
+                    <Text style={[s.trackingLabel, isCompleted && s.trackingLabelActive, isCurrent && s.trackingLabelCurrent]}>{stepLabels[step]}</Text>
+                  </View>
+                );
+              })}
             </View>
           </View>
         )}
@@ -534,4 +552,14 @@ const s = StyleSheet.create({
   ratingTitle: { fontSize: 18, fontWeight: '700' as const, color: Colors.text, marginBottom: 16 },
   starsRow: { alignItems: 'center', marginBottom: 16 },
   ratingInput: { backgroundColor: Colors.background, borderRadius: 14, padding: 16, fontSize: 14, color: Colors.text, minHeight: 80, marginBottom: 16, borderWidth: 1, borderColor: Colors.borderLight },
+  trackingSteps: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: 4 },
+  trackingStep: { alignItems: 'center', flex: 1, position: 'relative' as const },
+  trackingDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: Colors.border, marginBottom: 6 },
+  trackingDotActive: { backgroundColor: Colors.success },
+  trackingDotCurrent: { backgroundColor: Colors.primary, borderWidth: 3, borderColor: Colors.primaryFaded, width: 18, height: 18, borderRadius: 9 },
+  trackingLine: { position: 'absolute' as const, top: 7, left: '57%' as any, right: '-43%' as any, height: 2, backgroundColor: Colors.border },
+  trackingLineActive: { backgroundColor: Colors.success },
+  trackingLabel: { fontSize: 10, color: Colors.textTertiary, textAlign: 'center' as const, maxWidth: 70 },
+  trackingLabelActive: { color: Colors.success, fontWeight: '600' as const },
+  trackingLabelCurrent: { color: Colors.primary, fontWeight: '700' as const },
 });

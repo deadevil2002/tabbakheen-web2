@@ -8,26 +8,27 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { ClipboardList, Truck, CheckCircle, Package, XCircle, Play } from 'lucide-react-native';
+import { Truck, CheckCircle, Package, XCircle, MapPin, Navigation2 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { EmptyState } from '@/components/EmptyState';
-import { Order, OrderStatus, DeliveryStatus } from '@/types';
+import DeliveryRouteMap from '@/components/DeliveryRouteMap';
+import { Order } from '@/types';
 import { formatPrice, formatDate } from '@/utils/helpers';
+import { sendLocalNotification } from '@/services/notifications';
 
 type DriverFilter = 'all' | 'active' | 'delivered';
 
 export default function MyDeliveriesScreen() {
-  const router = useRouter();
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { getOrdersByDriver, updateDriverStatus, updateDeliveryStatusAsDriver } = useData();
+  const { getOrdersByDriver, updateDeliveryStatusAsDriver, getProviderById } = useData();
 
   const [filter, setFilter] = useState<DriverFilter>('all');
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   const allDeliveries = useMemo(
     () => (user ? getOrdersByDriver(user.uid) : []),
@@ -38,10 +39,10 @@ export default function MyDeliveriesScreen() {
     if (filter === 'all') return allDeliveries;
     if (filter === 'active') {
       return allDeliveries.filter(
-        (o) => o.status === 'assigned_to_driver' || o.status === 'picked_up',
+        (o) => o.deliveryStatus === 'driver_assigned' || o.deliveryStatus === 'picked_up' || o.deliveryStatus === 'arrived' || o.deliveryStatus === 'in_transit',
       );
     }
-    return allDeliveries.filter((o) => o.status === 'delivered');
+    return allDeliveries.filter((o) => o.deliveryStatus === 'delivered');
   }, [allDeliveries, filter]);
 
   const getFilterLabel = (f: DriverFilter): string => {
@@ -52,61 +53,26 @@ export default function MyDeliveriesScreen() {
     }
   };
 
-  const handlePickup = useCallback(
+  const handlePickedUp = useCallback(
     async (order: Order) => {
       Alert.alert(
-        t('pickupOrder'),
-        locale === 'ar' ? 'هل تم استلام الطلب من الطباخ؟' : 'Have you picked up the order?',
-        [
-          { text: t('cancel'), style: 'cancel' },
-          {
-            text: t('confirm'),
-            onPress: async () => {
-              await updateDriverStatus(order.id, 'picked_up', 'picked_up');
-              Alert.alert(t('success'), locale === 'ar' ? 'تم تأكيد الاستلام' : 'Pickup confirmed');
-            },
-          },
-        ],
-      );
-    },
-    [updateDriverStatus, t, locale],
-  );
-
-  const handleDeliver = useCallback(
-    async (order: Order) => {
-      Alert.alert(
-        t('markDelivered'),
-        locale === 'ar' ? 'هل تم توصيل الطلب للعميل؟' : 'Has the order been delivered?',
-        [
-          { text: t('cancel'), style: 'cancel' },
-          {
-            text: t('confirm'),
-            onPress: async () => {
-              await updateDriverStatus(order.id, 'delivered', 'delivered');
-              Alert.alert(t('success'), locale === 'ar' ? 'تم تأكيد التوصيل' : 'Delivery confirmed');
-            },
-          },
-        ],
-      );
-    },
-    [updateDriverStatus, t, locale],
-  );
-
-  const handleStartDelivery = useCallback(
-    async (order: Order) => {
-      Alert.alert(
-        t('startDeliveryAction'),
-        t('confirmStartDelivery'),
+        t('pickedUpBtn'),
+        locale === 'ar' ? 'هل تم استلام الطلب من الطباخ؟' : 'Have you picked up the order from the provider?',
         [
           { text: t('cancel'), style: 'cancel' },
           {
             text: t('confirm'),
             onPress: async () => {
               try {
-                await updateDeliveryStatusAsDriver(order.id, 'in_transit');
-                Alert.alert(t('success'), t('deliveryStarted'));
-              } catch (e) {
-                console.log('[MyDeliveries] start delivery error:', e);
+                await updateDeliveryStatusAsDriver(order.id, 'picked_up');
+                void sendLocalNotification(
+                  t('pickedUpFromProvider'),
+                  t('pickedUpFromProviderBody'),
+                );
+                console.log('[MyDeliveries] Order picked up:', order.id);
+                Alert.alert(t('success'), locale === 'ar' ? 'تم تأكيد الاستلام' : 'Pickup confirmed');
+              } catch (e: any) {
+                console.log('[MyDeliveries] pickup error:', e?.message || e);
                 Alert.alert(t('error'), t('orderUpdateError'));
               }
             },
@@ -114,14 +80,44 @@ export default function MyDeliveriesScreen() {
         ],
       );
     },
-    [updateDeliveryStatusAsDriver, t],
+    [updateDeliveryStatusAsDriver, t, locale],
   );
 
-  const handleDeliverViaStatus = useCallback(
+  const handleArrived = useCallback(
     async (order: Order) => {
       Alert.alert(
-        t('markDelivered'),
-        locale === 'ar' ? 'هل تم توصيل الطلب للعميل؟' : 'Has the order been delivered?',
+        t('arrivedBtn'),
+        locale === 'ar' ? 'هل وصلت لموقع العميل؟' : 'Have you arrived at the customer location?',
+        [
+          { text: t('cancel'), style: 'cancel' },
+          {
+            text: t('confirm'),
+            onPress: async () => {
+              try {
+                await updateDeliveryStatusAsDriver(order.id, 'arrived');
+                void sendLocalNotification(
+                  t('driverArrived'),
+                  t('driverArrivedBody'),
+                );
+                console.log('[MyDeliveries] Driver arrived:', order.id);
+                Alert.alert(t('success'), locale === 'ar' ? 'تم تأكيد الوصول' : 'Arrival confirmed');
+              } catch (e: any) {
+                console.log('[MyDeliveries] arrived error:', e?.message || e);
+                Alert.alert(t('error'), t('orderUpdateError'));
+              }
+            },
+          },
+        ],
+      );
+    },
+    [updateDeliveryStatusAsDriver, t, locale],
+  );
+
+  const handleDelivered = useCallback(
+    async (order: Order) => {
+      Alert.alert(
+        t('deliveredBtn'),
+        locale === 'ar' ? 'هل تم توصيل الطلب للعميل؟' : 'Has the order been delivered to the customer?',
         [
           { text: t('cancel'), style: 'cancel' },
           {
@@ -129,9 +125,14 @@ export default function MyDeliveriesScreen() {
             onPress: async () => {
               try {
                 await updateDeliveryStatusAsDriver(order.id, 'delivered');
+                void sendLocalNotification(
+                  t('orderDeliveredTitle'),
+                  t('orderDeliveredBody'),
+                );
+                console.log('[MyDeliveries] Order delivered:', order.id);
                 Alert.alert(t('success'), locale === 'ar' ? 'تم تأكيد التوصيل' : 'Delivery confirmed');
-              } catch (e) {
-                console.log('[MyDeliveries] deliver error:', e);
+              } catch (e: any) {
+                console.log('[MyDeliveries] deliver error:', e?.message || e);
                 Alert.alert(t('error'), t('orderUpdateError'));
               }
             },
@@ -156,8 +157,8 @@ export default function MyDeliveriesScreen() {
               try {
                 await updateDeliveryStatusAsDriver(order.id, 'driver_rejected');
                 Alert.alert(t('success'), t('deliveryRejectedMsg'));
-              } catch (e) {
-                console.log('[MyDeliveries] reject delivery error:', e);
+              } catch (e: any) {
+                console.log('[MyDeliveries] reject delivery error:', e?.message || e);
                 Alert.alert(t('error'), t('orderUpdateError'));
               }
             },
@@ -175,21 +176,41 @@ export default function MyDeliveriesScreen() {
 
   const renderDelivery = useCallback(
     ({ item }: { item: Order }) => {
-      const hasDeliveryStatus = !!item.deliveryStatus;
       const ds = item.deliveryStatus;
-      const canStart = hasDeliveryStatus && (ds === 'pending_driver' || ds === 'driver_assigned');
-      const canDeliver = hasDeliveryStatus && ds === 'in_transit';
-      const canReject = hasDeliveryStatus && (ds === 'pending_driver' || ds === 'driver_assigned');
-      const showOldActions = !hasDeliveryStatus;
+      const provider = getProviderById(item.providerUid);
+      const isExpanded = expandedOrderId === item.id;
+
+      const canPickup = ds === 'driver_assigned';
+      const canArrived = ds === 'picked_up';
+      const canDeliver = ds === 'arrived';
+      const canReject = ds === 'driver_assigned';
+      const isActive = ds === 'driver_assigned' || ds === 'picked_up' || ds === 'arrived' || ds === 'in_transit';
+
+      const showMapPhase: 'to_provider' | 'to_customer' =
+        ds === 'driver_assigned' ? 'to_provider' : 'to_customer';
+
+      const mapOriginLat = showMapPhase === 'to_provider' ? (user?.location?.lat ?? null) : (item.providerLat ?? null);
+      const mapOriginLng = showMapPhase === 'to_provider' ? (user?.location?.lng ?? null) : (item.providerLng ?? null);
+      const mapDestLat = showMapPhase === 'to_provider' ? (item.providerLat ?? null) : (item.customerLat ?? null);
+      const mapDestLng = showMapPhase === 'to_provider' ? (item.providerLng ?? null) : (item.customerLng ?? null);
+      const mapOriginLabel = showMapPhase === 'to_provider'
+        ? (locale === 'ar' ? 'موقعك' : 'Your location')
+        : t('providerLocation');
+      const mapDestLabel = showMapPhase === 'to_provider'
+        ? t('providerLocation')
+        : t('customerLocation');
 
       return (
         <View style={styles.deliveryCard}>
-          <View style={[styles.cardHeader, isRTL && styles.rowRTL]}>
+          <Pressable
+            onPress={() => setExpandedOrderId(isExpanded ? null : item.id)}
+            style={[styles.cardHeader, isRTL && styles.rowRTL]}
+          >
             <Text style={[styles.cardTitle, isRTL && styles.rtlText]} numberOfLines={1}>
               {item.offerTitleSnapshot}
             </Text>
             <OrderStatusBadge status={item.status} size="small" />
-          </View>
+          </Pressable>
 
           {item.orderRef ? (
             <Text style={[styles.cardRef, isRTL && styles.rtlText]}>{item.orderRef}</Text>
@@ -200,66 +221,95 @@ export default function MyDeliveriesScreen() {
             <Text style={styles.cardFee}>{formatPrice(item.deliveryFee, locale)}</Text>
           </View>
 
-          {hasDeliveryStatus && (
+          {ds && (
             <View style={styles.deliveryStatusRow}>
               <Text style={styles.deliveryStatusLabel}>{t('deliveryStatusLabel')}:</Text>
               <Text style={styles.deliveryStatusValue}>{getDeliveryStatusLabel(ds)}</Text>
             </View>
           )}
 
-          {canStart && (
+          {provider && (
+            <View style={[styles.locationRow, isRTL && styles.rowRTL]}>
+              <MapPin size={14} color={Colors.textTertiary} />
+              <Text style={[styles.locationText, isRTL && styles.rtlText]}>
+                {t('pickupFrom')}: {provider.displayName} - {provider.address || ''}
+              </Text>
+            </View>
+          )}
+
+          {item.dropoffAddress ? (
+            <View style={[styles.locationRow, isRTL && styles.rowRTL]}>
+              <Navigation2 size={14} color={Colors.textTertiary} />
+              <Text style={[styles.locationText, isRTL && styles.rtlText]}>
+                {t('deliverTo')}: {item.dropoffAddress}
+              </Text>
+            </View>
+          ) : null}
+
+          {isActive && isExpanded && (
+            <View style={{ marginHorizontal: -18, marginTop: 12 }}>
+              <DeliveryRouteMap
+                originLat={mapOriginLat}
+                originLng={mapOriginLng}
+                originLabel={mapOriginLabel}
+                destLat={mapDestLat}
+                destLng={mapDestLng}
+                destLabel={mapDestLabel}
+                phase={showMapPhase}
+              />
+            </View>
+          )}
+
+          {isActive && !isExpanded && (
+            <Pressable style={styles.showMapBtn} onPress={() => setExpandedOrderId(item.id)}>
+              <MapPin size={16} color={Colors.primary} />
+              <Text style={styles.showMapText}>{t('deliveryRoute')}</Text>
+            </Pressable>
+          )}
+
+          {canPickup && (
             <Pressable
-              style={({ pressed }) => [styles.actionBtn, styles.pickupBtn, pressed && styles.btnPressed]}
-              onPress={() => handleStartDelivery(item)}
+              style={({ pressed }) => [styles.actionBtn, styles.pickupBtnStyle, pressed && styles.btnPressed]}
+              onPress={() => handlePickedUp(item)}
             >
-              <Play size={18} color={Colors.white} />
-              <Text style={styles.actionBtnText}>{t('startDeliveryAction')}</Text>
+              <Package size={18} color={Colors.white} />
+              <Text style={styles.actionBtnText}>{t('pickedUpBtn')}</Text>
+            </Pressable>
+          )}
+
+          {canArrived && (
+            <Pressable
+              style={({ pressed }) => [styles.actionBtn, styles.arrivedBtnStyle, pressed && styles.btnPressed]}
+              onPress={() => handleArrived(item)}
+            >
+              <Navigation2 size={18} color={Colors.white} />
+              <Text style={styles.actionBtnText}>{t('arrivedBtn')}</Text>
             </Pressable>
           )}
 
           {canDeliver && (
             <Pressable
-              style={({ pressed }) => [styles.actionBtn, styles.deliverBtn, pressed && styles.btnPressed]}
-              onPress={() => handleDeliverViaStatus(item)}
+              style={({ pressed }) => [styles.actionBtn, styles.deliverBtnStyle, pressed && styles.btnPressed]}
+              onPress={() => handleDelivered(item)}
             >
               <CheckCircle size={18} color={Colors.white} />
-              <Text style={styles.actionBtnText}>{t('markDelivered')}</Text>
+              <Text style={styles.actionBtnText}>{t('deliveredBtn')}</Text>
             </Pressable>
           )}
 
           {canReject && (
             <Pressable
-              style={({ pressed }) => [styles.actionBtn, styles.rejectBtn, pressed && styles.btnPressed]}
+              style={({ pressed }) => [styles.actionBtn, styles.rejectBtnStyle, pressed && styles.btnPressed]}
               onPress={() => handleRejectDelivery(item)}
             >
               <XCircle size={18} color={Colors.white} />
               <Text style={styles.actionBtnText}>{t('rejectDeliveryAction')}</Text>
             </Pressable>
           )}
-
-          {showOldActions && item.status === 'assigned_to_driver' && (
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, styles.pickupBtn, pressed && styles.btnPressed]}
-              onPress={() => handlePickup(item)}
-            >
-              <Package size={18} color={Colors.white} />
-              <Text style={styles.actionBtnText}>{t('pickupOrder')}</Text>
-            </Pressable>
-          )}
-
-          {showOldActions && item.status === 'picked_up' && (
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, styles.deliverBtn, pressed && styles.btnPressed]}
-              onPress={() => handleDeliver(item)}
-            >
-              <CheckCircle size={18} color={Colors.white} />
-              <Text style={styles.actionBtnText}>{t('markDelivered')}</Text>
-            </Pressable>
-          )}
         </View>
       );
     },
-    [isRTL, locale, t, handlePickup, handleDeliver, handleStartDelivery, handleDeliverViaStatus, handleRejectDelivery, getDeliveryStatusLabel],
+    [isRTL, locale, t, user, expandedOrderId, getProviderById, handlePickedUp, handleArrived, handleDelivered, handleRejectDelivery, getDeliveryStatusLabel],
   );
 
   const filters: DriverFilter[] = ['all', 'active', 'delivered'];
@@ -393,24 +443,6 @@ const styles = StyleSheet.create({
     fontWeight: '700' as const,
     color: Colors.primary,
   },
-  actionBtn: {
-    flexDirection: 'row',
-    height: 46,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-  },
-  pickupBtn: {
-    backgroundColor: Colors.info,
-  },
-  deliverBtn: {
-    backgroundColor: Colors.success,
-  },
-  rejectBtn: {
-    backgroundColor: Colors.error,
-    marginTop: 6,
-  },
   cardRef: {
     fontSize: 12,
     color: Colors.textTertiary,
@@ -433,6 +465,55 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.primary,
     fontWeight: '700' as const,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+    paddingHorizontal: 2,
+  },
+  locationText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    flex: 1,
+  },
+  showMapBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    marginTop: 4,
+    marginBottom: 4,
+    borderRadius: 10,
+    backgroundColor: Colors.primaryFaded,
+  },
+  showMapText: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.primary,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    height: 46,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  pickupBtnStyle: {
+    backgroundColor: Colors.info,
+  },
+  arrivedBtnStyle: {
+    backgroundColor: Colors.assignedToDriver,
+  },
+  deliverBtnStyle: {
+    backgroundColor: Colors.success,
+  },
+  rejectBtnStyle: {
+    backgroundColor: Colors.error,
   },
   btnPressed: {
     opacity: 0.9,

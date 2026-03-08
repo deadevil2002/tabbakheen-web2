@@ -163,7 +163,7 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   useEffect(() => {
     if (!fb) {
-      loadMockData();
+      void loadMockData();
       return;
     }
 
@@ -418,9 +418,6 @@ export const [DataProvider, useData] = createContextHook(() => {
         if (status === 'cancelled' && order?.paymentStatus === 'paid') {
           changes.paymentStatus = 'payment_rejected';
         }
-        if (status === 'ready_for_pickup') {
-          changes.deliveryStatus = 'ready_for_driver';
-        }
         await fsUpdateOrder(orderId, changes);
         console.log('[DataContext] Order status updated via Firestore:', orderId, '->', status, 'changes:', JSON.stringify(changes));
         return;
@@ -439,9 +436,6 @@ export const [DataProvider, useData] = createContextHook(() => {
           if (o.paymentStatus === 'paid') {
             updates.paymentStatus = 'refunded';
           }
-        }
-        if (status === 'ready_for_pickup') {
-          updates.deliveryStatus = 'ready_for_driver';
         }
         return { ...o, ...updates };
       });
@@ -994,6 +988,48 @@ export const [DataProvider, useData] = createContextHook(() => {
     [subscriptions, fb, providers],
   );
 
+  const markReadyForDriverDelivery = useCallback(
+    async (orderId: string) => {
+      if (fb) {
+        await fsUpdateOrder(orderId, {
+          status: 'ready_for_pickup',
+          deliveryStatus: 'ready_for_driver',
+        });
+        console.log('[DataContext] Order marked ready for driver delivery via Firestore:', orderId);
+        return;
+      }
+      const now = new Date().toISOString();
+      const updated = orders.map((o) => {
+        if (o.id !== orderId) return o;
+        return { ...o, status: 'ready_for_pickup' as OrderStatus, deliveryStatus: 'ready_for_driver' as DeliveryStatus, updatedAt: now };
+      });
+      await saveOrders(updated);
+      console.log('[DataContext] Order marked ready for driver delivery:', orderId);
+    },
+    [orders, fb],
+  );
+
+  const markReadyForSelfPickup = useCallback(
+    async (orderId: string) => {
+      if (fb) {
+        await fsUpdateOrder(orderId, {
+          status: 'ready_for_pickup',
+          deliveryStatus: null,
+        });
+        console.log('[DataContext] Order marked ready for self pickup via Firestore:', orderId);
+        return;
+      }
+      const now = new Date().toISOString();
+      const updated = orders.map((o) => {
+        if (o.id !== orderId) return o;
+        return { ...o, status: 'ready_for_pickup' as OrderStatus, deliveryStatus: null, deliveryMethod: 'self_pickup' as DeliveryMethod, updatedAt: now };
+      });
+      await saveOrders(updated);
+      console.log('[DataContext] Order marked ready for self pickup:', orderId);
+    },
+    [orders, fb],
+  );
+
   const computeDeliveryFee = useCallback(
     (providerUid: string, customerLat?: number, customerLng?: number): number => {
       const provider = providers.find((p) => p.uid === providerUid);
@@ -1066,5 +1102,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     updateDeliveryStatusAsDriver,
     driverAcceptDelivery,
     computeDeliveryFee,
+    markReadyForDriverDelivery,
+    markReadyForSelfPickup,
   };
 });

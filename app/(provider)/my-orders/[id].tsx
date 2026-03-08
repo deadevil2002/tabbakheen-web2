@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, ArrowRight, Check, X, ChefHat, Package, CreditCard, Banknote, Building2, Truck, FileCheck, CheckCircle2, XCircle } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight, Check, X, ChefHat, PackageCheck, CreditCard, Banknote, Building2, Truck, FileCheck, CheckCircle2, XCircle } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -17,7 +17,7 @@ export default function ProviderOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { orders, updateOrderStatus, confirmPayment, rejectPayment, isProviderSubscriptionValid, getDriverById } = useData();
+  const { orders, updateOrderStatus, confirmPayment, rejectPayment, isProviderSubscriptionValid, getDriverById, markReadyForDriverDelivery, markReadyForSelfPickup } = useData();
 
   const order = useMemo(() => orders.find((o) => o.id === id), [orders, id]);
   const driver = useMemo(() => (order?.driverUid ? getDriverById(order.driverUid) : undefined), [order, getDriverById]);
@@ -68,23 +68,51 @@ export default function ProviderOrderDetailScreen() {
     Alert.alert(t('success'), locale === 'ar' ? 'تم بدء التحضير' : 'Preparation started');
   }, [order, updateOrderStatus, t, locale]);
 
-  const handleMarkReady = useCallback(async () => {
+  const handleMarkReadySelfPickup = useCallback(async () => {
     if (!order) return;
-    Alert.alert(t('markReady'), locale === 'ar' ? 'هل الطلب جاهز للاستلام؟' : 'Is the order ready for pickup?', [
+    Alert.alert(t('readyForSelfPickup'), t('readyForSelfPickupConfirm'), [
       { text: t('cancel'), style: 'cancel' },
       {
         text: t('confirm'),
         onPress: async () => {
-          await updateOrderStatus(order.id, 'ready_for_pickup');
-          sendLocalNotification(
-            t('orderReadyForDelivery'),
-            t('orderReadyForDeliveryBody'),
-          );
-          Alert.alert(t('success'), locale === 'ar' ? 'الطلب جاهز للاستلام' : 'Order ready for pickup');
+          try {
+            await markReadyForSelfPickup(order.id);
+            void sendLocalNotification(
+              t('markReady'),
+              locale === 'ar' ? 'الطلب جاهز للاستلام الذاتي' : 'Order ready for self pickup',
+            );
+            Alert.alert(t('success'), locale === 'ar' ? 'الطلب جاهز للاستلام الذاتي' : 'Order ready for self pickup');
+          } catch (e: any) {
+            console.log('[ProviderOrder] markReadySelfPickup error:', e?.message || e);
+            Alert.alert(t('error'), t('orderUpdateError'));
+          }
         },
       },
     ]);
-  }, [order, updateOrderStatus, t, locale]);
+  }, [order, markReadyForSelfPickup, t, locale]);
+
+  const handleMarkReadyDriverDelivery = useCallback(async () => {
+    if (!order) return;
+    Alert.alert(t('readyForDriverDelivery'), t('readyForDriverDeliveryConfirm'), [
+      { text: t('cancel'), style: 'cancel' },
+      {
+        text: t('confirm'),
+        onPress: async () => {
+          try {
+            await markReadyForDriverDelivery(order.id);
+            void sendLocalNotification(
+              t('orderReadyForDelivery'),
+              t('orderReadyForDeliveryBody'),
+            );
+            Alert.alert(t('success'), locale === 'ar' ? 'الطلب جاهز وبانتظار سائق' : 'Order ready, waiting for driver');
+          } catch (e: any) {
+            console.log('[ProviderOrder] markReadyDriverDelivery error:', e?.message || e);
+            Alert.alert(t('error'), t('orderUpdateError'));
+          }
+        },
+      },
+    ]);
+  }, [order, markReadyForDriverDelivery, t, locale]);
 
   if (!order) return (<SafeAreaView style={cs.centerSafe}><Text>{t('error')}</Text></SafeAreaView>);
 
@@ -201,9 +229,14 @@ export default function ProviderOrderDetailScreen() {
         )}
 
         {order.status === 'preparing' && (
-          <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.readyForPickup }, pressed && cs.btnPressed]} onPress={handleMarkReady}>
-            <Package size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('markReady')}</Text>
-          </Pressable>
+          <View style={{ gap: 10, marginHorizontal: 20, marginBottom: 16 }}>
+            <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.readyForPickup, marginHorizontal: 0, marginBottom: 0 }, pressed && cs.btnPressed]} onPress={handleMarkReadySelfPickup}>
+              <PackageCheck size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('readyForSelfPickup')}</Text>
+            </Pressable>
+            <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.assignedToDriver, marginHorizontal: 0, marginBottom: 0 }, pressed && cs.btnPressed]} onPress={handleMarkReadyDriverDelivery}>
+              <Truck size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('readyForDriverDelivery')}</Text>
+            </Pressable>
+          </View>
         )}
 
         <View style={cs.bottomSpacer} />
