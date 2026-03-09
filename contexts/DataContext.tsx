@@ -528,17 +528,9 @@ export const [DataProvider, useData] = createContextHook(() => {
   const setDeliveryMethod = useCallback(
     async (orderId: string, method: DeliveryMethod, deliveryNotes?: string) => {
       if (fb) {
-        const order = orders.find((o) => o.id === orderId);
-        const changes: Record<string, any> = { deliveryMethod: method };
-        if (deliveryNotes) changes.deliveryNotes = deliveryNotes;
-        if (method === 'self_pickup') {
-          changes.deliveryFee = 0;
-          changes.totalAmount = order?.priceSnapshot ?? 0;
-          changes.deliveryPaymentMethod = null;
-          changes.driverUid = null;
-        }
-        await fsUpdateOrder(orderId, changes);
-        console.log('[DataContext] Delivery method set via Firestore:', orderId, '->', method);
+        console.log('[DataContext] Delivery method choice recorded locally:', orderId, '->', method);
+        console.log('[DataContext] Note: Customer cannot write deliveryMethod to Firestore per security rules.');
+        console.log('[DataContext] Self pickup = customer goes to provider. Driver delivery = order already visible to drivers.');
         return;
       }
 
@@ -660,18 +652,18 @@ export const [DataProvider, useData] = createContextHook(() => {
     [orders, fb],
   );
 
-  const markSelfPickupDelivered = useCallback(
+  const markOrderDelivered = useCallback(
     async (orderId: string) => {
       const now = new Date().toISOString();
 
       if (fb) {
         const order = orders.find((o) => o.id === orderId);
-        const changes: Record<string, any> = { status: 'delivered' };
+        const changes: Record<string, any> = { status: 'delivered', deliveryStatus: 'delivered' };
         if (order?.paymentMethod === 'cod') {
           changes.paymentStatus = 'paid_confirmed';
         }
         await fsUpdateOrder(orderId, changes);
-        console.log('[DataContext] Self pickup delivered via Firestore:', orderId);
+        console.log('[DataContext] Order marked delivered via Firestore (provider action):', orderId);
         return;
       }
 
@@ -679,6 +671,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         if (o.id !== orderId) return o;
         const updates: Partial<Order> = {
           status: 'delivered' as OrderStatus,
+          deliveryStatus: 'delivered' as DeliveryStatus,
           updatedAt: now,
         };
         if (o.paymentMethod === 'cod') {
@@ -688,7 +681,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         return { ...o, ...updates };
       });
       await saveOrders(updated);
-      console.log('[DataContext] Self pickup delivered:', orderId);
+      console.log('[DataContext] Order marked delivered:', orderId);
     },
     [orders, fb],
   );
@@ -988,14 +981,14 @@ export const [DataProvider, useData] = createContextHook(() => {
     [subscriptions, fb, providers],
   );
 
-  const markReadyForDriverDelivery = useCallback(
+  const markOrderReady = useCallback(
     async (orderId: string) => {
       if (fb) {
         await fsUpdateOrder(orderId, {
           status: 'ready_for_pickup',
           deliveryStatus: 'ready_for_driver',
         });
-        console.log('[DataContext] Order marked ready for driver delivery via Firestore:', orderId);
+        console.log('[DataContext] Order marked ready via Firestore:', orderId);
         return;
       }
       const now = new Date().toISOString();
@@ -1004,28 +997,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         return { ...o, status: 'ready_for_pickup' as OrderStatus, deliveryStatus: 'ready_for_driver' as DeliveryStatus, updatedAt: now };
       });
       await saveOrders(updated);
-      console.log('[DataContext] Order marked ready for driver delivery:', orderId);
-    },
-    [orders, fb],
-  );
-
-  const markReadyForSelfPickup = useCallback(
-    async (orderId: string) => {
-      if (fb) {
-        await fsUpdateOrder(orderId, {
-          status: 'ready_for_pickup',
-          deliveryStatus: null,
-        });
-        console.log('[DataContext] Order marked ready for self pickup via Firestore:', orderId);
-        return;
-      }
-      const now = new Date().toISOString();
-      const updated = orders.map((o) => {
-        if (o.id !== orderId) return o;
-        return { ...o, status: 'ready_for_pickup' as OrderStatus, deliveryStatus: null, deliveryMethod: 'self_pickup' as DeliveryMethod, updatedAt: now };
-      });
-      await saveOrders(updated);
-      console.log('[DataContext] Order marked ready for self pickup:', orderId);
+      console.log('[DataContext] Order marked ready:', orderId);
     },
     [orders, fb],
   );
@@ -1081,7 +1053,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     setDeliveryMethod,
     assignDriver,
     updateDriverStatus,
-    markSelfPickupDelivered,
+    markOrderDelivered,
     submitRating,
     submitDriverRating,
     getProviderById,
@@ -1102,7 +1074,6 @@ export const [DataProvider, useData] = createContextHook(() => {
     updateDeliveryStatusAsDriver,
     driverAcceptDelivery,
     computeDeliveryFee,
-    markReadyForDriverDelivery,
-    markReadyForSelfPickup,
+    markOrderReady,
   };
 });

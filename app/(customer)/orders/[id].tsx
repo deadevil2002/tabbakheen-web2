@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Linking } from 'react-native';
-import { ArrowLeft, ArrowRight, CreditCard, Banknote, Building2, Truck, Phone, Copy, PackageCheck, Star, MessageCircle, Upload, FileCheck, CheckCircle2, XCircle, ImageIcon } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight, CreditCard, Banknote, Building2, Truck, Phone, Copy, PackageCheck, MessageCircle, Upload, FileCheck, CheckCircle2, XCircle, ImageIcon } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -12,8 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { RatingStars } from '@/components/RatingStars';
-import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor, calculateDistance, formatDistance, formatSaudiPhoneForWhatsApp } from '@/utils/helpers';
-import { User } from '@/types';
+import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor, formatSaudiPhoneForWhatsApp } from '@/utils/helpers';
 import MapLocationPicker from '@/components/MapLocationPicker';
 import { pickImageFreeAspect } from '@/utils/imagePicker';
 import { uploadPaymentProof } from '@/services/cloudinary';
@@ -24,19 +23,18 @@ export default function CustomerOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { orders, getProviderById, getDriverById, getAvailableDrivers, submitRating, submitDriverRating, submitPaymentProof, setDeliveryMethod, assignDriver, markSelfPickupDelivered, computeDeliveryFee } = useData();
+  const { orders, getProviderById, getDriverById, submitRating, submitDriverRating, submitPaymentProof, setDeliveryMethod, computeDeliveryFee } = useData();
 
   const order = useMemo(() => orders.find((o) => o.id === id), [orders, id]);
   const provider = useMemo(() => (order ? getProviderById(order.providerUid) : undefined), [order, getProviderById]);
   const driver = useMemo(() => (order?.driverUid ? getDriverById(order.driverUid) : undefined), [order, getDriverById]);
-  const availableDrivers = useMemo(() => getAvailableDrivers(), [getAvailableDrivers]);
 
   const [providerStars, setProviderStars] = useState<number>(0);
   const [providerComment, setProviderComment] = useState<string>('');
   const [driverStars, setDriverStars] = useState<number>(0);
   const [driverComment, setDriverComment] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [showDriverSelection, setShowDriverSelection] = useState<boolean>(false);
+  const [deliveryChoice, setDeliveryChoice] = useState<'none' | 'self_pickup' | 'driver'>('none');
   const [showPaymentProof, setShowPaymentProof] = useState<boolean>(false);
   const [proofImageUrl, setProofImageUrl] = useState<string>('');
   const [proofNote, setProofNote] = useState<string>('');
@@ -44,9 +42,11 @@ export default function CustomerOrderDetailScreen() {
   const [isUploadingProof, setIsUploadingProof] = useState<boolean>(false);
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
 
-  const canRateProvider = order?.status === 'delivered' && !order?.ratingSubmitted;
-  const canRateDriver = order?.status === 'delivered' && !order?.driverRatingSubmitted && !!order?.driverUid;
-  const canChooseDelivery = order?.status === 'ready_for_pickup' && !order?.deliveryMethod;
+  const isDelivered = order?.status === 'delivered' || order?.deliveryStatus === 'delivered';
+  const canRateProvider = isDelivered && !order?.ratingSubmitted;
+  const canRateDriver = isDelivered && !order?.driverRatingSubmitted && !!order?.driverUid;
+  const driverAccepted = !!order?.driverUid && order?.deliveryStatus !== 'ready_for_driver';
+  const canChooseDelivery = order?.status === 'ready_for_pickup' && !driverAccepted && deliveryChoice === 'none';
   const canSubmitProof = order && (order.paymentMethod === 'stc_pay' || order.paymentMethod === 'bank_transfer') && order.paymentStatus !== 'paid' && order.paymentStatus !== 'paid_confirmed' && order.paymentStatus !== 'proof_sent' && order.status !== 'rejected' && order.status !== 'cancelled';
   const hasProofSent = order?.paymentStatus === 'proof_sent';
   const isPaymentRejected = order?.paymentStatus === 'payment_rejected';
@@ -67,35 +67,27 @@ export default function CustomerOrderDetailScreen() {
 
   const handleSelfPickup = useCallback(async () => {
     if (!order) return;
+    console.log('[OrderDetail] Customer chose self pickup for order:', order.id);
+    setDeliveryChoice('self_pickup');
     try {
       await setDeliveryMethod(order.id, 'self_pickup');
-      Alert.alert(t('success'), t('selfPickupSelected'));
     } catch (err: any) {
-      console.log('[OrderDetail] Self pickup error:', err?.message || err);
-      Alert.alert(t('error'), t('deliveryMethodUpdateError'));
+      console.log('[OrderDetail] Self pickup local update:', err?.message || err);
     }
+    Alert.alert(t('success'), t('selfPickupInfo'));
   }, [order, setDeliveryMethod, t]);
 
-  const handleSelectDriver = useCallback(async (selectedDriver: User) => {
+  const handleDriverDelivery = useCallback(async () => {
     if (!order) return;
-    const fee = computeDeliveryFee(order.providerUid, user?.location?.lat, user?.location?.lng);
-    Alert.alert(t('chooseDriver'), `${selectedDriver.displayName}\n${t('deliveryFee')}: ${formatPrice(fee, locale)}`, [
-      { text: t('cancel'), style: 'cancel' },
-      {
-        text: t('confirm'),
-        onPress: async () => {
-          try {
-            await assignDriver(order.id, selectedDriver.uid, fee, 'cod');
-            setShowDriverSelection(false);
-            Alert.alert(t('success'), t('driverSelected'));
-          } catch (err: any) {
-            console.log('[OrderDetail] Assign driver error:', err?.message || err);
-            Alert.alert(t('error'), t('driverAssignError'));
-          }
-        },
-      },
-    ]);
-  }, [order, computeDeliveryFee, user, assignDriver, t, locale]);
+    console.log('[OrderDetail] Customer chose driver delivery for order:', order.id);
+    setDeliveryChoice('driver');
+    try {
+      await setDeliveryMethod(order.id, 'driver');
+    } catch (err: any) {
+      console.log('[OrderDetail] Driver delivery local update:', err?.message || err);
+    }
+    Alert.alert(t('success'), t('driverDeliveryRequested'));
+  }, [order, setDeliveryMethod, t]);
 
   const handlePickProofImage = useCallback(async () => {
     const result = await pickImageFreeAspect();
@@ -219,13 +211,7 @@ export default function CustomerOrderDetailScreen() {
     void handleContactDriverWhatsApp(coords);
   }, [handleContactDriverWhatsApp]);
 
-  const handleSelfPickupDelivered = useCallback(async () => {
-    if (!order) return;
-    Alert.alert(t('confirm'), locale === 'ar' ? 'هل استلمت الطلب؟' : 'Have you received the order?', [
-      { text: t('cancel'), style: 'cancel' },
-      { text: t('confirm'), onPress: async () => { await markSelfPickupDelivered(order.id); Alert.alert(t('success'), locale === 'ar' ? 'تم تأكيد الاستلام' : 'Pickup confirmed'); } },
-    ]);
-  }, [order, markSelfPickupDelivered, t, locale]);
+
 
   const handleSubmitProviderRating = useCallback(async () => {
     if (!order || !user || providerStars === 0) { Alert.alert(t('error'), locale === 'ar' ? 'يرجى اختيار عدد النجوم' : 'Please select a rating'); return; }
@@ -387,7 +373,7 @@ export default function CustomerOrderDetailScreen() {
                 <Text style={s.deliveryFee}>{t('free')}</Text>
               </View>
             </Pressable>
-            <Pressable style={({ pressed }) => [s.deliveryOpt, pressed && cs.btnPressed]} onPress={() => order && setShowDriverSelection(true)}>
+            <Pressable style={({ pressed }) => [s.deliveryOpt, pressed && cs.btnPressed]} onPress={handleDriverDelivery}>
               <View style={[s.deliveryContent, r && cs.rowRTL]}>
                 <View style={[s.deliveryIcon, { backgroundColor: Colors.assignedToDriverBg }]}><Truck size={22} color={Colors.assignedToDriver} /></View>
                 <View style={cs.flex1}><Text style={[s.deliveryTitle, r && cs.rtlText]}>{t('driverDelivery')}</Text><Text style={[s.deliveryDesc, r && cs.rtlText]}>{t('driverDeliveryDesc')}</Text></View>
@@ -397,37 +383,34 @@ export default function CustomerOrderDetailScreen() {
           </View>
         )}
 
-        {showDriverSelection && (
+        {deliveryChoice === 'self_pickup' && order.status === 'ready_for_pickup' && !driverAccepted && (
           <View style={cs.sectionCard}>
-            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('availableDrivers')}</Text>
-            {availableDrivers.length === 0 ? <Text style={[s.emptyText, r && cs.rtlText]}>{t('noAvailableDrivers')}</Text> : availableDrivers.map((d) => {
-              const dist = provider?.location && d.location ? calculateDistance(provider.location.lat, provider.location.lng, d.location.lat, d.location.lng) : null;
-              return (
-                <Pressable key={d.uid} style={({ pressed }) => [s.driverCard, pressed && cs.btnPressed]} onPress={() => handleSelectDriver(d)}>
-                  <View style={[cs.driverRow, r && cs.rowRTL]}>
-                    <View style={cs.driverIconWrap}><Truck size={20} color={Colors.primary} /></View>
-                    <View style={cs.flex1}>
-                      <Text style={[s.driverName, r && cs.rtlText]}>{d.displayName}</Text>
-                      <View style={[s.driverMeta, r && cs.rowRTL]}>
-                        <Star size={12} color={Colors.star} /><Text style={s.driverRating}>{d.ratingAverage?.toFixed(1) || '0.0'}</Text>
-                        {dist !== null && <Text style={s.driverDist}> • {formatDistance(dist, locale)}</Text>}
-                      </View>
-                    </View>
-                    <Pressable style={s.selectBtn} onPress={() => handleSelectDriver(d)}><Text style={s.selectText}>{t('selectDriver')}</Text></Pressable>
-                  </View>
-                </Pressable>
-              );
-            })}
+            <View style={s.selfPickupInfo}>
+              <PackageCheck size={28} color={Colors.delivered} />
+              <Text style={[s.selfPickupTitle, r && cs.rtlText]}>{t('selfPickup')}</Text>
+              <Text style={[s.selfPickupDesc, r && cs.rtlText]}>{t('selfPickupInfo')}</Text>
+              {provider && <Text style={[s.selfPickupAddress, r && cs.rtlText]}>{provider.address || provider.displayName}</Text>}
+            </View>
           </View>
         )}
 
-        {order.deliveryMethod === 'self_pickup' && order.status === 'ready_for_pickup' && (
-          <Pressable style={({ pressed }) => [s.pickupBtn, pressed && cs.btnPressed]} onPress={handleSelfPickupDelivered}>
-            <PackageCheck size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{locale === 'ar' ? 'تأكيد الاستلام' : 'Confirm Pickup'}</Text>
-          </Pressable>
+        {deliveryChoice === 'driver' && !driverAccepted && order.status === 'ready_for_pickup' && (
+          <View style={cs.sectionCard}>
+            <View style={s.waitingDriverInfo}>
+              <Truck size={28} color={Colors.assignedToDriver} />
+              <Text style={[s.waitingDriverTitle, r && cs.rtlText]}>{t('waitingForDriver')}</Text>
+              <Text style={[s.waitingDriverDesc, r && cs.rtlText]}>{t('driverDeliveryDesc')}</Text>
+            </View>
+          </View>
         )}
 
-        {order.deliveryStatus && (
+        {driverAccepted && !driver && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('driverAcceptedYourOrder')}</Text>
+          </View>
+        )}
+
+        {order.driverUid && order.deliveryStatus && order.deliveryStatus !== 'ready_for_driver' && (
           <View style={cs.sectionCard}>
             <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('deliveryStatusLabel')}</Text>
             <View style={s.trackingSteps}>
@@ -475,12 +458,7 @@ export default function CustomerOrderDetailScreen() {
           </View>
         )}
 
-        {(order.deliveryMethod === 'driver' || order.deliveryMethod === 'driver_delivery') && !driver && (
-          <View style={cs.sectionCard}>
-            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('deliveryInfo')}</Text>
-            <Text style={[s.emptyText, r && cs.rtlText]}>{t('driverNotAssigned')}</Text>
-          </View>
-        )}
+
 
         {canRateProvider && (
           <View style={cs.sectionCard}>
@@ -562,4 +540,11 @@ const s = StyleSheet.create({
   trackingLabel: { fontSize: 10, color: Colors.textTertiary, textAlign: 'center' as const, maxWidth: 70 },
   trackingLabelActive: { color: Colors.success, fontWeight: '600' as const },
   trackingLabelCurrent: { color: Colors.primary, fontWeight: '700' as const },
+  selfPickupInfo: { alignItems: 'center' as const, paddingVertical: 16, gap: 10 },
+  selfPickupTitle: { fontSize: 17, fontWeight: '700' as const, color: Colors.delivered },
+  selfPickupDesc: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' as const, lineHeight: 20 },
+  selfPickupAddress: { fontSize: 15, fontWeight: '600' as const, color: Colors.text, marginTop: 4 },
+  waitingDriverInfo: { alignItems: 'center' as const, paddingVertical: 16, gap: 10 },
+  waitingDriverTitle: { fontSize: 17, fontWeight: '700' as const, color: Colors.assignedToDriver },
+  waitingDriverDesc: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' as const, lineHeight: 20 },
 });

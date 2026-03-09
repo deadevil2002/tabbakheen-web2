@@ -2,7 +2,7 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, ArrowRight, Check, X, ChefHat, PackageCheck, CreditCard, Banknote, Building2, Truck, FileCheck, CheckCircle2, XCircle } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight, Check, X, ChefHat, PackageCheck, CreditCard, Banknote, Building2, Truck, FileCheck, CheckCircle2, XCircle, CircleCheckBig } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -17,7 +17,7 @@ export default function ProviderOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { orders, updateOrderStatus, confirmPayment, rejectPayment, isProviderSubscriptionValid, getDriverById, markReadyForDriverDelivery, markReadyForSelfPickup } = useData();
+  const { orders, updateOrderStatus, confirmPayment, rejectPayment, isProviderSubscriptionValid, getDriverById, markOrderReady, markOrderDelivered } = useData();
 
   const order = useMemo(() => orders.find((o) => o.id === id), [orders, id]);
   const driver = useMemo(() => (order?.driverUid ? getDriverById(order.driverUid) : undefined), [order, getDriverById]);
@@ -68,51 +68,53 @@ export default function ProviderOrderDetailScreen() {
     Alert.alert(t('success'), locale === 'ar' ? 'تم بدء التحضير' : 'Preparation started');
   }, [order, updateOrderStatus, t, locale]);
 
-  const handleMarkReadySelfPickup = useCallback(async () => {
+  const handleMarkOrderReady = useCallback(async () => {
     if (!order) return;
-    Alert.alert(t('readyForSelfPickup'), t('readyForSelfPickupConfirm'), [
+    Alert.alert(t('markOrderReady'), t('markOrderReadyConfirm'), [
       { text: t('cancel'), style: 'cancel' },
       {
         text: t('confirm'),
         onPress: async () => {
           try {
-            await markReadyForSelfPickup(order.id);
+            await markOrderReady(order.id);
             void sendLocalNotification(
-              t('markReady'),
-              locale === 'ar' ? 'الطلب جاهز للاستلام الذاتي' : 'Order ready for self pickup',
+              t('markOrderReady'),
+              t('orderMarkedReadyBody'),
             );
-            Alert.alert(t('success'), locale === 'ar' ? 'الطلب جاهز للاستلام الذاتي' : 'Order ready for self pickup');
+            console.log('[ProviderOrder] Order marked ready:', order.id);
+            Alert.alert(t('success'), t('orderMarkedReadyBody'));
           } catch (e: any) {
-            console.log('[ProviderOrder] markReadySelfPickup error:', e?.message || e);
+            console.log('[ProviderOrder] markOrderReady error:', e?.message || e);
             Alert.alert(t('error'), t('orderUpdateError'));
           }
         },
       },
     ]);
-  }, [order, markReadyForSelfPickup, t, locale]);
+  }, [order, markOrderReady, t]);
 
-  const handleMarkReadyDriverDelivery = useCallback(async () => {
+  const handleMarkDelivered = useCallback(async () => {
     if (!order) return;
-    Alert.alert(t('readyForDriverDelivery'), t('readyForDriverDeliveryConfirm'), [
+    Alert.alert(t('confirmDelivered'), t('confirmDeliveredMsg'), [
       { text: t('cancel'), style: 'cancel' },
       {
         text: t('confirm'),
         onPress: async () => {
           try {
-            await markReadyForDriverDelivery(order.id);
+            await markOrderDelivered(order.id);
             void sendLocalNotification(
-              t('orderReadyForDelivery'),
-              t('orderReadyForDeliveryBody'),
+              t('orderDeliveredTitle'),
+              t('orderDeliveredBody'),
             );
-            Alert.alert(t('success'), locale === 'ar' ? 'الطلب جاهز وبانتظار سائق' : 'Order ready, waiting for driver');
+            console.log('[ProviderOrder] Order marked delivered:', order.id);
+            Alert.alert(t('success'), locale === 'ar' ? 'تم تأكيد التسليم' : 'Delivery confirmed');
           } catch (e: any) {
-            console.log('[ProviderOrder] markReadyDriverDelivery error:', e?.message || e);
+            console.log('[ProviderOrder] markDelivered error:', e?.message || e);
             Alert.alert(t('error'), t('orderUpdateError'));
           }
         },
       },
     ]);
-  }, [order, markReadyForDriverDelivery, t, locale]);
+  }, [order, markOrderDelivered, t, locale]);
 
   if (!order) return (<SafeAreaView style={cs.centerSafe}><Text>{t('error')}</Text></SafeAreaView>);
 
@@ -229,14 +231,15 @@ export default function ProviderOrderDetailScreen() {
         )}
 
         {order.status === 'preparing' && (
-          <View style={{ gap: 10, marginHorizontal: 20, marginBottom: 16 }}>
-            <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.readyForPickup, marginHorizontal: 0, marginBottom: 0 }, pressed && cs.btnPressed]} onPress={handleMarkReadySelfPickup}>
-              <PackageCheck size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('readyForSelfPickup')}</Text>
-            </Pressable>
-            <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.assignedToDriver, marginHorizontal: 0, marginBottom: 0 }, pressed && cs.btnPressed]} onPress={handleMarkReadyDriverDelivery}>
-              <Truck size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('readyForDriverDelivery')}</Text>
-            </Pressable>
-          </View>
+          <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.readyForPickup }, pressed && cs.btnPressed]} onPress={handleMarkOrderReady}>
+            <PackageCheck size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('markOrderReady')}</Text>
+          </Pressable>
+        )}
+
+        {order.status === 'ready_for_pickup' && (!order.driverUid || order.deliveryStatus !== 'delivered') && order.deliveryStatus !== 'delivered' && (
+          <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.delivered }, pressed && cs.btnPressed]} onPress={handleMarkDelivered}>
+            <CircleCheckBig size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('confirmDelivered')}</Text>
+          </Pressable>
         )}
 
         <View style={cs.bottomSpacer} />
