@@ -534,29 +534,12 @@ export const [DataProvider, useData] = createContextHook(() => {
         };
         if (method === 'self_pickup') {
           changes.deliveryStatus = 'self_pickup_selected';
-          changes.deliveryFee = 0;
           console.log('[DataContext] Customer chose SELF PICKUP for order:', orderId);
         } else if (method === 'driver') {
           changes.deliveryStatus = 'ready_for_driver';
-          changes.driverUid = null;
-          const order = orders.find((o) => o.id === orderId);
-          if (order) {
-            const provider = providers.find((p) => p.uid === order.providerUid);
-            let fee = appSettings.deliveryPricing.baseFee;
-            if (provider?.location && authUser?.location?.lat && authUser?.location?.lng) {
-              fee = calculateDeliveryFee(
-                provider.location.lat, provider.location.lng,
-                authUser.location.lat, authUser.location.lng,
-                appSettings.deliveryPricing,
-              );
-            }
-            changes.deliveryFee = fee;
-            changes.totalAmount = order.priceSnapshot + fee;
-          }
           console.log('[DataContext] Customer chose DRIVER DELIVERY for order:', orderId);
         }
-        if (deliveryNotes) changes.deliveryNotes = deliveryNotes;
-        console.log('[DataContext] setDeliveryMethod Firestore payload:', JSON.stringify(changes));
+        console.log('[DataContext] setDeliveryMethod Firestore payload (customer-safe):', JSON.stringify(changes));
         await fsUpdateOrder(orderId, changes);
         console.log('[DataContext] Delivery method persisted to Firestore:', orderId, '->', method);
         return;
@@ -582,7 +565,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       await saveOrders(updated);
       console.log('[DataContext] Delivery method set:', orderId, '->', method);
     },
-    [orders, fb, authUser, providers, appSettings],
+    [orders, fb],
   );
 
   const assignDriver = useCallback(
