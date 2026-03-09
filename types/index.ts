@@ -10,6 +10,7 @@ export type DeliveryMethod = 'self_pickup' | 'driver' | 'driver_delivery';
 export type DeliveryStatus =
   | 'pending_driver'
   | 'ready_for_driver'
+  | 'self_pickup_selected'
   | 'driver_assigned'
   | 'driver_rejected'
   | 'in_transit'

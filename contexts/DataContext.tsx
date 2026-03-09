@@ -261,6 +261,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       driverAssigned.current = [];
       driverAvailable.current = [];
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fb, authUser?.uid, authUser?.role, mergeDriverOrders]);
 
   // ======= CRUD: Offers =======
@@ -381,7 +382,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       console.log('[DataContext] Order created:', newOrder.id, 'Number:', newOrder.orderNumber);
       return newOrder;
     },
-    [orders, providers, drivers, authUser, fb, appSettings],
+    [orders, providers, authUser, fb],
   );
 
   const updateDeliveryStatusAsDriver = useCallback(
@@ -528,9 +529,36 @@ export const [DataProvider, useData] = createContextHook(() => {
   const setDeliveryMethod = useCallback(
     async (orderId: string, method: DeliveryMethod, deliveryNotes?: string) => {
       if (fb) {
-        console.log('[DataContext] Delivery method choice recorded locally:', orderId, '->', method);
-        console.log('[DataContext] Note: Customer cannot write deliveryMethod to Firestore per security rules.');
-        console.log('[DataContext] Self pickup = customer goes to provider. Driver delivery = order already visible to drivers.');
+        const changes: Record<string, any> = {
+          deliveryMethod: method,
+        };
+        if (method === 'self_pickup') {
+          changes.deliveryStatus = 'self_pickup_selected';
+          changes.deliveryFee = 0;
+          console.log('[DataContext] Customer chose SELF PICKUP for order:', orderId);
+        } else if (method === 'driver') {
+          changes.deliveryStatus = 'ready_for_driver';
+          changes.driverUid = null;
+          const order = orders.find((o) => o.id === orderId);
+          if (order) {
+            const provider = providers.find((p) => p.uid === order.providerUid);
+            let fee = appSettings.deliveryPricing.baseFee;
+            if (provider?.location && authUser?.location?.lat && authUser?.location?.lng) {
+              fee = calculateDeliveryFee(
+                provider.location.lat, provider.location.lng,
+                authUser.location.lat, authUser.location.lng,
+                appSettings.deliveryPricing,
+              );
+            }
+            changes.deliveryFee = fee;
+            changes.totalAmount = order.priceSnapshot + fee;
+          }
+          console.log('[DataContext] Customer chose DRIVER DELIVERY for order:', orderId);
+        }
+        if (deliveryNotes) changes.deliveryNotes = deliveryNotes;
+        console.log('[DataContext] setDeliveryMethod Firestore payload:', JSON.stringify(changes));
+        await fsUpdateOrder(orderId, changes);
+        console.log('[DataContext] Delivery method persisted to Firestore:', orderId, '->', method);
         return;
       }
 
@@ -544,13 +572,17 @@ export const [DataProvider, useData] = createContextHook(() => {
           updates.totalAmount = o.priceSnapshot;
           updates.deliveryPaymentMethod = null;
           updates.driverUid = null;
+          updates.deliveryStatus = 'self_pickup_selected' as DeliveryStatus;
+        } else if (method === 'driver') {
+          updates.deliveryStatus = 'ready_for_driver' as DeliveryStatus;
+          updates.driverUid = null;
         }
         return { ...o, ...updates };
       });
       await saveOrders(updated);
       console.log('[DataContext] Delivery method set:', orderId, '->', method);
     },
-    [orders, fb],
+    [orders, fb, authUser, providers, appSettings],
   );
 
   const assignDriver = useCallback(
@@ -918,7 +950,9 @@ export const [DataProvider, useData] = createContextHook(() => {
   const getAvailableDeliveries = useCallback((): Order[] => {
     return orders.filter(
       (o) =>
-        o.deliveryStatus === 'ready_for_driver' && !o.driverUid,
+        o.deliveryMethod === 'driver' &&
+        o.deliveryStatus === 'ready_for_driver' &&
+        !o.driverUid,
     );
   }, [orders]);
 
@@ -986,15 +1020,14 @@ export const [DataProvider, useData] = createContextHook(() => {
       if (fb) {
         await fsUpdateOrder(orderId, {
           status: 'ready_for_pickup',
-          deliveryStatus: 'ready_for_driver',
         });
-        console.log('[DataContext] Order marked ready via Firestore:', orderId);
+        console.log('[DataContext] Order marked ready via Firestore (customer will choose delivery):', orderId);
         return;
       }
       const now = new Date().toISOString();
       const updated = orders.map((o) => {
         if (o.id !== orderId) return o;
-        return { ...o, status: 'ready_for_pickup' as OrderStatus, deliveryStatus: 'ready_for_driver' as DeliveryStatus, updatedAt: now };
+        return { ...o, status: 'ready_for_pickup' as OrderStatus, updatedAt: now };
       });
       await saveOrders(updated);
       console.log('[DataContext] Order marked ready:', orderId);
@@ -1030,7 +1063,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     return offers.filter((o) => o.isAvailable && validProviderUids.has(o.providerUid));
   }, [offers, activeProviders]);
 
-  return {
+  return useMemo(() => ({
     offers,
     orders,
     ratings,
@@ -1075,5 +1108,16 @@ export const [DataProvider, useData] = createContextHook(() => {
     driverAcceptDelivery,
     computeDeliveryFee,
     markOrderReady,
-  };
+  }), [
+    offers, orders, ratings, driverRatings, providers, drivers, subscriptions, appSettings,
+    activeProviders, availableOffers, isLoading,
+    createOffer, updateOffer, deleteOffer, createOrder, updateOrderStatus,
+    submitPaymentProof, confirmPayment, rejectPayment, setDeliveryMethod,
+    assignDriver, updateDriverStatus, markOrderDelivered, submitRating, submitDriverRating,
+    getProviderById, getDriverById, getOffersByProvider, getOrdersByCustomer,
+    getOrdersByProvider, getOrdersByDriver, getAvailableDeliveries, getAvailableDrivers,
+    getRatingsByProvider, getRatingsByDriver, getSubscription, isProviderSubscriptionValid,
+    createSubscription, updateProviderPaymentMethods, updateDriverAvailability,
+    updateDeliveryStatusAsDriver, driverAcceptDelivery, computeDeliveryFee, markOrderReady,
+  ]);
 });

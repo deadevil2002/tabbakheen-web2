@@ -34,7 +34,7 @@ export default function CustomerOrderDetailScreen() {
   const [driverStars, setDriverStars] = useState<number>(0);
   const [driverComment, setDriverComment] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [deliveryChoice, setDeliveryChoice] = useState<'none' | 'self_pickup' | 'driver'>('none');
+
   const [showPaymentProof, setShowPaymentProof] = useState<boolean>(false);
   const [proofImageUrl, setProofImageUrl] = useState<string>('');
   const [proofNote, setProofNote] = useState<string>('');
@@ -46,7 +46,7 @@ export default function CustomerOrderDetailScreen() {
   const canRateProvider = isDelivered && !order?.ratingSubmitted;
   const canRateDriver = isDelivered && !order?.driverRatingSubmitted && !!order?.driverUid;
   const driverAccepted = !!order?.driverUid && order?.deliveryStatus !== 'ready_for_driver';
-  const canChooseDelivery = order?.status === 'ready_for_pickup' && !driverAccepted && deliveryChoice === 'none';
+  const canChooseDelivery = order?.status === 'ready_for_pickup' && !order?.deliveryMethod && !order?.deliveryStatus;
   const canSubmitProof = order && (order.paymentMethod === 'stc_pay' || order.paymentMethod === 'bank_transfer') && order.paymentStatus !== 'paid' && order.paymentStatus !== 'paid_confirmed' && order.paymentStatus !== 'proof_sent' && order.status !== 'rejected' && order.status !== 'cancelled';
   const hasProofSent = order?.paymentStatus === 'proof_sent';
   const isPaymentRejected = order?.paymentStatus === 'payment_rejected';
@@ -68,25 +68,27 @@ export default function CustomerOrderDetailScreen() {
   const handleSelfPickup = useCallback(async () => {
     if (!order) return;
     console.log('[OrderDetail] Customer chose self pickup for order:', order.id);
-    setDeliveryChoice('self_pickup');
     try {
       await setDeliveryMethod(order.id, 'self_pickup');
+      console.log('[OrderDetail] Self pickup persisted to Firestore successfully');
+      Alert.alert(t('success'), t('selfPickupInfo'));
     } catch (err: any) {
-      console.log('[OrderDetail] Self pickup local update:', err?.message || err);
+      console.log('[OrderDetail] Self pickup error:', err?.message || err);
+      Alert.alert(t('error'), t('orderUpdateError'));
     }
-    Alert.alert(t('success'), t('selfPickupInfo'));
   }, [order, setDeliveryMethod, t]);
 
   const handleDriverDelivery = useCallback(async () => {
     if (!order) return;
     console.log('[OrderDetail] Customer chose driver delivery for order:', order.id);
-    setDeliveryChoice('driver');
     try {
       await setDeliveryMethod(order.id, 'driver');
+      console.log('[OrderDetail] Driver delivery persisted to Firestore successfully');
+      Alert.alert(t('success'), t('driverDeliveryRequested'));
     } catch (err: any) {
-      console.log('[OrderDetail] Driver delivery local update:', err?.message || err);
+      console.log('[OrderDetail] Driver delivery error:', err?.message || err);
+      Alert.alert(t('error'), t('orderUpdateError'));
     }
-    Alert.alert(t('success'), t('driverDeliveryRequested'));
   }, [order, setDeliveryMethod, t]);
 
   const handlePickProofImage = useCallback(async () => {
@@ -383,7 +385,7 @@ export default function CustomerOrderDetailScreen() {
           </View>
         )}
 
-        {deliveryChoice === 'self_pickup' && order.status === 'ready_for_pickup' && !driverAccepted && (
+        {order.deliveryMethod === 'self_pickup' && order.status === 'ready_for_pickup' && !driverAccepted && (
           <View style={cs.sectionCard}>
             <View style={s.selfPickupInfo}>
               <PackageCheck size={28} color={Colors.delivered} />
@@ -394,7 +396,7 @@ export default function CustomerOrderDetailScreen() {
           </View>
         )}
 
-        {deliveryChoice === 'driver' && !driverAccepted && order.status === 'ready_for_pickup' && (
+        {order.deliveryMethod === 'driver' && !driverAccepted && order.status === 'ready_for_pickup' && (
           <View style={cs.sectionCard}>
             <View style={s.waitingDriverInfo}>
               <Truck size={28} color={Colors.assignedToDriver} />
