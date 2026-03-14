@@ -1,0 +1,21 @@
+{
+  "name": "tabbakheen-functions",
+  "description": "Cloud Functions for Tabbakheen push notifications",
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "shell": "firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "engines": {
+    "node": "18"
+  },
+  "main": "src/index.js",
+  "dependencies": {
+    "expo-server-sdk": "^3.7.0",
+    "firebase-admin": "^11.11.1",
+    "firebase-functions": "^4.9.0"
+  },
+  "private": true
+}
