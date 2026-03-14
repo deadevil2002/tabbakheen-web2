@@ -226,7 +226,7 @@ export default function CustomerHomeScreen() {
               {t('welcome')} 👋
             </Text>
             <Text style={[styles.userName, isRTL && styles.rtlText]}>
-              {user?.displayName || ''}
+              {user?.displayName || t('guest')}
             </Text>
           </View>
           <Pressable style={styles.langBtn} onPress={toggleLocale}>

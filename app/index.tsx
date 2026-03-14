@@ -15,7 +15,8 @@ export default function IndexScreen() {
 
     const timeout = setTimeout(() => {
       if (!isAuthenticated || !user) {
-        router.replace('/auth/login' as any);
+        console.log('[Index] No auth, routing to guest browsing (customer home)');
+        router.replace('/(customer)/home' as any);
       } else if (user.role === 'customer') {
         router.replace('/(customer)/home' as any);
       } else if (user.role === 'driver') {

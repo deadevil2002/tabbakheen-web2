@@ -41,6 +41,27 @@ export default function CustomerProfileScreen() {
 
   const Arrow = isRTL ? ChevronLeft : ChevronRight;
   const [showSupport, setShowSupport] = useState<boolean>(false);
+
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.headerSafe}>
+          <Text style={[styles.headerTitle, isRTL && styles.rtlText]}>{t('profile')}</Text>
+        </SafeAreaView>
+        <View style={styles.guestContainer}>
+          <UserCircle size={48} color={Colors.textTertiary} />
+          <Text style={[styles.guestTitle, isRTL && styles.rtlText]}>{t('loginRequired')}</Text>
+          <Text style={[styles.guestDesc, isRTL && styles.rtlText]}>{t('loginRequiredMsg')}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.guestLoginBtn, pressed && { opacity: 0.9 }]}
+            onPress={() => router.push('/auth/login' as any)}
+          >
+            <Text style={styles.guestLoginBtnText}>{t('login')}</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
   const [isUploadingAvatar, setIsUploadingAvatar] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editName, setEditName] = useState<string>(user?.displayName ?? '');
@@ -388,6 +409,36 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 30,
+  },
+  guestContainer: {
+    flex: 1,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  guestTitle: {
+    fontSize: 20,
+    fontWeight: '700' as const,
+    color: Colors.text,
+    marginTop: 12,
+  },
+  guestDesc: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center' as const,
+  },
+  guestLoginBtn: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 8,
+  },
+  guestLoginBtnText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '700' as const,
   },
   rtlText: {
     textAlign: 'right',

@@ -126,6 +126,16 @@ export default function LoginScreen() {
             </View>
 
             <Pressable
+              style={styles.forgotRow}
+              onPress={() => router.push('/auth/forgot-password' as any)}
+              testID="forgot-password-link"
+            >
+              <Text style={[styles.forgotText, isRTL && styles.rtlText]}>
+                {t('forgotPassword')}
+              </Text>
+            </Pressable>
+
+            <Pressable
               style={({ pressed }) => [styles.loginButton, pressed && styles.buttonPressed]}
               onPress={handleLogin}
               disabled={isSubmitting}
@@ -136,6 +146,14 @@ export default function LoginScreen() {
               ) : (
                 <Text style={styles.loginButtonText}>{t('login')}</Text>
               )}
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.guestButton, pressed && styles.buttonPressed]}
+              onPress={() => router.replace('/(customer)/home' as any)}
+              testID="browse-as-guest"
+            >
+              <Text style={styles.guestButtonText}>{t('browseAsGuest')}</Text>
             </Pressable>
 
             <View style={styles.registerRow}>
@@ -281,6 +299,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.primary,
     fontWeight: '600' as const,
+  },
+  forgotRow: {
+    alignSelf: 'flex-end' as const,
+    marginBottom: 16,
+    marginTop: -4,
+  },
+  forgotText: {
+    fontSize: 13,
+    color: Colors.primary,
+    fontWeight: '500' as const,
+  },
+  guestButton: {
+    height: 52,
+    borderRadius: 14,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  guestButtonText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: Colors.textSecondary,
   },
   powered: {
     textAlign: 'center',

@@ -20,6 +20,7 @@ import { useData } from '@/contexts/DataContext';
 import { RatingStars } from '@/components/RatingStars';
 import { formatPrice } from '@/utils/helpers';
 import { PaymentMethod } from '@/types';
+import { requireAuth } from '@/utils/authGuard';
 
 export default function OfferDetailsScreen() {
   const router = useRouter();
@@ -52,7 +53,8 @@ export default function OfferDetailsScreen() {
   const BackIcon = isRTL ? ArrowRight : ArrowLeft;
 
   const handleOrder = useCallback(async () => {
-    if (!offer || !user) return;
+    if (!offer) return;
+    if (!requireAuth(user, router, locale)) return;
 
     Alert.alert(t('confirmOrder'), t('orderConfirmMsg'), [
       { text: t('cancel'), style: 'cancel' },
@@ -62,7 +64,7 @@ export default function OfferDetailsScreen() {
           setIsOrdering(true);
           try {
             await createOrder({
-              customerUid: user.uid,
+              customerUid: user!.uid,
               providerUid: offer.providerUid,
               offerId: offer.id,
               offerTitleSnapshot: offer.title,
@@ -84,7 +86,7 @@ export default function OfferDetailsScreen() {
         },
       },
     ]);
-  }, [offer, user, note, paymentMethod, createOrder, t, locale]);
+  }, [offer, user, note, paymentMethod, createOrder, t, locale, router]);
 
   if (!offer) {
     return (

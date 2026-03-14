@@ -441,6 +441,22 @@ const ar = {
   deliveryRoute: 'مسار التوصيل',
   providerLocation: 'موقع الطباخ',
   customerLocation: 'موقع العميل',
+
+  guest: 'زائر',
+  guestWelcome: 'مرحباً بك',
+  loginRequired: 'يجب تسجيل الدخول',
+  loginRequiredMsg: 'يرجى تسجيل الدخول للمتابعة',
+  loginToOrder: 'سجل دخولك لتقديم طلب',
+  loginToAccess: 'سجل دخولك للوصول لهذه الميزة',
+  browseAsGuest: 'تصفح كزائر',
+  forgotPassword: 'نسيت كلمة المرور؟',
+  resetPassword: 'إعادة تعيين كلمة المرور',
+  resetPasswordDesc: 'أدخل بريدك الإلكتروني وسنرسل لك رابط إعادة تعيين كلمة المرور',
+  sendResetLink: 'إرسال رابط الاستعادة',
+  resetEmailSent: 'تم إرسال رابط إعادة التعيين',
+  resetEmailSentDesc: 'تحقق من بريدك الإلكتروني واتبع الرابط لإعادة تعيين كلمة المرور',
+  userNotFound: 'لم يتم العثور على حساب بهذا البريد',
+  backToLogin: 'العودة لتسجيل الدخول',
 };
 
 
@@ -885,6 +901,22 @@ const en: typeof ar = {
   deliveryRoute: 'Delivery Route',
   providerLocation: 'Provider Location',
   customerLocation: 'Customer Location',
+
+  guest: 'Guest',
+  guestWelcome: 'Welcome',
+  loginRequired: 'Login Required',
+  loginRequiredMsg: 'Please log in to continue',
+  loginToOrder: 'Log in to place an order',
+  loginToAccess: 'Log in to access this feature',
+  browseAsGuest: 'Browse as Guest',
+  forgotPassword: 'Forgot password?',
+  resetPassword: 'Reset Password',
+  resetPasswordDesc: 'Enter your email and we will send you a password reset link',
+  sendResetLink: 'Send Reset Link',
+  resetEmailSent: 'Reset Link Sent',
+  resetEmailSentDesc: 'Check your email and follow the link to reset your password',
+  userNotFound: 'No account found with this email',
+  backToLogin: 'Back to Login',
 };
 
 

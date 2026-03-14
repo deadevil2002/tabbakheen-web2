@@ -36,6 +36,27 @@ export default function CustomerOrdersScreen() {
     [],
   );
 
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.headerSafe}>
+          <Text style={[styles.headerTitle, isRTL && styles.rtlText]}>{t('orders')}</Text>
+        </SafeAreaView>
+        <View style={styles.guestContainer}>
+          <ClipboardList size={48} color={Colors.textTertiary} />
+          <Text style={[styles.guestTitle, isRTL && styles.rtlText]}>{t('loginRequired')}</Text>
+          <Text style={[styles.guestDesc, isRTL && styles.rtlText]}>{t('loginRequiredMsg')}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.guestLoginBtn, pressed && { opacity: 0.9 }]}
+            onPress={() => router.push('/auth/login' as any)}
+          >
+            <Text style={styles.guestLoginBtnText}>{t('login')}</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
   const renderOrder = useCallback(
     ({ item }: { item: Order }) => {
       const provider = getProviderById(item.providerUid);
@@ -165,5 +186,35 @@ const styles = StyleSheet.create({
   rtlText: {
     textAlign: 'right',
     writingDirection: 'rtl',
+  },
+  guestContainer: {
+    flex: 1,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  guestTitle: {
+    fontSize: 20,
+    fontWeight: '700' as const,
+    color: Colors.text,
+    marginTop: 12,
+  },
+  guestDesc: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center' as const,
+  },
+  guestLoginBtn: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 8,
+  },
+  guestLoginBtnText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '700' as const,
   },
 });

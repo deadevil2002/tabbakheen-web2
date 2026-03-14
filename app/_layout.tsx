@@ -42,6 +42,7 @@ function RootLayoutNav() {
         <Stack.Screen name="index" />
         <Stack.Screen name="auth/login" options={{ presentation: "modal" }} />
         <Stack.Screen name="auth/register" options={{ presentation: "modal" }} />
+        <Stack.Screen name="auth/forgot-password" options={{ presentation: "modal" }} />
         <Stack.Screen name="(customer)" />
         <Stack.Screen name="(provider)" />
         <Stack.Screen name="(driver)" />
