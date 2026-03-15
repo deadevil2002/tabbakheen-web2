@@ -1,7 +1,19 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { MapPin, Navigation } from 'lucide-react-native';
+
+let MapView: any = null;
+let Marker: any = null;
+let Polyline: any = null;
+
+try {
+  const maps = require('react-native-maps');
+  MapView = maps.default;
+  Marker = maps.Marker;
+  Polyline = maps.Polyline;
+} catch {
+  console.log('[DeliveryRouteMap] react-native-maps not available');
+}
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
 
@@ -54,6 +66,8 @@ function DeliveryRouteMapInner({
     );
   }
 
+  const isNativeMap = MapView && Platform.OS !== 'web';
+
   const phaseLabel = phase === 'to_provider' ? t('goingToProvider') : t('goingToCustomer');
 
   return (
@@ -63,40 +77,47 @@ function DeliveryRouteMapInner({
         <Text style={[styles.phaseText, isRTL && styles.rtlText]}>{phaseLabel}</Text>
       </View>
       <View style={styles.mapWrapper}>
-        <MapView
-          style={styles.map}
-          initialRegion={region}
-          scrollEnabled={true}
-          zoomEnabled={true}
-          pitchEnabled={false}
-          rotateEnabled={false}
-        >
-          {hasOrigin && (
-            <Marker
-              coordinate={{ latitude: originLat!, longitude: originLng! }}
-              title={originLabel}
-              pinColor={Colors.primary}
-            />
-          )}
-          {hasDest && (
-            <Marker
-              coordinate={{ latitude: destLat!, longitude: destLng! }}
-              title={destLabel}
-              pinColor={Colors.success}
-            />
-          )}
-          {hasOrigin && hasDest && (
-            <Polyline
-              coordinates={[
-                { latitude: originLat!, longitude: originLng! },
-                { latitude: destLat!, longitude: destLng! },
-              ]}
-              strokeColor={Colors.primary}
-              strokeWidth={3}
-              lineDashPattern={[6, 4]}
-            />
-          )}
-        </MapView>
+        {isNativeMap ? (
+          <MapView
+            style={styles.map}
+            initialRegion={region}
+            scrollEnabled={true}
+            zoomEnabled={true}
+            pitchEnabled={false}
+            rotateEnabled={false}
+          >
+            {hasOrigin && Marker && (
+              <Marker
+                coordinate={{ latitude: originLat!, longitude: originLng! }}
+                title={originLabel}
+                pinColor={Colors.primary}
+              />
+            )}
+            {hasDest && Marker && (
+              <Marker
+                coordinate={{ latitude: destLat!, longitude: destLng! }}
+                title={destLabel}
+                pinColor={Colors.success}
+              />
+            )}
+            {hasOrigin && hasDest && Polyline && (
+              <Polyline
+                coordinates={[
+                  { latitude: originLat!, longitude: originLng! },
+                  { latitude: destLat!, longitude: destLng! },
+                ]}
+                strokeColor={Colors.primary}
+                strokeWidth={3}
+                lineDashPattern={[6, 4]}
+              />
+            )}
+          </MapView>
+        ) : (
+          <View style={styles.webMapFallback}>
+            <Navigation size={32} color={Colors.primary} />
+            <Text style={styles.webMapText}>{originLabel} → {destLabel}</Text>
+          </View>
+        )}
       </View>
       <View style={styles.legendRow}>
         <View style={[styles.legendItem, isRTL && styles.rowRTL]}>
@@ -190,5 +211,20 @@ const styles = StyleSheet.create({
   noMapText: {
     fontSize: 13,
     color: Colors.textTertiary,
+  },
+  webMapFallback: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.surfaceSecondary,
+    gap: 10,
+    borderRadius: 14,
+  },
+  webMapText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    fontWeight: '500' as const,
+    textAlign: 'center',
+    paddingHorizontal: 16,
   },
 });
