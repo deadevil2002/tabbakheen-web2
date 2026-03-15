@@ -252,6 +252,32 @@ async function listAllOffers(accessToken) {
   return offers;
 }
 
+async function listAllInvoices(accessToken) {
+  const invoices = [];
+  let pageToken = null;
+  do {
+    let url = `${FIRESTORE_BASE}/invoices?pageSize=300`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!response.ok) {
+      if (response.status === 404) return [];
+      const text = await response.text();
+      throw new Error(`Failed to list invoices: ${response.status} ${text}`);
+    }
+    const data = await response.json();
+    if (data.documents) {
+      for (const doc of data.documents) {
+        const parsed = parseFirestoreDoc(doc);
+        if (parsed) invoices.push(parsed);
+      }
+    }
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+  return invoices;
+}
+
 async function updateFirestoreDocument(collectionPath, docId, fields, accessToken) {
   const fieldPaths = Object.keys(fields);
   const maskParams = fieldPaths.map(f => `updateMask.fieldPaths=${encodeURIComponent(f)}`).join('&');
@@ -361,7 +387,7 @@ async function hashPassword(password) {
 // EMAIL HELPER
 // ============================================================
 
-async function sendEmail(to, subject, html, env) {
+async function sendEmail(to, subject, html, env, attachments) {
   const apiKey = env.EMAIL_API_KEY;
   if (!apiKey) {
     console.log('[Email] EMAIL_API_KEY not configured, skipping email to:', to);
@@ -369,13 +395,17 @@ async function sendEmail(to, subject, html, env) {
   }
   const from = env.EMAIL_FROM || 'Tabbakheen <noreply@tabbakheen.com>';
   try {
+    const payload = { from, to: [to], subject, html };
+    if (attachments && attachments.length > 0) {
+      payload.attachments = attachments;
+    }
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Authorization': 'Bearer ' + apiKey,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ from, to: [to], subject, html })
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (res.ok) {
@@ -691,6 +721,49 @@ async function verifyAdminPassword(password, env, accessToken) {
   return false;
 }
 
+async function createSignedInvoiceToken(invoiceId, env) {
+  const exp = Date.now() + 60 * 60 * 1000;
+  const payload = btoa(JSON.stringify({ inv: invoiceId, exp }));
+  const secret = env.ADMIN_TOKEN_SECRET || env.ADMIN_PASSWORD;
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return payload + '.' + sigB64;
+}
+
+async function verifySignedInvoiceToken(token, invoiceId, env) {
+  try {
+    if (!token) return false;
+    const parts = token.split('.');
+    if (parts.length !== 2) return false;
+    const [payload, sigB64] = parts;
+    const data = JSON.parse(atob(payload));
+    if (Date.now() > data.exp) return false;
+    if (data.inv !== invoiceId) return false;
+    const secret = env.ADMIN_TOKEN_SECRET || env.ADMIN_PASSWORD;
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    const normalizedSig = sigB64.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalizedSig + '='.repeat((4 - normalizedSig.length % 4) % 4);
+    const sig = Uint8Array.from(atob(padded), c => c.charCodeAt(0));
+    return await crypto.subtle.verify('HMAC', key, sig, new TextEncoder().encode(payload));
+  } catch {
+    return false;
+  }
+}
+
 function getTokenFromRequest(request) {
   const authHeader = request.headers.get('Authorization');
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -710,7 +783,209 @@ function jsonResponse(data, status = 200) {
 }
 
 // ============================================================
-// INVOICE HTML GENERATOR
+// PDF GENERATOR (Pure JS - works in Cloudflare Workers)
+// ============================================================
+
+function pdfEscape(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+    .replace(/\r/g, '\\r');
+}
+
+function generatePDFBytes(invoice, lang) {
+  const isAr = lang === 'ar';
+
+  const biz = {
+    name: '\u0645\u0624\u0633\u0633\u0629 \u0633\u0627\u0644\u0645 \u0628\u0646 \u0639\u0644\u064A \u0627\u0644\u0646\u0639\u064A\u0645\u064A',
+    nameEn: 'Salem Bin Ali Al-Nuaimi Est.',
+    cr: '7050191290',
+    building: '2500',
+    street: '\u0623\u062D\u0645\u062F \u0628\u0646 \u062D\u062C\u0631 \u0627\u0644\u0639\u0633\u0642\u0644\u0627\u0646\u064A',
+    streetEn: 'Ahmad bin Hajar Al-Asqalani',
+    district: '\u062D\u064A \u0637\u064A\u0628\u0629',
+    districtEn: 'Taibah District',
+    city: '\u0627\u0644\u062C\u0628\u064A\u0644',
+    cityEn: 'Jubail',
+    postal: '35513',
+    country: '\u0627\u0644\u0645\u0645\u0644\u0643\u0629 \u0627\u0644\u0639\u0631\u0628\u064A\u0629 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629',
+    countryEn: 'Kingdom of Saudi Arabia'
+  };
+
+  const invoiceNumber = invoice.invoiceNumber || 'N/A';
+  const createdDate = invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString(isAr ? 'ar-SA' : 'en-US') : 'N/A';
+  const userName = invoice.userName || 'N/A';
+  const userEmail = invoice.userEmail || '';
+  const userPhone = invoice.userPhone || '';
+  const plan = invoice.subscriptionPlan || 'Basic';
+  const amount = invoice.amount || 0;
+  const currency = invoice.currency || 'SAR';
+  const startDate = invoice.startDate || '';
+  const endDate = invoice.endDate || '';
+  const paymentMethod = invoice.paymentMethod || '';
+  const notes = invoice.notes || '';
+
+  const objects = [];
+  let objectCount = 0;
+  const offsets = [];
+
+  function addObject(content) {
+    objectCount++;
+    objects.push(content);
+    return objectCount;
+  }
+
+  const catalogId = addObject('');
+  const pagesId = addObject('');
+  const pageId = addObject('');
+
+  const fontId = addObject(
+    `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`
+  );
+  const fontBoldId = addObject(
+    `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`
+  );
+
+  const pageW = 595.28;
+  const pageH = 841.89;
+  const margin = 50;
+  let y = pageH - margin;
+
+  let streamContent = '';
+
+  function addText(text, x, yPos, size, font, color) {
+    const safeText = pdfEscape(text);
+    const f = font === 'bold' ? 'F2' : 'F1';
+    const c = color || '0 0 0';
+    streamContent += `BT\n/${f} ${size} Tf\n${c} rg\n${x} ${yPos} Td\n(${safeText}) Tj\nET\n`;
+  }
+
+  function addLine(x1, y1, x2, y2, width, color) {
+    const c = color || '0 0 0';
+    streamContent += `${c} RG\n${width || 1} w\n${x1} ${y1} m\n${x2} ${y2} l\nS\n`;
+  }
+
+  function addRect(x, yPos, w, h, color) {
+    const c = color || '0.95 0.95 0.95';
+    streamContent += `${c} rg\n${x} ${yPos} ${w} ${h} re\nf\n`;
+  }
+
+  addRect(0, pageH - 80, pageW, 80, '0.91 0.45 0.16');
+
+  addText('TABBAKHEEN', margin, pageH - 45, 22, 'bold', '1 1 1');
+  addText('Invoice / Fatura', margin, pageH - 65, 11, 'normal', '1 1 1');
+
+  addText('Invoice #: ' + invoiceNumber, pageW - margin - 200, pageH - 45, 10, 'normal', '1 1 1');
+  addText('Date: ' + createdDate, pageW - margin - 200, pageH - 60, 10, 'normal', '1 1 1');
+
+  y = pageH - 110;
+
+  addRect(margin, y - 80, 230, 80, '0.96 0.97 0.98');
+  addText('Issued By / Sader Min:', margin + 10, y - 15, 9, 'bold', '0.91 0.45 0.16');
+  addText(biz.nameEn, margin + 10, y - 30, 9, 'bold', '0.1 0.1 0.1');
+  addText('CR: ' + biz.cr, margin + 10, y - 43, 8, 'normal', '0.3 0.3 0.3');
+  addText(biz.building + ' ' + biz.streetEn, margin + 10, y - 55, 8, 'normal', '0.3 0.3 0.3');
+  addText(biz.districtEn + ', ' + biz.cityEn + ' ' + biz.postal, margin + 10, y - 67, 8, 'normal', '0.3 0.3 0.3');
+  addText(biz.countryEn, margin + 10, y - 79, 8, 'normal', '0.3 0.3 0.3');
+
+  addRect(pageW - margin - 230, y - 80, 230, 80, '0.96 0.97 0.98');
+  addText('Invoice To / Fatura Ila:', pageW - margin - 220, y - 15, 9, 'bold', '0.91 0.45 0.16');
+  addText(userName, pageW - margin - 220, y - 30, 9, 'bold', '0.1 0.1 0.1');
+  if (userEmail) addText(userEmail, pageW - margin - 220, y - 43, 8, 'normal', '0.3 0.3 0.3');
+  if (userPhone) addText(userPhone, pageW - margin - 220, y - 55, 8, 'normal', '0.3 0.3 0.3');
+
+  y -= 110;
+
+  const tableX = margin;
+  const tableW = pageW - 2 * margin;
+  const col1W = tableW * 0.40;
+  const col2W = tableW * 0.35;
+  const _col3W = tableW * 0.25;
+  const rowH = 28;
+
+  addRect(tableX, y - rowH, tableW, rowH, '0.94 0.96 0.98');
+  addText('Description', tableX + 10, y - 18, 9, 'bold', '0.3 0.3 0.3');
+  addText('Period', tableX + col1W + 10, y - 18, 9, 'bold', '0.3 0.3 0.3');
+  addText('Amount', tableX + col1W + col2W + 10, y - 18, 9, 'bold', '0.3 0.3 0.3');
+
+  y -= rowH;
+  addLine(tableX, y, tableX + tableW, y, 0.5, '0.85 0.85 0.85');
+
+  addText('Subscription - ' + plan, tableX + 10, y - 18, 9, 'normal', '0.1 0.1 0.1');
+  addText(startDate + ' - ' + endDate, tableX + col1W + 10, y - 18, 9, 'normal', '0.1 0.1 0.1');
+  addText(amount + ' ' + currency, tableX + col1W + col2W + 10, y - 18, 9, 'normal', '0.1 0.1 0.1');
+
+  y -= rowH;
+  addLine(tableX, y, tableX + tableW, y, 0.5, '0.85 0.85 0.85');
+
+  addRect(tableX, y - rowH, tableW, rowH, '1 0.97 0.94');
+  addText('Total / Ijmali', tableX + 10, y - 18, 10, 'bold', '0.1 0.1 0.1');
+  addText(amount + ' ' + currency, tableX + col1W + col2W + 10, y - 18, 10, 'bold', '0.91 0.45 0.16');
+
+  y -= rowH + 20;
+
+  if (paymentMethod) {
+    addText('Payment Method: ' + paymentMethod, margin, y, 9, 'normal', '0.3 0.3 0.3');
+    y -= 16;
+  }
+  if (notes) {
+    addText('Notes: ' + notes, margin, y, 9, 'normal', '0.3 0.3 0.3');
+    y -= 16;
+  }
+
+  y -= 20;
+  addLine(margin, y, pageW - margin, y, 0.5, '0.85 0.85 0.85');
+  y -= 20;
+
+  addText(biz.nameEn, margin, y, 8, 'normal', '0.5 0.5 0.5');
+  y -= 12;
+  addText('CR: ' + biz.cr + ' | ' + biz.building + ' ' + biz.streetEn + ', ' + biz.districtEn + ', ' + biz.cityEn + ' ' + biz.postal, margin, y, 7, 'normal', '0.5 0.5 0.5');
+  y -= 12;
+  addText(biz.countryEn, margin, y, 7, 'normal', '0.5 0.5 0.5');
+
+  y -= 25;
+
+  addRect(margin, y - 55, tableW, 55, '0.96 0.97 0.98');
+  addText('Arabic Business Name:', margin + 10, y - 14, 8, 'bold', '0.3 0.3 0.3');
+  addText('Muassasat Salem bin Ali Al-Nuaimi', margin + 10, y - 28, 8, 'normal', '0.3 0.3 0.3');
+  addText('Commercial Reg: 7050191290 | Jubail, Saudi Arabia', margin + 10, y - 42, 8, 'normal', '0.3 0.3 0.3');
+
+  const streamId = addObject('');
+
+  const streamBytes = new TextEncoder().encode(streamContent);
+  objects[streamId - 1] = `<< /Length ${streamBytes.length} >>\nstream\n${streamContent}endstream`;
+
+  objects[pageId - 1] = `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Contents ${streamId} 0 R /Resources << /Font << /F1 ${fontId} 0 R /F2 ${fontBoldId} 0 R >> >> >>`;
+  objects[pagesId - 1] = `<< /Type /Pages /Kids [${pageId} 0 R] /Count 1 >>`;
+  objects[catalogId - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+
+  let pdf = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
+  for (let i = 0; i < objects.length; i++) {
+    offsets.push(pdf.length);
+    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+
+  const xrefOffset = pdf.length;
+  pdf += 'xref\n';
+  pdf += `0 ${objects.length + 1}\n`;
+  pdf += '0000000000 65535 f \n';
+  for (const off of offsets) {
+    pdf += String(off).padStart(10, '0') + ' 00000 n \n';
+  }
+
+  pdf += 'trailer\n';
+  pdf += `<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\n`;
+  pdf += 'startxref\n';
+  pdf += xrefOffset + '\n';
+  pdf += '%%EOF\n';
+
+  return new TextEncoder().encode(pdf);
+}
+
+// ============================================================
+// INVOICE HTML GENERATOR (improved for print-to-PDF)
 // ============================================================
 
 function generateInvoiceHTML(invoice, lang) {
@@ -718,69 +993,134 @@ function generateInvoiceHTML(invoice, lang) {
   const dir = isAr ? 'rtl' : 'ltr';
   const biz = {
     name: '\u0645\u0624\u0633\u0633\u0629 \u0633\u0627\u0644\u0645 \u0628\u0646 \u0639\u0644\u064A \u0627\u0644\u0646\u0639\u064A\u0645\u064A',
+    nameEn: 'Salem Bin Ali Al-Nuaimi Est.',
     cr: '7050191290',
     building: '2500',
     street: '\u0623\u062D\u0645\u062F \u0628\u0646 \u062D\u062C\u0631 \u0627\u0644\u0639\u0633\u0642\u0644\u0627\u0646\u064A',
+    streetEn: 'Ahmad bin Hajar Al-Asqalani',
     district: '\u062D\u064A \u0637\u064A\u0628\u0629',
+    districtEn: 'Taibah District',
     city: '\u0627\u0644\u062C\u0628\u064A\u0644',
+    cityEn: 'Jubail',
     postal: '35513',
-    country: '\u0627\u0644\u0645\u0645\u0644\u0643\u0629 \u0627\u0644\u0639\u0631\u0628\u064A\u0629 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629'
+    country: '\u0627\u0644\u0645\u0645\u0644\u0643\u0629 \u0627\u0644\u0639\u0631\u0628\u064A\u0629 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629',
+    countryEn: 'Kingdom of Saudi Arabia'
   };
-  return '<!DOCTYPE html><html dir="' + dir + '" lang="' + lang + '"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + (isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice') + ' ' + (invoice.invoiceNumber || '') + '</title><style>' +
-    'body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;margin:0;padding:20px;background:#f8f9fa;color:#1a1a2e}' +
-    '.invoice{max-width:800px;margin:0 auto;background:#fff;border-radius:12px;padding:40px;box-shadow:0 2px 8px rgba(0,0,0,.08)}' +
-    '.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:30px;padding-bottom:20px;border-bottom:2px solid #e8722a}' +
-    '.logo h1{color:#e8722a;font-size:28px;margin:0}.logo p{color:#666;margin:4px 0 0}' +
-    '.inv-info{text-align:' + (isAr ? 'left' : 'right') + '}.inv-info h2{color:#1a1a2e;font-size:20px;margin:0 0 8px}' +
-    '.inv-info p{margin:2px 0;font-size:13px;color:#555}' +
-    '.details{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px}' +
-    '.detail-box{background:#f8fafc;border-radius:8px;padding:16px}.detail-box h3{font-size:14px;color:#e8722a;margin:0 0 8px}' +
-    '.detail-box p{margin:3px 0;font-size:13px;color:#333}' +
-    'table{width:100%;border-collapse:collapse;margin:20px 0}' +
-    'th{background:#f1f5f9;padding:10px 16px;text-align:' + (isAr ? 'right' : 'left') + ';font-size:13px;color:#555;font-weight:600}' +
-    'td{padding:10px 16px;border-bottom:1px solid #f1f5f9;font-size:14px}' +
-    '.total-row td{font-weight:700;font-size:16px;border-top:2px solid #e8722a;background:#fff8f0}' +
-    '.footer{margin-top:30px;padding-top:20px;border-top:1px solid #eee;font-size:12px;color:#888;text-align:center}' +
-    '.footer p{margin:2px 0}' +
-    '.print-btn{display:block;margin:20px auto;padding:10px 24px;background:#e8722a;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer}' +
-    '@media print{.print-btn{display:none}body{background:#fff;padding:0}.invoice{box-shadow:none}}' +
-    '</style></head><body>' +
-    '<div class="invoice">' +
-    '<div class="header"><div class="logo"><h1>Tabbakheen</h1><p>\u0637\u0628\u0627\u062E\u064A\u0646</p></div>' +
-    '<div class="inv-info"><h2>' + (isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice') + '</h2>' +
-    '<p>' + (isAr ? '\u0631\u0642\u0645 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice #') + ': ' + (invoice.invoiceNumber || 'N/A') + '</p>' +
-    '<p>' + (isAr ? '\u0627\u0644\u062A\u0627\u0631\u064A\u062E' : 'Date') + ': ' + (invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString(isAr ? 'ar-SA' : 'en-US') : 'N/A') + '</p>' +
-    '</div></div>' +
-    '<div class="details">' +
-    '<div class="detail-box"><h3>' + (isAr ? '\u0635\u0627\u062F\u0631\u0629 \u0645\u0646' : 'Issued By') + '</h3>' +
-    '<p><strong>' + biz.name + '</strong></p>' +
-    '<p>' + (isAr ? '\u0633\u062C\u0644 \u062A\u062C\u0627\u0631\u064A' : 'CR') + ': ' + biz.cr + '</p>' +
-    '<p>' + biz.building + ' ' + biz.street + '</p>' +
-    '<p>' + biz.district + ', ' + biz.city + ' ' + biz.postal + '</p>' +
-    '<p>' + biz.country + '</p></div>' +
-    '<div class="detail-box"><h3>' + (isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629 \u0625\u0644\u0649' : 'Invoice To') + '</h3>' +
-    '<p><strong>' + (invoice.userName || 'N/A') + '</strong></p>' +
-    '<p>' + (invoice.userEmail || '') + '</p>' +
-    '<p>' + (invoice.userPhone || '') + '</p></div></div>' +
-    '<table><thead><tr>' +
-    '<th>' + (isAr ? '\u0627\u0644\u0628\u064A\u0627\u0646' : 'Description') + '</th>' +
-    '<th>' + (isAr ? '\u0627\u0644\u0641\u062A\u0631\u0629' : 'Period') + '</th>' +
-    '<th>' + (isAr ? '\u0627\u0644\u0645\u0628\u0644\u063A' : 'Amount') + '</th>' +
-    '</tr></thead><tbody>' +
-    '<tr><td>' + (isAr ? '\u0627\u0634\u062A\u0631\u0627\u0643' : 'Subscription') + ' - ' + (invoice.subscriptionPlan || 'Basic') + '</td>' +
-    '<td>' + (invoice.startDate || '') + ' - ' + (invoice.endDate || '') + '</td>' +
-    '<td>' + (invoice.amount || 0) + ' ' + (invoice.currency || 'SAR') + '</td></tr>' +
-    '<tr class="total-row"><td colspan="2">' + (isAr ? '\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A' : 'Total') + '</td>' +
-    '<td>' + (invoice.amount || 0) + ' ' + (invoice.currency || 'SAR') + '</td></tr>' +
-    '</tbody></table>' +
-    (invoice.notes ? '<p style="font-size:13px;color:#666"><strong>' + (isAr ? '\u0645\u0644\u0627\u062D\u0638\u0627\u062A' : 'Notes') + ':</strong> ' + invoice.notes + '</p>' : '') +
-    (invoice.paymentMethod ? '<p style="font-size:13px;color:#666"><strong>' + (isAr ? '\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062F\u0641\u0639' : 'Payment Method') + ':</strong> ' + invoice.paymentMethod + '</p>' : '') +
-    '<div class="footer">' +
-    '<p>' + biz.name + '</p>' +
-    '<p>' + (isAr ? '\u0633\u062C\u0644 \u062A\u062C\u0627\u0631\u064A' : 'CR') + ': ' + biz.cr + ' | ' + biz.building + ' ' + biz.street + ', ' + biz.district + ', ' + biz.city + ' ' + biz.postal + '</p>' +
-    '<p>' + biz.country + '</p></div></div>' +
-    '<button class="print-btn" onclick="window.print()">' + (isAr ? '\u0637\u0628\u0627\u0639\u0629 / \u062D\u0641\u0638 PDF' : 'Print / Save as PDF') + '</button>' +
-    '</body></html>';
+  const invoiceNum = invoice.invoiceNumber || 'N/A';
+  const created = invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString(isAr ? 'ar-SA' : 'en-US') : 'N/A';
+
+  return `<!DOCTYPE html><html dir="${dir}" lang="${lang}"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice'} ${invoiceNum}</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:20px;background:#f8f9fa;color:#1a1a2e}
+.invoice{max-width:800px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.1)}
+.inv-header{background:linear-gradient(135deg,#e8722a,#d4631f);padding:30px 40px;color:#fff;display:flex;justify-content:space-between;align-items:flex-start}
+.inv-header .logo h1{font-size:26px;margin:0 0 4px}.inv-header .logo p{font-size:12px;opacity:.85}
+.inv-header .inv-meta{text-align:${isAr ? 'left' : 'right'}}.inv-header .inv-meta h2{font-size:18px;margin:0 0 8px;opacity:.9}.inv-header .inv-meta p{font-size:12px;margin:2px 0;opacity:.85}
+.inv-body{padding:30px 40px}
+.details{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:28px}
+.detail-box{background:#f8fafc;border-radius:10px;padding:18px;border:1px solid #e8ecf0}
+.detail-box h3{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#e8722a;margin:0 0 10px;font-weight:700}
+.detail-box p{margin:3px 0;font-size:13px;color:#333}.detail-box .name{font-weight:700;font-size:14px}
+table{width:100%;border-collapse:collapse;margin:20px 0}
+th{background:#f1f5f9;padding:12px 16px;text-align:${isAr ? 'right' : 'left'};font-size:12px;color:#555;font-weight:700;text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid #e2e8f0}
+td{padding:12px 16px;border-bottom:1px solid #f1f5f9;font-size:14px}
+.total-row td{font-weight:700;font-size:16px;border-top:2px solid #e8722a;background:#fff8f0;color:#e8722a}
+.meta-info{margin:16px 0;font-size:13px;color:#555}
+.meta-info strong{color:#333}
+.footer{margin-top:24px;padding:20px 40px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#888;text-align:center}
+.footer p{margin:2px 0}
+.bilingual{margin-top:16px;padding:16px;background:#fafbfc;border-radius:8px;border:1px solid #e8ecf0}
+.bilingual h4{font-size:12px;color:#e8722a;margin:0 0 8px;font-weight:700}
+.bilingual p{font-size:12px;color:#555;margin:2px 0;direction:rtl;text-align:right}
+.actions{text-align:center;padding:20px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn{padding:10px 24px;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;text-decoration:none;display:inline-block}
+.btn-primary{background:#e8722a;color:#fff}.btn-secondary{background:#e2e8f0;color:#333}
+@media print{.actions{display:none!important}body{background:#fff;padding:0}.invoice{box-shadow:none;border-radius:0}}
+</style></head><body>
+<div class="invoice">
+<div class="inv-header">
+<div class="logo"><h1>Tabbakheen</h1><p>\u0637\u0628\u0627\u062E\u064A\u0646</p></div>
+<div class="inv-meta"><h2>${isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice'}</h2>
+<p>#${invoiceNum}</p>
+<p>${isAr ? '\u0627\u0644\u062A\u0627\u0631\u064A\u062E' : 'Date'}: ${created}</p>
+</div></div>
+<div class="inv-body">
+<div class="details">
+<div class="detail-box">
+<h3>${isAr ? '\u0635\u0627\u062F\u0631\u0629 \u0645\u0646' : 'Issued By'}</h3>
+<p class="name">${isAr ? biz.name : biz.nameEn}</p>
+<p>${isAr ? '\u0633\u062C\u0644 \u062A\u062C\u0627\u0631\u064A' : 'CR'}: ${biz.cr}</p>
+<p>${isAr ? biz.building + ' ' + biz.street : biz.building + ' ' + biz.streetEn}</p>
+<p>${isAr ? biz.district + ', ' + biz.city + ' ' + biz.postal : biz.districtEn + ', ' + biz.cityEn + ' ' + biz.postal}</p>
+<p>${isAr ? biz.country : biz.countryEn}</p>
+</div>
+<div class="detail-box">
+<h3>${isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629 \u0625\u0644\u0649' : 'Invoice To'}</h3>
+<p class="name">${invoice.userName || 'N/A'}</p>
+${invoice.userEmail ? '<p>' + invoice.userEmail + '</p>' : ''}
+${invoice.userPhone ? '<p>' + invoice.userPhone + '</p>' : ''}
+</div></div>
+<table><thead><tr>
+<th>${isAr ? '\u0627\u0644\u0628\u064A\u0627\u0646' : 'Description'}</th>
+<th>${isAr ? '\u0627\u0644\u0641\u062A\u0631\u0629' : 'Period'}</th>
+<th>${isAr ? '\u0627\u0644\u0645\u0628\u0644\u063A' : 'Amount'}</th>
+</tr></thead><tbody>
+<tr><td>${isAr ? '\u0627\u0634\u062A\u0631\u0627\u0643' : 'Subscription'} - ${invoice.subscriptionPlan || 'Basic'}</td>
+<td>${invoice.startDate || ''} - ${invoice.endDate || ''}</td>
+<td>${invoice.amount || 0} ${invoice.currency || 'SAR'}</td></tr>
+<tr class="total-row"><td colspan="2">${isAr ? '\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A' : 'Total'}</td>
+<td>${invoice.amount || 0} ${invoice.currency || 'SAR'}</td></tr>
+</tbody></table>
+${invoice.paymentMethod ? '<div class="meta-info"><strong>' + (isAr ? '\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062F\u0641\u0639' : 'Payment Method') + ':</strong> ' + invoice.paymentMethod + '</div>' : ''}
+${invoice.notes ? '<div class="meta-info"><strong>' + (isAr ? '\u0645\u0644\u0627\u062D\u0638\u0627\u062A' : 'Notes') + ':</strong> ' + invoice.notes + '</div>' : ''}
+<div class="bilingual">
+<h4>${isAr ? '\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0645\u0624\u0633\u0633\u0629' : 'Business Details (Arabic)'}</h4>
+<p><strong>${biz.name}</strong></p>
+<p>\u0633\u062C\u0644 \u062A\u062C\u0627\u0631\u064A: ${biz.cr}</p>
+<p>${biz.building} ${biz.street}, ${biz.district}, ${biz.city} ${biz.postal}</p>
+<p>${biz.country}</p>
+</div>
+</div>
+<div class="footer">
+<p><strong>${isAr ? biz.name : biz.nameEn}</strong></p>
+<p>${isAr ? '\u0633\u062C\u0644 \u062A\u062C\u0627\u0631\u064A' : 'CR'}: ${biz.cr} | ${biz.building} ${isAr ? biz.street : biz.streetEn}, ${isAr ? biz.district : biz.districtEn}, ${isAr ? biz.city : biz.cityEn} ${biz.postal}</p>
+<p>${isAr ? biz.country : biz.countryEn}</p>
+</div>
+</div>
+<div class="actions">
+<button class="btn btn-primary" onclick="window.print()">${isAr ? '\u0637\u0628\u0627\u0639\u0629 / \u062D\u0641\u0638 PDF' : 'Print / Save as PDF'}</button>
+<button class="btn btn-secondary" onclick="window.close()">${isAr ? '\u0625\u063A\u0644\u0627\u0642' : 'Close'}</button>
+</div>
+</body></html>`;
+}
+
+function generateInvoiceEmailHTML(invoice, lang) {
+  const isAr = lang === 'ar';
+  const biz = {
+    name: '\u0645\u0624\u0633\u0633\u0629 \u0633\u0627\u0644\u0645 \u0628\u0646 \u0639\u0644\u064A \u0627\u0644\u0646\u0639\u064A\u0645\u064A',
+    nameEn: 'Salem Bin Ali Al-Nuaimi Est.',
+    cr: '7050191290'
+  };
+  const dir = isAr ? 'rtl' : 'ltr';
+  return `<div dir="${dir}" style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;background:#fff">
+<div style="background:linear-gradient(135deg,#e8722a,#d4631f);padding:24px 30px;color:#fff;border-radius:8px 8px 0 0">
+<h1 style="margin:0;font-size:22px">Tabbakheen</h1>
+<p style="margin:4px 0 0;font-size:12px;opacity:.85">\u0637\u0628\u0627\u062E\u064A\u0646</p>
+</div>
+<div style="padding:24px 30px;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 8px 8px">
+<h2 style="color:#333;font-size:18px;margin:0 0 16px">${isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice'} #${invoice.invoiceNumber || ''}</h2>
+<table style="width:100%;border-collapse:collapse;margin:16px 0">
+<tr style="background:#f8fafc"><td style="padding:10px 14px;font-size:13px;color:#555;border:1px solid #e2e8f0;font-weight:700">${isAr ? '\u0627\u0644\u0639\u0645\u064A\u0644' : 'Customer'}</td><td style="padding:10px 14px;font-size:13px;border:1px solid #e2e8f0">${invoice.userName || ''}</td></tr>
+<tr><td style="padding:10px 14px;font-size:13px;color:#555;border:1px solid #e2e8f0;font-weight:700">${isAr ? '\u0627\u0644\u062E\u0637\u0629' : 'Plan'}</td><td style="padding:10px 14px;font-size:13px;border:1px solid #e2e8f0">${invoice.subscriptionPlan || 'Basic'}</td></tr>
+<tr style="background:#f8fafc"><td style="padding:10px 14px;font-size:13px;color:#555;border:1px solid #e2e8f0;font-weight:700">${isAr ? '\u0627\u0644\u0641\u062A\u0631\u0629' : 'Period'}</td><td style="padding:10px 14px;font-size:13px;border:1px solid #e2e8f0">${invoice.startDate || ''} - ${invoice.endDate || ''}</td></tr>
+<tr><td style="padding:10px 14px;font-size:13px;color:#555;border:1px solid #e2e8f0;font-weight:700">${isAr ? '\u0627\u0644\u0645\u0628\u0644\u063A' : 'Amount'}</td><td style="padding:10px 14px;font-size:14px;border:1px solid #e2e8f0;font-weight:700;color:#e8722a">${invoice.amount || 0} ${invoice.currency || 'SAR'}</td></tr>
+${invoice.paymentMethod ? '<tr style="background:#f8fafc"><td style="padding:10px 14px;font-size:13px;color:#555;border:1px solid #e2e8f0;font-weight:700">' + (isAr ? '\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062F\u0641\u0639' : 'Payment') + '</td><td style="padding:10px 14px;font-size:13px;border:1px solid #e2e8f0">' + invoice.paymentMethod + '</td></tr>' : ''}
+</table>
+<div style="margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0;font-size:11px;color:#888;text-align:center">
+<p><strong>${isAr ? biz.name : biz.nameEn}</strong></p>
+<p>CR: ${biz.cr}</p>
+</div>
+</div></div>`;
 }
 
 // ============================================================
@@ -862,7 +1202,7 @@ function getAdminHTML() {
 '.badge-purple{background:#ede9fe;color:#5b21b6}\n' +
 '.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:center;justify-content:center}\n' +
 '.modal-overlay.show{display:flex}\n' +
-'.modal{background:var(--card);border-radius:16px;padding:28px;width:560px;max-width:92vw;max-height:90vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,.2)}\n' +
+'.modal{background:var(--card);border-radius:16px;padding:28px;width:600px;max-width:92vw;max-height:90vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,.2)}\n' +
 '.modal h3{font-size:18px;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--border)}\n' +
 '.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border);flex-wrap:wrap}\n' +
 '.toggle{display:flex;align-items:center;gap:10px;cursor:pointer}\n' +
@@ -894,6 +1234,11 @@ function getAdminHTML() {
 '.img-thumb{width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer}\n' +
 '.img-modal{max-width:90vw;max-height:80vh;border-radius:8px}\n' +
 '.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}\n' +
+'.inv-list-item{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:#fafbfc}\n' +
+'.inv-list-item .inv-info{flex:1}\n' +
+'.inv-list-item .inv-info .inv-num{font-weight:600;font-size:14px;color:var(--text)}\n' +
+'.inv-list-item .inv-info .inv-detail{font-size:12px;color:var(--text2);margin-top:2px}\n' +
+'.inv-list-item .inv-actions{display:flex;gap:6px;flex-wrap:wrap}\n' +
 '@media(max-width:768px){\n' +
 '  .sidebar{width:60px}.sidebar-logo h2,.sidebar-logo span,.nav-item span{display:none}.nav-item{justify-content:center;padding:12px}\n' +
 '  html[dir="rtl"] .main{margin-right:60px}html[dir="ltr"] .main{margin-left:60px}\n' +
@@ -930,6 +1275,10 @@ function getAdminHTML() {
 '          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>\n' +
 '          <span id="nav-users"></span>\n' +
 '        </div>\n' +
+'        <div class="nav-item" data-page="invoices" onclick="navigate(\'invoices\')">\n' +
+'          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>\n' +
+'          <span id="nav-invoices"></span>\n' +
+'        </div>\n' +
 '        <div class="nav-item" data-page="settings" onclick="navigate(\'settings\')">\n' +
 '          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>\n' +
 '          <span id="nav-settings"></span>\n' +
@@ -960,6 +1309,7 @@ function getAdminHTML() {
 'enterPassword:"\u0623\u062F\u062E\u0644 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631",' +
 'dashboard:"\u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645",' +
 'users:"\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645\u064A\u0646",' +
+'invoices:"\u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631",' +
 'settings:"\u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A",' +
 'logout:"\u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062E\u0631\u0648\u062C",' +
 'totalUsers:"\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645\u064A\u0646",' +
@@ -1070,14 +1420,22 @@ function getAdminHTML() {
 'notes:"\u0645\u0644\u0627\u062D\u0638\u0627\u062A",' +
 'generateInvoice:"\u0625\u0646\u0634\u0627\u0621 \u0641\u0627\u062A\u0648\u0631\u0629",' +
 'viewInvoice:"\u0639\u0631\u0636 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629",' +
+'downloadPdf:"\u062A\u062D\u0645\u064A\u0644 PDF",' +
 'sendByEmail:"\u0625\u0631\u0633\u0627\u0644 \u0628\u0627\u0644\u0628\u0631\u064A\u062F",' +
 'invoiceSaved:"\u062A\u0645 \u062D\u0641\u0638 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629",' +
 'invoiceSent:"\u062A\u0645 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629",' +
+'invoiceEmailFailed:"\u0641\u0634\u0644 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629",' +
+'noInvoices:"\u0644\u0627 \u062A\u0648\u062C\u062F \u0641\u0648\u0627\u062A\u064A\u0631",' +
+'invoiceNumber:"\u0631\u0642\u0645 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629",' +
+'date:"\u0627\u0644\u062A\u0627\u0631\u064A\u062E",' +
 'close:"\u0625\u063A\u0644\u0627\u0642",' +
 'selectFile:"\u0627\u062E\u062A\u0631 \u0645\u0644\u0641",' +
 'noName:"\u0628\u062F\u0648\u0646 \u0627\u0633\u0645",' +
 'na:"\u063A\u064A\u0631 \u0645\u062A\u0648\u0641\u0631",' +
-'clickToExpand:"\u0627\u0636\u063A\u0637 \u0644\u0644\u062A\u0641\u0627\u0635\u064A\u0644"' +
+'clickToExpand:"\u0627\u0636\u063A\u0637 \u0644\u0644\u062A\u0641\u0627\u0635\u064A\u0644",' +
+'status:"\u0627\u0644\u062D\u0627\u0644\u0629",' +
+'issued:"\u0635\u0627\u062F\u0631\u0629",' +
+'allInvoices:"\u062C\u0645\u064A\u0639 \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631"' +
 '},en:{' +
 'adminDashboard:"Tabbakheen Admin",' +
 'adminPanel:"Admin Panel",' +
@@ -1088,6 +1446,7 @@ function getAdminHTML() {
 'enterPassword:"Enter admin password",' +
 'dashboard:"Dashboard",' +
 'users:"Users",' +
+'invoices:"Invoices",' +
 'settings:"Settings",' +
 'logout:"Logout",' +
 'totalUsers:"Total Users",' +
@@ -1198,20 +1557,27 @@ function getAdminHTML() {
 'notes:"Notes",' +
 'generateInvoice:"Generate Invoice",' +
 'viewInvoice:"View Invoice",' +
+'downloadPdf:"Download PDF",' +
 'sendByEmail:"Send by Email",' +
 'invoiceSaved:"Invoice saved",' +
-'invoiceSent:"Invoice sent",' +
+'invoiceSent:"Invoice sent by email",' +
+'invoiceEmailFailed:"Failed to send invoice",' +
+'noInvoices:"No invoices found",' +
+'invoiceNumber:"Invoice #",' +
+'date:"Date",' +
 'close:"Close",' +
 'selectFile:"Select file",' +
 'noName:"No name",' +
 'na:"N/A",' +
-'clickToExpand:"Click to expand"' +
+'clickToExpand:"Click to expand",' +
+'status:"Status",' +
+'issued:"Issued",' +
+'allInvoices:"All Invoices"' +
 '}};\n' +
 'var lang=localStorage.getItem("tbk_admin_lang")||"ar";\n' +
 'function t(k){return(T[lang]&&T[lang][k])||T.en[k]||k;}\n' +
 'function setLang(l){lang=l;localStorage.setItem("tbk_admin_lang",l);var d=l==="ar"?"rtl":"ltr";document.documentElement.dir=d;document.documentElement.lang=l;updateStaticLabels();renderPage();}\n' +
 'function updateStaticLabels(){\n' +
-'  var s=document.getElementById;\n' +
 '  document.getElementById("login-subtitle").textContent=t("adminDashboard");\n' +
 '  document.getElementById("login-pw-label").textContent=t("adminPassword");\n' +
 '  document.getElementById("login-password").placeholder=t("enterPassword");\n' +
@@ -1219,6 +1585,7 @@ function getAdminHTML() {
 '  document.getElementById("sidebar-subtitle").textContent=t("adminPanel");\n' +
 '  document.getElementById("nav-dashboard").textContent=t("dashboard");\n' +
 '  document.getElementById("nav-users").textContent=t("users");\n' +
+'  document.getElementById("nav-invoices").textContent=t("invoices");\n' +
 '  document.getElementById("nav-settings").textContent=t("settings");\n' +
 '  document.getElementById("nav-logout").textContent=t("logout");\n' +
 '}\n' +
@@ -1227,6 +1594,7 @@ function getAdminHTML() {
 'var allUsers=[];\n' +
 'var allOrders=[];\n' +
 'var allOffers=[];\n' +
+'var allInvoices=[];\n' +
 'var appSettings={};\n' +
 '\nasync function api(path,opts){\n' +
 '  opts=opts||{};\n' +
@@ -1257,10 +1625,10 @@ function getAdminHTML() {
 '  document.querySelectorAll(".nav-item[data-page]").forEach(function(el){el.classList.toggle("active",el.dataset.page===page);});\n' +
 '  renderPage();\n' +
 '}\n' +
-'\nfunction toast(msg,type){type=type||"success";var t=document.getElementById("toast");t.textContent=msg;t.className="toast show "+type;setTimeout(function(){t.className="toast";},3000);}\n' +
+'\nfunction toast(msg,type){type=type||"success";var el=document.getElementById("toast");el.textContent=msg;el.className="toast show "+type;setTimeout(function(){el.className="toast";},3000);}\n' +
 'function closeModal(){document.getElementById("modal-overlay").classList.remove("show");}\n' +
 'function openModal(html){document.getElementById("modal-content").innerHTML=html;document.getElementById("modal-overlay").classList.add("show");}\n' +
-'function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML;}\n' +
+'function esc(s){if(!s)return"";var d=document.createElement("div");d.textContent=s;return d.innerHTML;}\n' +
 '\nfunction roleBadge(role){\n' +
 '  var m={customer:"blue",provider:"orange",driver:"purple"};\n' +
 '  var l={customer:t("customer"),provider:t("provider"),driver:t("driver")};\n' +
@@ -1297,8 +1665,9 @@ function getAdminHTML() {
 '  try{\n' +
 '    if(currentPage==="dashboard")await renderDashboard(c);\n' +
 '    else if(currentPage==="users")await renderUsers(c);\n' +
+'    else if(currentPage==="invoices")await renderInvoices(c);\n' +
 '    else if(currentPage==="settings")await renderSettings(c);\n' +
-'  }catch(e){c.innerHTML=\'<div class="empty">Error: \'+e.message+\'</div>\';}\n' +
+'  }catch(e){c.innerHTML=\'<div class="empty">Error: \'+esc(e.message)+\'</div>\';}\n' +
 '}\n' +
 '\nasync function renderDashboard(c){\n' +
 '  var data=await api("/stats");\n' +
@@ -1508,8 +1877,46 @@ function getAdminHTML() {
 '    var data=await api("/invoices",{method:"POST",body:JSON.stringify(invoice)});\n' +
 '    if(data&&data.success){\n' +
 '      toast(t("invoiceSaved"));\n' +
-'      window.open("/admin/api/invoice-html/"+data.invoiceId+"?lang="+lang,"_blank");\n' +
+'      showInvoiceActions(data.invoiceId,invoice);\n' +
 '    }else{toast(data&&data.error||"Failed","error");}\n' +
+'  }catch(e){toast(e.message,"error");}\n' +
+'}\n' +
+'\nfunction showInvoiceActions(invoiceId,invoice){\n' +
+'  openModal(\n' +
+'    \'<h3>\'+t("invoiceSaved")+\'</h3>\'+\n' +
+'    \'<div style="margin-bottom:16px"><p style="font-size:14px;color:var(--text2);margin-bottom:4px">\'+t("invoiceNumber")+\': <strong>\'+esc(invoice.invoiceNumber)+\'</strong></p>\'+\n' +
+'    \'<p style="font-size:14px;color:var(--text2)">\'+t("name")+\': <strong>\'+esc(invoice.userName)+\'</strong></p>\'+\n' +
+'    \'<p style="font-size:14px;color:var(--text2)">\'+t("amount")+\': <strong>\'+invoice.amount+\' \'+invoice.currency+\'</strong></p></div>\'+\n' +
+'    \'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">\'+\n' +
+'    \'<button class="btn btn-primary" onclick="viewInvoiceHTML(\\\'\'+invoiceId+\'\\\')">\'+t("viewInvoice")+\'</button>\'+\n' +
+'    \'<button class="btn btn-orange" onclick="downloadInvoicePdf(\\\'\'+invoiceId+\'\\\')">\'+t("downloadPdf")+\'</button>\'+\n' +
+'    (invoice.userEmail?\'<button class="btn btn-success" onclick="emailInvoice(\\\'\'+invoiceId+\'\\\')">\'+t("sendByEmail")+\'</button>\':"")+\n' +
+'    \'</div>\'+\n' +
+'    \'<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">\'+t("close")+\'</button></div>\'\n' +
+'  );\n' +
+'}\n' +
+'\nasync function viewInvoiceHTML(invoiceId){\n' +
+'  try{\n' +
+'    var data=await api("/invoices/"+invoiceId+"/token");\n' +
+'    if(data&&data.token){\n' +
+'      window.open("/admin/invoice/"+invoiceId+"?token="+encodeURIComponent(data.token)+"&lang="+lang,"_blank");\n' +
+'    }else{toast("Failed to get access token","error");}\n' +
+'  }catch(e){toast(e.message,"error");}\n' +
+'}\n' +
+'\nasync function downloadInvoicePdf(invoiceId){\n' +
+'  try{\n' +
+'    var data=await api("/invoices/"+invoiceId+"/token");\n' +
+'    if(data&&data.token){\n' +
+'      var url="/admin/invoice/"+invoiceId+"/pdf?token="+encodeURIComponent(data.token)+"&lang="+lang;\n' +
+'      var a=document.createElement("a");a.href=url;a.download="invoice-"+invoiceId+".pdf";document.body.appendChild(a);a.click();document.body.removeChild(a);\n' +
+'    }else{toast("Failed to get access token","error");}\n' +
+'  }catch(e){toast(e.message,"error");}\n' +
+'}\n' +
+'\nasync function emailInvoice(invoiceId){\n' +
+'  try{\n' +
+'    var data=await api("/invoices/"+invoiceId+"/email",{method:"POST",body:JSON.stringify({lang:lang})});\n' +
+'    if(data&&data.success)toast(t("invoiceSent"));\n' +
+'    else toast(data&&data.error||t("invoiceEmailFailed"),"error");\n' +
 '  }catch(e){toast(e.message,"error");}\n' +
 '}\n' +
 '\nasync function sendSubReminder(uid){\n' +
@@ -1518,6 +1925,30 @@ function getAdminHTML() {
 '    if(data&&data.success)toast(t("reminderSent"));\n' +
 '    else toast(data&&data.error||"Failed","error");\n' +
 '  }catch(e){toast(e.message,"error");}\n' +
+'}\n' +
+'\nasync function renderInvoices(c){\n' +
+'  var data=await api("/invoices");\n' +
+'  if(!data)return;\n' +
+'  allInvoices=data.invoices||[];\n' +
+'  allInvoices.sort(function(a,b){return(b.createdAt||"").localeCompare(a.createdAt||"");});\n' +
+'  c.innerHTML=\'<h1 class="page-title">\'+t("allInvoices")+" ("+allInvoices.length+")</h1>";\n' +
+'  if(!allInvoices.length){c.innerHTML+=\'<div class="empty">\'+t("noInvoices")+\'</div>\';return;}\n' +
+'  c.innerHTML+=\'<div class="table-wrap"><table><thead><tr><th>\'+t("invoiceNumber")+\'</th><th>\'+t("name")+\'</th><th>\'+t("amount")+\'</th><th>\'+t("date")+\'</th><th>\'+t("status")+\'</th><th>\'+t("actions")+\'</th></tr></thead><tbody>\'+\n' +
+'  allInvoices.map(function(inv){\n' +
+'    var dt=inv.createdAt?new Date(inv.createdAt).toLocaleDateString():"N/A";\n' +
+'    return "<tr>"+\n' +
+'      "<td><strong>"+esc(inv.invoiceNumber||inv._id)+"</strong></td>"+\n' +
+'      "<td>"+esc(inv.userName||"")+"</td>"+\n' +
+'      "<td>"+(inv.amount||0)+" "+(inv.currency||"SAR")+"</td>"+\n' +
+'      "<td style=\\"font-size:12px;color:var(--text2)\\">"+dt+"</td>"+\n' +
+'      "<td><span class=\\"badge badge-green\\">"+t("issued")+"</span></td>"+\n' +
+'      "<td style=\\"white-space:nowrap\\">"+\n' +
+'        "<button class=\\"btn btn-sm btn-primary\\" style=\\"margin:2px\\" onclick=\\"viewInvoiceHTML(\'"+inv._id+"\')\\">"+t("viewInvoice")+"</button> "+\n' +
+'        "<button class=\\"btn btn-sm btn-orange\\" style=\\"margin:2px\\" onclick=\\"downloadInvoicePdf(\'"+inv._id+"\')\\">PDF</button> "+\n' +
+'        (inv.userEmail?"<button class=\\"btn btn-sm btn-success\\" style=\\"margin:2px\\" onclick=\\"emailInvoice(\'"+inv._id+"\')\\">\u2709</button>":"")+\n' +
+'      "</td></tr>";\n' +
+'  }).join("")+\n' +
+'  "</tbody></table></div>";\n' +
 '}\n' +
 '\nasync function renderSettings(c){\n' +
 '  var data=await api("/settings");\n' +
@@ -1621,10 +2052,10 @@ function getAdminHTML() {
 '\nasync function changePassword(){\n' +
 '  var cur=document.getElementById("s-curPw").value;\n' +
 '  var newPw=document.getElementById("s-newPw").value;\n' +
-'  var confirm=document.getElementById("s-confirmPw").value;\n' +
+'  var confirmPw=document.getElementById("s-confirmPw").value;\n' +
 '  var msgEl=document.getElementById("pw-msg");\n' +
 '  if(!cur||!newPw){msgEl.textContent=t("enterPassword");msgEl.className="err-msg";msgEl.style.display="block";return;}\n' +
-'  if(newPw!==confirm){msgEl.textContent=t("passwordMismatch");msgEl.className="err-msg";msgEl.style.display="block";return;}\n' +
+'  if(newPw!==confirmPw){msgEl.textContent=t("passwordMismatch");msgEl.className="err-msg";msgEl.style.display="block";return;}\n' +
 '  try{\n' +
 '    var data=await api("/change-password",{method:"POST",body:JSON.stringify({currentPassword:cur,newPassword:newPw})});\n' +
 '    if(data&&data.success){\n' +
@@ -1646,8 +2077,22 @@ function getAdminHTML() {
 // MAIN WORKER HANDLER
 // ============================================================
 
-export default {
-  async fetch(request, env) {
+addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request, event));
+});
+
+async function handleRequest(request) {
+  const env = typeof globalThis !== 'undefined' ? globalThis : {};
+  try { if (typeof FIREBASE_CLIENT_EMAIL !== 'undefined') env.FIREBASE_CLIENT_EMAIL = FIREBASE_CLIENT_EMAIL; } catch {}
+  try { if (typeof FIREBASE_PRIVATE_KEY !== 'undefined') env.FIREBASE_PRIVATE_KEY = FIREBASE_PRIVATE_KEY; } catch {}
+  try { if (typeof API_KEY !== 'undefined') env.API_KEY = API_KEY; } catch {}
+  try { if (typeof ADMIN_PASSWORD !== 'undefined') env.ADMIN_PASSWORD = ADMIN_PASSWORD; } catch {}
+  try { if (typeof ADMIN_TOKEN_SECRET !== 'undefined') env.ADMIN_TOKEN_SECRET = ADMIN_TOKEN_SECRET; } catch {}
+  try { if (typeof CLOUDINARY_CLOUD_NAME !== 'undefined') env.CLOUDINARY_CLOUD_NAME = CLOUDINARY_CLOUD_NAME; } catch {}
+  try { if (typeof CLOUDINARY_API_KEY !== 'undefined') env.CLOUDINARY_API_KEY = CLOUDINARY_API_KEY; } catch {}
+  try { if (typeof CLOUDINARY_API_SECRET !== 'undefined') env.CLOUDINARY_API_SECRET = CLOUDINARY_API_SECRET; } catch {}
+  try { if (typeof EMAIL_API_KEY !== 'undefined') env.EMAIL_API_KEY = EMAIL_API_KEY; } catch {}
+  try { if (typeof EMAIL_FROM !== 'undefined') env.EMAIL_FROM = EMAIL_FROM; } catch {}
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -1662,7 +2107,7 @@ export default {
     }
 
     if (path === '/' && request.method === 'GET') {
-      return Response.json({ status: 'ok', service: 'tabbakheen-api', admin: true });
+      return Response.json({ status: 'ok', service: 'tabbakheen-api', version: '2.1.0', admin: true, pdf: true });
     }
 
     // ============================================================
@@ -1673,6 +2118,62 @@ export default {
       return new Response(getAdminHTML(), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' }
       });
+    }
+
+    // Signed invoice HTML view (no Bearer auth needed, uses token query param)
+    const invoiceViewMatch = path.match(/^\/admin\/invoice\/([^/]+)$/);
+    if (invoiceViewMatch && request.method === 'GET') {
+      const invoiceId = invoiceViewMatch[1];
+      const signedToken = url.searchParams.get('token');
+      const valid = await verifySignedInvoiceToken(signedToken, invoiceId, env);
+      if (!valid) {
+        return new Response('Unauthorized - invalid or expired invoice token', { status: 401 });
+      }
+      try {
+        const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
+        const invoice = await getFirestoreDoc('invoices', invoiceId, accessToken);
+        if (!invoice) {
+          return new Response('Invoice not found', { status: 404 });
+        }
+        const invoiceLang = url.searchParams.get('lang') || 'ar';
+        const html = generateInvoiceHTML(invoice, invoiceLang);
+        return new Response(html, {
+          headers: { 'Content-Type': 'text/html;charset=UTF-8' }
+        });
+      } catch (e) {
+        return new Response('Error: ' + e.message, { status: 500 });
+      }
+    }
+
+    // Signed invoice PDF download
+    const invoicePdfMatch = path.match(/^\/admin\/invoice\/([^/]+)\/pdf$/);
+    if (invoicePdfMatch && request.method === 'GET') {
+      const invoiceId = invoicePdfMatch[1];
+      const signedToken = url.searchParams.get('token');
+      const valid = await verifySignedInvoiceToken(signedToken, invoiceId, env);
+      if (!valid) {
+        return new Response('Unauthorized - invalid or expired invoice token', { status: 401 });
+      }
+      try {
+        const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
+        const invoice = await getFirestoreDoc('invoices', invoiceId, accessToken);
+        if (!invoice) {
+          return new Response('Invoice not found', { status: 404 });
+        }
+        const invoiceLang = url.searchParams.get('lang') || 'ar';
+        const pdfBytes = generatePDFBytes(invoice, invoiceLang);
+        const filename = 'invoice-' + (invoice.invoiceNumber || invoiceId) + '.pdf';
+        return new Response(pdfBytes, {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': 'attachment; filename="' + filename + '"',
+            'Content-Length': String(pdfBytes.length)
+          }
+        });
+      } catch (e) {
+        console.error('[Invoice PDF] Error:', e);
+        return new Response('Error generating PDF: ' + e.message, { status: 500 });
+      }
     }
 
     if (path === '/admin/api/login' && request.method === 'POST') {
@@ -1705,7 +2206,7 @@ export default {
       try {
         const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
 
-        // Stats (enhanced with users/orders/offers for dashboard drill-down)
+        // Stats
         if (path === '/admin/api/stats' && request.method === 'GET') {
           const [users, orders, offers] = await Promise.all([
             listAllUsers(accessToken),
@@ -1722,14 +2223,12 @@ export default {
             suspendedAccounts: users.filter(u => u.accountStatus === 'suspended' || u.accountStatus === 'disabled').length,
             activeSubscriptions: users.filter(u => u.subscriptionStatus === 'active').length,
           };
-          console.log('[Admin] Stats:', JSON.stringify(stats));
           return jsonResponse({ success: true, stats, users, orders, offers });
         }
 
         // List users
         if (path === '/admin/api/users' && request.method === 'GET') {
           const users = await listAllUsers(accessToken);
-          console.log('[Admin] Listed', users.length, 'users');
           return jsonResponse({ success: true, users });
         }
 
@@ -1751,16 +2250,13 @@ export default {
           if (Object.keys(fields).length === 0) {
             return jsonResponse({ error: 'No valid fields' }, 400);
           }
-          console.log('[Admin] Updating user', uid, 'fields:', Object.keys(fields).join(', '));
           await updateFirestoreDocument('users', uid, fields, accessToken);
-          console.log('[Admin] User updated:', uid);
           return jsonResponse({ success: true, updated: Object.keys(fields) });
         }
 
         // Get settings
         if (path === '/admin/api/settings' && request.method === 'GET') {
           const settings = await getFirestoreDoc('app_settings', 'main', accessToken);
-          console.log('[Admin] Settings loaded:', settings ? 'found' : 'not found');
           return jsonResponse({ success: true, settings: settings || {} });
         }
 
@@ -1779,25 +2275,21 @@ export default {
           if (Object.keys(fields).length === 0) {
             return jsonResponse({ error: 'No valid settings fields' }, 400);
           }
-          console.log('[Admin] Updating settings, fields:', Object.keys(fields).join(', '));
           await updateFirestoreDocument('app_settings', 'main', fields, accessToken);
-          console.log('[Admin] Settings updated');
           return jsonResponse({ success: true, updated: Object.keys(fields) });
         }
 
-        // Upload banner (signed Cloudinary upload through Worker)
+        // Upload banner
         if (path === '/admin/api/upload-banner' && request.method === 'POST') {
           try {
             const body = await request.json();
             if (!body.image) {
               return jsonResponse({ error: 'No image data provided' }, 400);
             }
-            console.log('[Admin] Uploading banner to Cloudinary...');
             const result = await uploadToCloudinary(body.image, 'tabbakheen/banners', env);
             await updateFirestoreDocument('app_settings', 'main', {
               bannerImageUrl: result.secure_url
             }, accessToken);
-            console.log('[Admin] Banner uploaded and saved:', result.secure_url);
             return jsonResponse({ success: true, url: result.secure_url });
           } catch (e) {
             console.error('[Admin] Banner upload error:', e);
@@ -1821,12 +2313,16 @@ export default {
               passwordHash: newHash,
               updatedAt: new Date().toISOString()
             }, accessToken);
-            console.log('[Admin] Password changed successfully');
             return jsonResponse({ success: true });
           } catch (e) {
-            console.error('[Admin] Password change error:', e);
             return jsonResponse({ error: e.message || 'Failed' }, 500);
           }
+        }
+
+        // List invoices
+        if (path === '/admin/api/invoices' && request.method === 'GET') {
+          const invoices = await listAllInvoices(accessToken);
+          return jsonResponse({ success: true, invoices });
         }
 
         // Create invoice
@@ -1839,24 +2335,48 @@ export default {
             console.log('[Admin] Invoice created:', invoiceId);
             return jsonResponse({ success: true, invoiceId });
           } catch (e) {
-            console.error('[Admin] Invoice creation error:', e);
             return jsonResponse({ error: e.message }, 500);
           }
         }
 
-        // Get invoice HTML
-        const invoiceMatch = path.match(/^\/admin\/api\/invoice-html\/([^/]+)$/);
-        if (invoiceMatch && request.method === 'GET') {
-          const invoiceId = invoiceMatch[1];
-          const invoice = await getFirestoreDoc('invoices', invoiceId, accessToken);
-          if (!invoice) {
-            return new Response('Invoice not found', { status: 404 });
+        // Get signed token for invoice access
+        const invoiceTokenMatch = path.match(/^\/admin\/api\/invoices\/([^/]+)\/token$/);
+        if (invoiceTokenMatch && request.method === 'GET') {
+          const invoiceId = invoiceTokenMatch[1];
+          const signedToken = await createSignedInvoiceToken(invoiceId, env);
+          return jsonResponse({ success: true, token: signedToken });
+        }
+
+        // Email invoice
+        const invoiceEmailMatch = path.match(/^\/admin\/api\/invoices\/([^/]+)\/email$/);
+        if (invoiceEmailMatch && request.method === 'POST') {
+          try {
+            const invoiceId = invoiceEmailMatch[1];
+            const body = await request.json();
+            const invoiceLang = body.lang || 'ar';
+            const invoice = await getFirestoreDoc('invoices', invoiceId, accessToken);
+            if (!invoice) {
+              return jsonResponse({ error: 'Invoice not found' }, 404);
+            }
+            if (!invoice.userEmail) {
+              return jsonResponse({ error: 'No email address for this invoice recipient' }, 400);
+            }
+            const isAr = invoiceLang === 'ar';
+            const subject = isAr
+              ? '\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0634\u062A\u0631\u0627\u0643 - \u0637\u0628\u0627\u062E\u064A\u0646 #' + (invoice.invoiceNumber || invoiceId)
+              : 'Subscription Invoice - Tabbakheen #' + (invoice.invoiceNumber || invoiceId);
+            const emailHtml = generateInvoiceEmailHTML(invoice, invoiceLang);
+            const result = await sendEmail(invoice.userEmail, subject, emailHtml, env);
+            if (result.sent) {
+              await updateFirestoreDocument('invoices', invoiceId, {
+                emailSentAt: new Date().toISOString(),
+                emailSentTo: invoice.userEmail
+              }, accessToken);
+            }
+            return jsonResponse({ success: result.sent, emailId: result.id, reason: result.reason });
+          } catch (e) {
+            return jsonResponse({ error: e.message }, 500);
           }
-          const invoiceLang = url.searchParams.get('lang') || 'ar';
-          const html = generateInvoiceHTML(invoice, invoiceLang);
-          return new Response(html, {
-            headers: { 'Content-Type': 'text/html;charset=UTF-8' }
-          });
         }
 
         // Send subscription reminder
@@ -1880,7 +2400,6 @@ export default {
                 data: { type: 'subscription_reminder' },
                 sound: 'default'
               }]);
-              console.log('[Admin] Push reminder sent to', uid);
             }
 
             if (user.email) {
@@ -1895,7 +2414,6 @@ export default {
 
             return jsonResponse({ success: true, push: !!pushToken, email: !!user.email });
           } catch (e) {
-            console.error('[Admin] Reminder error:', e);
             return jsonResponse({ error: e.message }, 500);
           }
         }
@@ -1937,7 +2455,6 @@ export default {
             );
             return jsonResponse({ success: true, emailSent: emailResult.sent });
           } catch (e) {
-            console.error('[Admin] Completion email error:', e);
             return jsonResponse({ error: e.message }, 500);
           }
         }
@@ -1986,7 +2503,6 @@ export default {
         if (!type || !uid || !['provider', 'driver'].includes(type)) {
           return Response.json({ success: false, error: 'Missing or invalid type/uid' }, { status: 400, headers: { 'Access-Control-Allow-Origin': '*' } });
         }
-        console.log('[Worker] Aggregating ' + type + ' rating for ' + uid);
         const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
         const collectionPath = type === 'provider' ? 'provider_ratings' : 'driver_ratings';
         const ratingsUrl = FIRESTORE_BASE + '/' + collectionPath + '/' + uid + '/ratings';
@@ -2003,7 +2519,6 @@ export default {
         const count = ratings.length;
         const avg = count > 0 ? ratings.reduce((sum, r) => sum + (r.stars || 0), 0) / count : 0;
         const roundedAvg = Math.round(avg * 10) / 10;
-        console.log('[Worker] ' + type + ' ' + uid + ': ' + count + ' ratings, avg ' + roundedAvg);
         const updateUrl = FIRESTORE_BASE + '/users/' + uid + '?updateMask.fieldPaths=ratingAverage&updateMask.fieldPaths=ratingCount';
         const updateResponse = await fetch(updateUrl, {
           method: 'PATCH',
@@ -2019,16 +2534,13 @@ export default {
           })
         });
         if (!updateResponse.ok) {
-          const errText = await updateResponse.text();
-          console.error('[Worker] Failed to update user rating: ' + errText);
+          await updateResponse.text();
           return Response.json({ success: false, error: 'Failed to update user rating' }, { status: 500, headers: { 'Access-Control-Allow-Origin': '*' } });
         }
-        console.log('[Worker] Updated ' + type + ' ' + uid + ' rating: avg=' + roundedAvg + ', count=' + count);
         return Response.json({ success: true, ratingAverage: roundedAvg, ratingCount: count }, {
           headers: { 'Access-Control-Allow-Origin': '*' }
         });
       } catch (e) {
-        console.error('[Worker] Aggregate rating error:', e);
         return Response.json({ success: false, error: e.message || 'Internal error' }, {
           status: 500,
           headers: { 'Access-Control-Allow-Origin': '*' }
@@ -2037,5 +2549,4 @@ export default {
     }
 
     return Response.json({ success: false, error: 'Not found' }, { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
-  }
-};
+}
