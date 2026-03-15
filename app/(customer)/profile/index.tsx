@@ -49,27 +49,6 @@ export default function CustomerProfileScreen() {
   const [editAddress, setEditAddress] = useState<string>(user?.address ?? '');
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
-  if (!user) {
-    return (
-      <View style={styles.container}>
-        <SafeAreaView edges={['top']} style={styles.headerSafe}>
-          <Text style={[styles.headerTitle, isRTL && styles.rtlText]}>{t('profile')}</Text>
-        </SafeAreaView>
-        <View style={styles.guestContainer}>
-          <UserCircle size={48} color={Colors.textTertiary} />
-          <Text style={[styles.guestTitle, isRTL && styles.rtlText]}>{t('loginRequired')}</Text>
-          <Text style={[styles.guestDesc, isRTL && styles.rtlText]}>{t('loginRequiredMsg')}</Text>
-          <Pressable
-            style={({ pressed }) => [styles.guestLoginBtn, pressed && { opacity: 0.9 }]}
-            onPress={() => router.push('/auth/login' as any)}
-          >
-            <Text style={styles.guestLoginBtnText}>{t('login')}</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
-
   const handleChangeAvatar = useCallback(async () => {
     const result = await pickImageFromGallery();
     if (!result) return;
@@ -135,6 +114,27 @@ export default function CustomerProfileScreen() {
       ],
     );
   }, [logout, t, locale, router]);
+
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.headerSafe}>
+          <Text style={[styles.headerTitle, isRTL && styles.rtlText]}>{t('profile')}</Text>
+        </SafeAreaView>
+        <View style={styles.guestContainer}>
+          <UserCircle size={48} color={Colors.textTertiary} />
+          <Text style={[styles.guestTitle, isRTL && styles.rtlText]}>{t('loginRequired')}</Text>
+          <Text style={[styles.guestDesc, isRTL && styles.rtlText]}>{t('loginRequiredMsg')}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.guestLoginBtn, pressed && { opacity: 0.9 }]}
+            onPress={() => router.push('/auth/login' as any)}
+          >
+            <Text style={styles.guestLoginBtnText}>{t('login')}</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
