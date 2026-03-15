@@ -1,12 +1,15 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Linking, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ShieldAlert, Clock, Ban, LogOut } from 'lucide-react-native';
+import { ShieldAlert, Clock, Ban, LogOut, Mail, MessageCircle } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { AccountGateResult } from '@/utils/accountGating';
+
+const SUPPORT_EMAIL = 'tabbakheen@gmail.com';
+const WHATSAPP_NUMBER = '966570758881';
 
 interface AccountGateScreenProps {
   gateResult: AccountGateResult & { allowed: false };
@@ -88,10 +91,44 @@ export default function AccountGateScreen({ gateResult }: AccountGateScreenProps
         ) : null}
 
         <View style={styles.contactCard}>
-          <Text style={[styles.contactText, isRTL && styles.rtlText]}>
+          <Text style={[styles.contactLabel, isRTL && styles.rtlText]}>
             {locale === 'ar' ? 'للتواصل مع الإدارة:' : 'Contact admin:'}
           </Text>
-          <Text style={styles.contactEmail}>support@tabbakheen.com</Text>
+
+          <Pressable
+            style={({ pressed }) => [styles.contactRow, isRTL && styles.rowRTL, pressed && styles.contactRowPressed]}
+            onPress={async () => {
+              const subject = encodeURIComponent(locale === 'ar' ? 'دعم تطبيق طباخين' : 'Tabbakheen App Support');
+              const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}`;
+              try {
+                if (Platform.OS === 'web') { window.open(url, '_blank'); return; }
+                const canOpen = await Linking.canOpenURL(url);
+                if (canOpen) { await Linking.openURL(url); }
+              } catch { /* ignore */ }
+            }}
+          >
+            <View style={[styles.contactIcon, { backgroundColor: Colors.infoLight }]}>
+              <Mail size={18} color={Colors.info} />
+            </View>
+            <Text style={[styles.contactValue, isRTL && styles.rtlText]}>{SUPPORT_EMAIL}</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.contactRow, isRTL && styles.rowRTL, pressed && styles.contactRowPressed]}
+            onPress={async () => {
+              const url = `https://wa.me/${WHATSAPP_NUMBER}`;
+              try {
+                if (Platform.OS === 'web') { window.open(url, '_blank'); return; }
+                const canOpen = await Linking.canOpenURL(url);
+                if (canOpen) { await Linking.openURL(url); }
+              } catch { /* ignore */ }
+            }}
+          >
+            <View style={[styles.contactIcon, { backgroundColor: '#E7F5EC' }]}>
+              <MessageCircle size={18} color="#25D366" />
+            </View>
+            <Text style={[styles.contactValue, isRTL && styles.rtlText]}>+{WHATSAPP_NUMBER.replace('966', '966 ')}</Text>
+          </Pressable>
         </View>
 
         <Pressable
@@ -172,15 +209,35 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     alignItems: 'center' as const,
   },
-  contactText: {
+  contactLabel: {
     fontSize: 13,
     color: Colors.textSecondary,
-    marginBottom: 6,
+    marginBottom: 12,
   },
-  contactEmail: {
+  contactRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+    paddingVertical: 8,
+  },
+  rowRTL: {
+    flexDirection: 'row-reverse' as const,
+  },
+  contactRowPressed: {
+    opacity: 0.7,
+  },
+  contactIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+  },
+  contactValue: {
     fontSize: 15,
     fontWeight: '600' as const,
     color: Colors.primary,
+    flex: 1,
   },
   logoutBtn: {
     flexDirection: 'row' as const,

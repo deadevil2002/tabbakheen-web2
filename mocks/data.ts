@@ -446,8 +446,8 @@ export const MOCK_DRIVER_RATINGS: DriverRating[] = [
 
 export const MOCK_APP_SETTINGS: AppSettings = {
   bannerImageUrl: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&h=400&fit=crop',
-  supportEmail: 'support@tabbakheen.com',
-  supportWhatsapp: '+966500000000',
+  supportEmail: 'tabbakheen@gmail.com',
+  supportWhatsapp: '+966570758881',
   deliveryPricing: {
     currency: 'SAR',
     baseFee: 10,
