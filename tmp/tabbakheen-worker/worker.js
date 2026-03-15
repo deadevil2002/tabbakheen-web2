@@ -795,6 +795,8 @@ function pdfEscape(str) {
     .replace(/\r/g, '\\r');
 }
 
+const LOGO_URL = 'https://pub-e001eb4506b145aa938b5d3badbff6a5.r2.dev/attachments/mp58h8z5x4szfl3c5f7xm';
+
 function generatePDFBytes(invoice, lang) {
   const isAr = lang === 'ar';
 
@@ -862,6 +864,15 @@ function generatePDFBytes(invoice, lang) {
     streamContent += `BT\n/${f} ${size} Tf\n${c} rg\n${x} ${yPos} Td\n(${safeText}) Tj\nET\n`;
   }
 
+  function addCenteredText(text, yPos, size, font, color) {
+    const safeText = pdfEscape(text);
+    const f = font === 'bold' ? 'F2' : 'F1';
+    const c = color || '0 0 0';
+    const approxWidth = safeText.length * size * 0.52;
+    const x = (pageW - approxWidth) / 2;
+    streamContent += `BT\n/${f} ${size} Tf\n${c} rg\n${x} ${yPos} Td\n(${safeText}) Tj\nET\n`;
+  }
+
   function addLine(x1, y1, x2, y2, width, color) {
     const c = color || '0 0 0';
     streamContent += `${c} RG\n${width || 1} w\n${x1} ${y1} m\n${x2} ${y2} l\nS\n`;
@@ -872,26 +883,55 @@ function generatePDFBytes(invoice, lang) {
     streamContent += `${c} rg\n${x} ${yPos} ${w} ${h} re\nf\n`;
   }
 
-  addRect(0, pageH - 80, pageW, 80, '0.91 0.45 0.16');
+  function addCircle(cx, cy, r, fillColor, strokeColor, strokeWidth) {
+    const k = 0.5523;
+    const kr = k * r;
+    if (fillColor) streamContent += `${fillColor} rg\n`;
+    if (strokeColor) streamContent += `${strokeColor} RG\n${strokeWidth || 1} w\n`;
+    streamContent += `${cx} ${cy + r} m\n`;
+    streamContent += `${cx + kr} ${cy + r} ${cx + r} ${cy + kr} ${cx + r} ${cy} c\n`;
+    streamContent += `${cx + r} ${cy - kr} ${cx + kr} ${cy - r} ${cx} ${cy - r} c\n`;
+    streamContent += `${cx - kr} ${cy - r} ${cx - r} ${cy - kr} ${cx - r} ${cy} c\n`;
+    streamContent += `${cx - r} ${cy + kr} ${cx - kr} ${cy + r} ${cx} ${cy + r} c\n`;
+    if (fillColor && strokeColor) streamContent += 'B\n';
+    else if (fillColor) streamContent += 'f\n';
+    else streamContent += 'S\n';
+  }
 
-  addText('TABBAKHEEN', margin, pageH - 45, 22, 'bold', '1 1 1');
-  addText('Invoice / Fatura', margin, pageH - 65, 11, 'normal', '1 1 1');
+  const headerH = 120;
+  addRect(0, pageH - headerH, pageW, headerH, '0.91 0.45 0.16');
 
-  addText('Invoice #: ' + invoiceNumber, pageW - margin - 200, pageH - 45, 10, 'normal', '1 1 1');
-  addText('Date: ' + createdDate, pageW - margin - 200, pageH - 60, 10, 'normal', '1 1 1');
+  const badgeCx = pageW / 2;
+  const badgeCy = pageH - headerH + 5;
+  const badgeR = 50;
+  addCircle(badgeCx, badgeCy, badgeR + 2, '0.85 0.85 0.85', null, 0);
+  addCircle(badgeCx, badgeCy, badgeR, '1 1 1', null, 0);
 
-  y = pageH - 110;
+  addCenteredText('T', badgeCy - 8, 36, 'bold', '0.91 0.45 0.16');
+
+  y = badgeCy - badgeR - 16;
+  addCenteredText('Tabbakheen', y, 22, 'bold', '0.91 0.45 0.16');
+  y -= 18;
+  addCenteredText('Tabakheen', y, 11, 'normal', '0.5 0.5 0.5');
+
+  const metaX = pageW - margin - 160;
+  const metaY = pageH - 40;
+  addText('Invoice', metaX, metaY, 18, 'bold', '1 1 1');
+  addText('#' + invoiceNumber, metaX, metaY - 18, 10, 'normal', '1 0.95 0.9');
+  addText('Date: ' + createdDate, metaX, metaY - 32, 10, 'normal', '1 0.95 0.9');
+
+  y -= 30;
 
   addRect(margin, y - 80, 230, 80, '0.96 0.97 0.98');
-  addText('Issued By / Sader Min:', margin + 10, y - 15, 9, 'bold', '0.91 0.45 0.16');
+  addText('ISSUED BY', margin + 10, y - 15, 9, 'bold', '0.91 0.45 0.16');
   addText(biz.nameEn, margin + 10, y - 30, 9, 'bold', '0.1 0.1 0.1');
-  addText('CR: ' + biz.cr, margin + 10, y - 43, 8, 'normal', '0.3 0.3 0.3');
+  addText('CR. ' + biz.cr, margin + 10, y - 43, 8, 'normal', '0.3 0.3 0.3');
   addText(biz.building + ' ' + biz.streetEn, margin + 10, y - 55, 8, 'normal', '0.3 0.3 0.3');
   addText(biz.districtEn + ', ' + biz.cityEn + ' ' + biz.postal, margin + 10, y - 67, 8, 'normal', '0.3 0.3 0.3');
   addText(biz.countryEn, margin + 10, y - 79, 8, 'normal', '0.3 0.3 0.3');
 
   addRect(pageW - margin - 230, y - 80, 230, 80, '0.96 0.97 0.98');
-  addText('Invoice To / Fatura Ila:', pageW - margin - 220, y - 15, 9, 'bold', '0.91 0.45 0.16');
+  addText('INVOICE TO', pageW - margin - 220, y - 15, 9, 'bold', '0.91 0.45 0.16');
   addText(userName, pageW - margin - 220, y - 30, 9, 'bold', '0.1 0.1 0.1');
   if (userEmail) addText(userEmail, pageW - margin - 220, y - 43, 8, 'normal', '0.3 0.3 0.3');
   if (userPhone) addText(userPhone, pageW - margin - 220, y - 55, 8, 'normal', '0.3 0.3 0.3');
@@ -902,7 +942,6 @@ function generatePDFBytes(invoice, lang) {
   const tableW = pageW - 2 * margin;
   const col1W = tableW * 0.40;
   const col2W = tableW * 0.35;
-  const _col3W = tableW * 0.25;
   const rowH = 28;
 
   addRect(tableX, y - rowH, tableW, rowH, '0.94 0.96 0.98');
@@ -921,7 +960,7 @@ function generatePDFBytes(invoice, lang) {
   addLine(tableX, y, tableX + tableW, y, 0.5, '0.85 0.85 0.85');
 
   addRect(tableX, y - rowH, tableW, rowH, '1 0.97 0.94');
-  addText('Total / Ijmali', tableX + 10, y - 18, 10, 'bold', '0.1 0.1 0.1');
+  addText('Total', tableX + 10, y - 18, 10, 'bold', '0.1 0.1 0.1');
   addText(amount + ' ' + currency, tableX + col1W + col2W + 10, y - 18, 10, 'bold', '0.91 0.45 0.16');
 
   y -= rowH + 20;
@@ -1011,15 +1050,21 @@ function generateInvoiceHTML(invoice, lang) {
 
   return `<!DOCTYPE html><html dir="${dir}" lang="${lang}"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice'} ${invoiceNum}</title><style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:20px;background:#f8f9fa;color:#1a1a2e}
-.invoice{max-width:800px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.1)}
-.inv-header{background:linear-gradient(135deg,#e8722a,#d4631f);padding:30px 40px;color:#fff;display:flex;justify-content:space-between;align-items:flex-start}
-.inv-header .logo h1{font-size:26px;margin:0 0 4px}.inv-header .logo p{font-size:12px;opacity:.85}
-.inv-header .inv-meta{text-align:${isAr ? 'left' : 'right'}}.inv-header .inv-meta h2{font-size:18px;margin:0 0 8px;opacity:.9}.inv-header .inv-meta p{font-size:12px;margin:2px 0;opacity:.85}
-.inv-body{padding:30px 40px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:20px;background:#f0f0f0;color:#1a1a2e}
+.invoice{max-width:800px;margin:0 auto;background:#fff;border-radius:12px;overflow:visible;box-shadow:0 4px 24px rgba(0,0,0,.12)}
+.inv-header{background:#e8722a;padding:30px 40px 60px;color:#fff;position:relative;border-radius:12px 12px 0 0;display:flex;justify-content:flex-end;align-items:flex-start;min-height:140px}
+.logo-badge{position:absolute;left:50%;top:100%;transform:translate(-50%,-50%);width:110px;height:110px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(0,0,0,.15);z-index:10}
+.logo-badge img{width:78px;height:78px;object-fit:contain}
+.inv-meta{text-align:${isAr ? 'left' : 'right'};z-index:5}
+.inv-meta h2{font-size:20px;margin:0 0 8px;font-weight:700;opacity:.95}
+.inv-meta p{font-size:12px;margin:3px 0;opacity:.9}
+.brand-area{text-align:center;padding:65px 40px 20px;position:relative}
+.brand-area h1{font-size:26px;font-weight:700;color:#e8722a;margin:0 0 2px}
+.brand-area p{font-size:14px;color:#888;margin:0}
+.inv-body{padding:10px 40px 30px}
 .details{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:28px}
 .detail-box{background:#f8fafc;border-radius:10px;padding:18px;border:1px solid #e8ecf0}
-.detail-box h3{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#e8722a;margin:0 0 10px;font-weight:700}
+.detail-box h3{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#e8722a;margin:0 0 10px;font-weight:700}
 .detail-box p{margin:3px 0;font-size:13px;color:#333}.detail-box .name{font-weight:700;font-size:14px}
 table{width:100%;border-collapse:collapse;margin:20px 0}
 th{background:#f1f5f9;padding:12px 16px;text-align:${isAr ? 'right' : 'left'};font-size:12px;color:#555;font-weight:700;text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid #e2e8f0}
@@ -1027,7 +1072,7 @@ td{padding:12px 16px;border-bottom:1px solid #f1f5f9;font-size:14px}
 .total-row td{font-weight:700;font-size:16px;border-top:2px solid #e8722a;background:#fff8f0;color:#e8722a}
 .meta-info{margin:16px 0;font-size:13px;color:#555}
 .meta-info strong{color:#333}
-.footer{margin-top:24px;padding:20px 40px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#888;text-align:center}
+.footer{margin-top:24px;padding:20px 40px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#888;text-align:center;border-radius:0 0 12px 12px}
 .footer p{margin:2px 0}
 .bilingual{margin-top:16px;padding:16px;background:#fafbfc;border-radius:8px;border:1px solid #e8ecf0}
 .bilingual h4{font-size:12px;color:#e8722a;margin:0 0 8px;font-weight:700}
@@ -1035,27 +1080,31 @@ td{padding:12px 16px;border-bottom:1px solid #f1f5f9;font-size:14px}
 .actions{text-align:center;padding:20px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 .btn{padding:10px 24px;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;text-decoration:none;display:inline-block}
 .btn-primary{background:#e8722a;color:#fff}.btn-secondary{background:#e2e8f0;color:#333}
-@media print{.actions{display:none!important}body{background:#fff;padding:0}.invoice{box-shadow:none;border-radius:0}}
+@media print{.actions{display:none!important}body{background:#fff;padding:0}.invoice{box-shadow:none;border-radius:0}.inv-header{border-radius:0}.footer{border-radius:0}}
 </style></head><body>
 <div class="invoice">
 <div class="inv-header">
-<div class="logo"><h1>Tabbakheen</h1><p>\u0637\u0628\u0627\u062E\u064A\u0646</p></div>
+<div class="logo-badge"><img src="${LOGO_URL}" alt="Tabbakheen"></div>
 <div class="inv-meta"><h2>${isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice'}</h2>
 <p>#${invoiceNum}</p>
 <p>${isAr ? '\u0627\u0644\u062A\u0627\u0631\u064A\u062E' : 'Date'}: ${created}</p>
 </div></div>
+<div class="brand-area">
+<h1>Tabbakheen</h1>
+<p>\u0637\u0628\u0627\u062E\u064A\u0646</p>
+</div>
 <div class="inv-body">
 <div class="details">
 <div class="detail-box">
-<h3>${isAr ? '\u0635\u0627\u062F\u0631\u0629 \u0645\u0646' : 'Issued By'}</h3>
+<h3>${isAr ? '\u0635\u0627\u062F\u0631\u0629 \u0645\u0646' : 'ISSUED BY'}</h3>
 <p class="name">${isAr ? biz.name : biz.nameEn}</p>
-<p>${isAr ? '\u0633\u062C\u0644 \u062A\u062C\u0627\u0631\u064A' : 'CR'}: ${biz.cr}</p>
+<p>CR. ${biz.cr}</p>
 <p>${isAr ? biz.building + ' ' + biz.street : biz.building + ' ' + biz.streetEn}</p>
 <p>${isAr ? biz.district + ', ' + biz.city + ' ' + biz.postal : biz.districtEn + ', ' + biz.cityEn + ' ' + biz.postal}</p>
 <p>${isAr ? biz.country : biz.countryEn}</p>
 </div>
 <div class="detail-box">
-<h3>${isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629 \u0625\u0644\u0649' : 'Invoice To'}</h3>
+<h3>${isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629 \u0625\u0644\u0649' : 'INVOICE TO'}</h3>
 <p class="name">${invoice.userName || 'N/A'}</p>
 ${invoice.userEmail ? '<p>' + invoice.userEmail + '</p>' : ''}
 ${invoice.userPhone ? '<p>' + invoice.userPhone + '</p>' : ''}
@@ -1099,28 +1148,70 @@ function generateInvoiceEmailHTML(invoice, lang) {
   const biz = {
     name: '\u0645\u0624\u0633\u0633\u0629 \u0633\u0627\u0644\u0645 \u0628\u0646 \u0639\u0644\u064A \u0627\u0644\u0646\u0639\u064A\u0645\u064A',
     nameEn: 'Salem Bin Ali Al-Nuaimi Est.',
-    cr: '7050191290'
+    cr: '7050191290',
+    building: '2500',
+    streetEn: 'Ahmad bin Hajar Al-Asqalani',
+    districtEn: 'Taibah District',
+    cityEn: 'Jubail',
+    postal: '35513',
+    countryEn: 'Kingdom of Saudi Arabia'
   };
   const dir = isAr ? 'rtl' : 'ltr';
-  return `<div dir="${dir}" style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;background:#fff">
-<div style="background:linear-gradient(135deg,#e8722a,#d4631f);padding:24px 30px;color:#fff;border-radius:8px 8px 0 0">
-<h1 style="margin:0;font-size:22px">Tabbakheen</h1>
-<p style="margin:4px 0 0;font-size:12px;opacity:.85">\u0637\u0628\u0627\u062E\u064A\u0646</p>
+  const invoiceNum = invoice.invoiceNumber || '';
+  const created = invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString(isAr ? 'ar-SA' : 'en-US') : '';
+  return `<div dir="${dir}" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;background:#f0f0f0;padding:20px">
+<div style="background:#fff;border-radius:12px;overflow:visible">
+<div style="background:#e8722a;padding:30px 30px 55px;border-radius:12px 12px 0 0;position:relative;text-align:center">
+<table width="100%" cellpadding="0" cellspacing="0" style="position:relative;z-index:1"><tr>
+<td style="width:33%"></td>
+<td style="width:34%;text-align:center">
+<div style="width:100px;height:100px;background:#fff;border-radius:50%;margin:0 auto;display:block;box-shadow:0 4px 16px rgba(0,0,0,0.15);overflow:hidden">
+<img src="${LOGO_URL}" alt="Tabbakheen" width="72" height="72" style="display:block;margin:14px auto;object-fit:contain">
 </div>
-<div style="padding:24px 30px;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 8px 8px">
-<h2 style="color:#333;font-size:18px;margin:0 0 16px">${isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice'} #${invoice.invoiceNumber || ''}</h2>
+</td>
+<td style="width:33%;text-align:${isAr ? 'left' : 'right'};vertical-align:top;color:#fff">
+<div style="font-size:18px;font-weight:700;opacity:.95">${isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice'}</div>
+<div style="font-size:11px;opacity:.9;margin-top:4px">#${invoiceNum}</div>
+<div style="font-size:11px;opacity:.9;margin-top:2px">${isAr ? '\u0627\u0644\u062A\u0627\u0631\u064A\u062E' : 'Date'}: ${created}</div>
+</td>
+</tr></table>
+</div>
+<div style="text-align:center;padding:10px 30px 16px">
+<h1 style="font-size:22px;color:#e8722a;margin:0 0 2px;font-weight:700">Tabbakheen</h1>
+<p style="font-size:13px;color:#888;margin:0">\u0637\u0628\u0627\u062E\u064A\u0646</p>
+</div>
+<div style="padding:0 30px 24px">
+<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px"><tr>
+<td style="width:48%;vertical-align:top;background:#f8fafc;border-radius:10px;padding:16px;border:1px solid #e8ecf0">
+<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#e8722a;font-weight:700;margin-bottom:8px">${isAr ? '\u0635\u0627\u062F\u0631\u0629 \u0645\u0646' : 'ISSUED BY'}</div>
+<div style="font-size:13px;font-weight:700;color:#222;margin-bottom:3px">${isAr ? biz.name : biz.nameEn}</div>
+<div style="font-size:12px;color:#555">CR. ${biz.cr}</div>
+<div style="font-size:12px;color:#555">${biz.building} ${biz.streetEn}</div>
+<div style="font-size:12px;color:#555">${biz.districtEn}, ${biz.cityEn} ${biz.postal}</div>
+</td>
+<td style="width:4%"></td>
+<td style="width:48%;vertical-align:top;background:#f8fafc;border-radius:10px;padding:16px;border:1px solid #e8ecf0">
+<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#e8722a;font-weight:700;margin-bottom:8px">${isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629 \u0625\u0644\u0649' : 'INVOICE TO'}</div>
+<div style="font-size:13px;font-weight:700;color:#222;margin-bottom:3px">${invoice.userName || ''}</div>
+${invoice.userEmail ? '<div style="font-size:12px;color:#555">' + invoice.userEmail + '</div>' : ''}
+${invoice.userPhone ? '<div style="font-size:12px;color:#555">' + invoice.userPhone + '</div>' : ''}
+</td>
+</tr></table>
 <table style="width:100%;border-collapse:collapse;margin:16px 0">
-<tr style="background:#f8fafc"><td style="padding:10px 14px;font-size:13px;color:#555;border:1px solid #e2e8f0;font-weight:700">${isAr ? '\u0627\u0644\u0639\u0645\u064A\u0644' : 'Customer'}</td><td style="padding:10px 14px;font-size:13px;border:1px solid #e2e8f0">${invoice.userName || ''}</td></tr>
-<tr><td style="padding:10px 14px;font-size:13px;color:#555;border:1px solid #e2e8f0;font-weight:700">${isAr ? '\u0627\u0644\u062E\u0637\u0629' : 'Plan'}</td><td style="padding:10px 14px;font-size:13px;border:1px solid #e2e8f0">${invoice.subscriptionPlan || 'Basic'}</td></tr>
-<tr style="background:#f8fafc"><td style="padding:10px 14px;font-size:13px;color:#555;border:1px solid #e2e8f0;font-weight:700">${isAr ? '\u0627\u0644\u0641\u062A\u0631\u0629' : 'Period'}</td><td style="padding:10px 14px;font-size:13px;border:1px solid #e2e8f0">${invoice.startDate || ''} - ${invoice.endDate || ''}</td></tr>
-<tr><td style="padding:10px 14px;font-size:13px;color:#555;border:1px solid #e2e8f0;font-weight:700">${isAr ? '\u0627\u0644\u0645\u0628\u0644\u063A' : 'Amount'}</td><td style="padding:10px 14px;font-size:14px;border:1px solid #e2e8f0;font-weight:700;color:#e8722a">${invoice.amount || 0} ${invoice.currency || 'SAR'}</td></tr>
-${invoice.paymentMethod ? '<tr style="background:#f8fafc"><td style="padding:10px 14px;font-size:13px;color:#555;border:1px solid #e2e8f0;font-weight:700">' + (isAr ? '\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062F\u0641\u0639' : 'Payment') + '</td><td style="padding:10px 14px;font-size:13px;border:1px solid #e2e8f0">' + invoice.paymentMethod + '</td></tr>' : ''}
+<tr style="background:#f1f5f9"><th style="padding:10px 14px;text-align:${isAr ? 'right' : 'left'};font-size:11px;color:#555;font-weight:700;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0">${isAr ? '\u0627\u0644\u0628\u064A\u0627\u0646' : 'Description'}</th><th style="padding:10px 14px;text-align:${isAr ? 'right' : 'left'};font-size:11px;color:#555;font-weight:700;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0">${isAr ? '\u0627\u0644\u0641\u062A\u0631\u0629' : 'Period'}</th><th style="padding:10px 14px;text-align:${isAr ? 'right' : 'left'};font-size:11px;color:#555;font-weight:700;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0">${isAr ? '\u0627\u0644\u0645\u0628\u0644\u063A' : 'Amount'}</th></tr>
+<tr><td style="padding:12px 14px;font-size:13px;border-bottom:1px solid #f1f5f9">${isAr ? '\u0627\u0634\u062A\u0631\u0627\u0643' : 'Subscription'} - ${invoice.subscriptionPlan || 'Basic'}</td><td style="padding:12px 14px;font-size:13px;border-bottom:1px solid #f1f5f9">${invoice.startDate || ''} - ${invoice.endDate || ''}</td><td style="padding:12px 14px;font-size:13px;border-bottom:1px solid #f1f5f9">${invoice.amount || 0} ${invoice.currency || 'SAR'}</td></tr>
+<tr style="background:#fff8f0"><td colspan="2" style="padding:12px 14px;font-size:14px;font-weight:700;border-top:2px solid #e8722a;color:#333">${isAr ? '\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A' : 'Total'}</td><td style="padding:12px 14px;font-size:15px;font-weight:700;border-top:2px solid #e8722a;color:#e8722a">${invoice.amount || 0} ${invoice.currency || 'SAR'}</td></tr>
 </table>
-<div style="margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0;font-size:11px;color:#888;text-align:center">
-<p><strong>${isAr ? biz.name : biz.nameEn}</strong></p>
-<p>CR: ${biz.cr}</p>
+${invoice.paymentMethod ? '<div style="font-size:12px;color:#555;margin:8px 0"><strong>' + (isAr ? '\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062F\u0641\u0639' : 'Payment Method') + ':</strong> ' + invoice.paymentMethod + '</div>' : ''}
+${invoice.notes ? '<div style="font-size:12px;color:#555;margin:8px 0"><strong>' + (isAr ? '\u0645\u0644\u0627\u062D\u0638\u0627\u062A' : 'Notes') + ':</strong> ' + invoice.notes + '</div>' : ''}
 </div>
-</div></div>`;
+<div style="padding:16px 30px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#888;text-align:center;border-radius:0 0 12px 12px">
+<p style="margin:2px 0"><strong>${isAr ? biz.name : biz.nameEn}</strong></p>
+<p style="margin:2px 0">CR: ${biz.cr} | ${biz.building} ${biz.streetEn}, ${biz.districtEn}, ${biz.cityEn} ${biz.postal}</p>
+<p style="margin:2px 0">${biz.countryEn}</p>
+</div>
+</div>
+</div>`;
 }
 
 // ============================================================
