@@ -446,6 +446,7 @@ export const MOCK_DRIVER_RATINGS: DriverRating[] = [
 
 export const MOCK_APP_SETTINGS: AppSettings = {
   bannerImageUrl: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&h=400&fit=crop',
+  bannerEnabled: true,
   supportEmail: 'tabbakheen@gmail.com',
   supportWhatsapp: '+966570758881',
   deliveryPricing: {

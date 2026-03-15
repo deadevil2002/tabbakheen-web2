@@ -203,6 +203,7 @@ export interface DeliveryPricing {
 
 export interface AppSettings {
   bannerImageUrl: string;
+  bannerEnabled?: boolean;
   supportEmail: string;
   supportWhatsapp: string;
   deliveryPricing: DeliveryPricing;

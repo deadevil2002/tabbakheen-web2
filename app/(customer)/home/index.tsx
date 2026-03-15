@@ -36,7 +36,7 @@ import { useData } from '@/contexts/DataContext';
 import { Offer, OfferCategory } from '@/types';
 import { formatPrice, calculateDistance, formatDistance } from '@/utils/helpers';
 
-const AD_BANNER_URL =
+const FALLBACK_BANNER_URL =
   'https://res.cloudinary.com/dv6n9vnly/image/upload/v1769698754/67e13686-c891-4d70-96da-f11ac94351ca_zlsh8x.png';
 const WHATSAPP_NUMBER = '966570758881';
 const WHATSAPP_MESSAGE = encodeURIComponent('أبغى استفسر عن الاعلان');
@@ -75,7 +75,7 @@ export default function CustomerHomeScreen() {
   const router = useRouter();
   const { t, isRTL, locale, toggleLocale } = useLocale();
   const { user } = useAuth();
-  const { availableOffers, providers, isLoading } = useData();
+  const { availableOffers, providers, isLoading, appSettings } = useData();
   const { width: screenWidth } = useWindowDimensions();
 
   const [search, setSearch] = useState<string>('');
@@ -292,16 +292,18 @@ export default function CustomerHomeScreen() {
         </ScrollView>
 
         {/* Ad Banner */}
-        <Pressable
-          style={({ pressed }) => [styles.adBannerContainer, pressed && styles.adBannerPressed]}
-          onPress={handleAdBannerPress}
-        >
-          <Image
-            source={{ uri: AD_BANNER_URL }}
-            style={styles.adBannerImage}
-            contentFit="cover"
-          />
-        </Pressable>
+        {(appSettings.bannerEnabled !== false) && (appSettings.bannerImageUrl || FALLBACK_BANNER_URL) ? (
+          <Pressable
+            style={({ pressed }) => [styles.adBannerContainer, pressed && styles.adBannerPressed]}
+            onPress={handleAdBannerPress}
+          >
+            <Image
+              source={{ uri: appSettings.bannerImageUrl || FALLBACK_BANNER_URL }}
+              style={styles.adBannerImage}
+              contentFit="cover"
+            />
+          </Pressable>
+        ) : null}
 
         {/* Nearby Providers */}
         <View style={styles.section}>
