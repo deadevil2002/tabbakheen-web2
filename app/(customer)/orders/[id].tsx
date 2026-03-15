@@ -23,7 +23,7 @@ export default function CustomerOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { orders, getProviderById, getDriverById, submitRating, submitDriverRating, submitPaymentProof, setDeliveryMethod, computeDeliveryFee } = useData();
+  const { orders, getProviderById, getDriverById, submitRating, submitDriverRating, submitPaymentProof, setDeliveryMethod, computeDeliveryFee, fetchDeliveryQuote } = useData();
 
   const order = useMemo(() => orders.find((o) => o.id === id), [orders, id]);
   const provider = useMemo(() => (order ? getProviderById(order.providerUid) : undefined), [order, getProviderById]);
@@ -41,6 +41,10 @@ export default function CustomerOrderDetailScreen() {
   const [paymentRef, setPaymentRef] = useState<string>('');
   const [isUploadingProof, setIsUploadingProof] = useState<boolean>(false);
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
+  const [showDeliveryConfirm, setShowDeliveryConfirm] = useState<boolean>(false);
+  const [deliveryQuote, setDeliveryQuote] = useState<{ deliveryFee: number; totalAmount: number; deliveryDistanceKm: number; subtotal: number } | null>(null);
+  const [isLoadingQuote, setIsLoadingQuote] = useState<boolean>(false);
+  const [isFinalizingDelivery, setIsFinalizingDelivery] = useState<boolean>(false);
 
   const isDelivered = order?.status === 'delivered' || order?.deliveryStatus === 'delivered';
   const canRateProvider = isDelivered && !order?.providerHasRating && !order?.ratingSubmitted;
@@ -68,26 +72,51 @@ export default function CustomerOrderDetailScreen() {
   const handleSelfPickup = useCallback(async () => {
     if (!order) return;
     console.log('[OrderDetail] Customer chose self pickup for order:', order.id);
+    setIsFinalizingDelivery(true);
     try {
       await setDeliveryMethod(order.id, 'self_pickup');
-      console.log('[OrderDetail] Self pickup persisted to Firestore successfully');
+      console.log('[OrderDetail] Self pickup finalized successfully');
       Alert.alert(t('success'), t('selfPickupInfo'));
     } catch (err: any) {
       console.log('[OrderDetail] Self pickup error:', err?.message || err);
       Alert.alert(t('error'), t('orderUpdateError'));
+    } finally {
+      setIsFinalizingDelivery(false);
     }
   }, [order, setDeliveryMethod, t]);
 
-  const handleDriverDelivery = useCallback(async () => {
+  const handleRequestDriverQuote = useCallback(async () => {
     if (!order) return;
-    console.log('[OrderDetail] Customer chose driver delivery for order:', order.id);
+    console.log('[OrderDetail] Requesting delivery quote for order:', order.id);
+    setIsLoadingQuote(true);
+    try {
+      const quote = await fetchDeliveryQuote(order.id);
+      console.log('[OrderDetail] Got delivery quote:', JSON.stringify(quote));
+      setDeliveryQuote(quote);
+      setShowDeliveryConfirm(true);
+    } catch (err: any) {
+      console.log('[OrderDetail] Quote error:', err?.message || err);
+      Alert.alert(t('error'), locale === 'ar' ? 'تعذر حساب رسوم التوصيل' : 'Could not calculate delivery fee');
+    } finally {
+      setIsLoadingQuote(false);
+    }
+  }, [order, fetchDeliveryQuote, t, locale]);
+
+  const handleConfirmDriverDelivery = useCallback(async () => {
+    if (!order) return;
+    console.log('[OrderDetail] Customer confirmed driver delivery for order:', order.id);
+    setIsFinalizingDelivery(true);
     try {
       await setDeliveryMethod(order.id, 'driver');
-      console.log('[OrderDetail] Driver delivery persisted to Firestore successfully');
+      console.log('[OrderDetail] Driver delivery finalized successfully');
+      setShowDeliveryConfirm(false);
+      setDeliveryQuote(null);
       Alert.alert(t('success'), t('driverDeliveryRequested'));
     } catch (err: any) {
       console.log('[OrderDetail] Driver delivery error:', err?.message || err);
       Alert.alert(t('error'), t('orderUpdateError'));
+    } finally {
+      setIsFinalizingDelivery(false);
     }
   }, [order, setDeliveryMethod, t]);
 
@@ -365,22 +394,78 @@ export default function CustomerOrderDetailScreen() {
           </View>
         )}
 
-        {canChooseDelivery && (
+        {canChooseDelivery && !showDeliveryConfirm && (
           <View style={cs.sectionCard}>
             <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('orderReadyChooseDelivery')}</Text>
-            <Pressable style={({ pressed }) => [s.deliveryOpt, pressed && cs.btnPressed]} onPress={handleSelfPickup}>
+            <Pressable style={({ pressed }) => [s.deliveryOpt, pressed && cs.btnPressed, isFinalizingDelivery && { opacity: 0.6 }]} onPress={handleSelfPickup} disabled={isFinalizingDelivery || isLoadingQuote}>
               <View style={[s.deliveryContent, r && cs.rowRTL]}>
                 <View style={[s.deliveryIcon, { backgroundColor: Colors.deliveredBg }]}><PackageCheck size={22} color={Colors.delivered} /></View>
                 <View style={cs.flex1}><Text style={[s.deliveryTitle, r && cs.rtlText]}>{t('selfPickup')}</Text><Text style={[s.deliveryDesc, r && cs.rtlText]}>{t('selfPickupDesc')}</Text></View>
-                <Text style={s.deliveryFee}>{t('free')}</Text>
+                {isFinalizingDelivery ? <ActivityIndicator size="small" color={Colors.primary} /> : <Text style={s.deliveryFee}>{t('free')}</Text>}
               </View>
             </Pressable>
-            <Pressable style={({ pressed }) => [s.deliveryOpt, pressed && cs.btnPressed]} onPress={handleDriverDelivery}>
+            <Pressable style={({ pressed }) => [s.deliveryOpt, pressed && cs.btnPressed, isLoadingQuote && { opacity: 0.6 }]} onPress={handleRequestDriverQuote} disabled={isFinalizingDelivery || isLoadingQuote}>
               <View style={[s.deliveryContent, r && cs.rowRTL]}>
                 <View style={[s.deliveryIcon, { backgroundColor: Colors.assignedToDriverBg }]}><Truck size={22} color={Colors.assignedToDriver} /></View>
                 <View style={cs.flex1}><Text style={[s.deliveryTitle, r && cs.rtlText]}>{t('driverDelivery')}</Text><Text style={[s.deliveryDesc, r && cs.rtlText]}>{t('driverDeliveryDesc')}</Text></View>
-                <Text style={s.deliveryFee}>~{formatPrice(estimatedFee, locale)}</Text>
+                {isLoadingQuote ? <ActivityIndicator size="small" color={Colors.primary} /> : <Text style={s.deliveryFee}>~{formatPrice(estimatedFee, locale)}</Text>}
               </View>
+            </Pressable>
+          </View>
+        )}
+
+        {showDeliveryConfirm && deliveryQuote && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>
+              {locale === 'ar' ? 'تأكيد التوصيل' : 'Confirm Delivery'}
+            </Text>
+            <View style={s.quoteCard}>
+              <View style={[s.quoteRow, r && cs.rowRTL]}>
+                <Text style={[s.quoteLabel, r && cs.rtlText]}>{t('foodPrice')}</Text>
+                <Text style={s.quoteValue}>{formatPrice(deliveryQuote.subtotal, locale)}</Text>
+              </View>
+              <View style={[s.quoteRow, r && cs.rowRTL]}>
+                <Text style={[s.quoteLabel, r && cs.rtlText]}>{t('deliveryFee')}</Text>
+                <Text style={s.quoteValue}>{formatPrice(deliveryQuote.deliveryFee, locale)}</Text>
+              </View>
+              {deliveryQuote.deliveryDistanceKm > 0 && (
+                <View style={[s.quoteRow, r && cs.rowRTL]}>
+                  <Text style={[s.quoteLabel, r && cs.rtlText]}>
+                    {locale === 'ar' ? 'المسافة' : 'Distance'}
+                  </Text>
+                  <Text style={s.quoteValue}>
+                    {locale === 'ar' ? `${deliveryQuote.deliveryDistanceKm} كم` : `${deliveryQuote.deliveryDistanceKm} km`}
+                  </Text>
+                </View>
+              )}
+              <View style={s.quoteDivider} />
+              <View style={[s.quoteRow, r && cs.rowRTL]}>
+                <Text style={[s.quoteTotalLabel, r && cs.rtlText]}>{t('totalAmount')}</Text>
+                <Text style={s.quoteTotalValue}>{formatPrice(deliveryQuote.totalAmount, locale)}</Text>
+              </View>
+            </View>
+            <Pressable
+              style={({ pressed }) => [s.confirmDeliveryBtn, pressed && cs.btnPressed, isFinalizingDelivery && { opacity: 0.6 }]}
+              onPress={handleConfirmDriverDelivery}
+              disabled={isFinalizingDelivery}
+            >
+              {isFinalizingDelivery ? (
+                <ActivityIndicator color={Colors.white} />
+              ) : (
+                <>
+                  <Truck size={20} color={Colors.white} />
+                  <Text style={s.confirmDeliveryText}>
+                    {locale === 'ar' ? 'تأكيد التوصيل' : 'Confirm Delivery'}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [s.cancelQuoteBtn, pressed && cs.btnPressed]}
+              onPress={() => { setShowDeliveryConfirm(false); setDeliveryQuote(null); }}
+              disabled={isFinalizingDelivery}
+            >
+              <Text style={s.cancelQuoteText}>{t('cancel')}</Text>
             </Pressable>
           </View>
         )}
@@ -549,4 +634,15 @@ const s = StyleSheet.create({
   waitingDriverInfo: { alignItems: 'center' as const, paddingVertical: 16, gap: 10 },
   waitingDriverTitle: { fontSize: 17, fontWeight: '700' as const, color: Colors.assignedToDriver },
   waitingDriverDesc: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' as const, lineHeight: 20 },
+  quoteCard: { backgroundColor: Colors.background, borderRadius: 14, padding: 16, marginBottom: 16 },
+  quoteRow: { flexDirection: 'row' as const, justifyContent: 'space-between' as const, alignItems: 'center' as const, paddingVertical: 6 },
+  quoteLabel: { fontSize: 14, color: Colors.textSecondary },
+  quoteValue: { fontSize: 14, fontWeight: '600' as const, color: Colors.text },
+  quoteDivider: { height: 1, backgroundColor: Colors.divider, marginVertical: 8 },
+  quoteTotalLabel: { fontSize: 16, fontWeight: '700' as const, color: Colors.text },
+  quoteTotalValue: { fontSize: 18, fontWeight: '800' as const, color: Colors.primary },
+  confirmDeliveryBtn: { flexDirection: 'row' as const, backgroundColor: Colors.success, height: 52, borderRadius: 14, justifyContent: 'center' as const, alignItems: 'center' as const, gap: 10, marginBottom: 10 },
+  confirmDeliveryText: { color: Colors.white, fontSize: 16, fontWeight: '700' as const },
+  cancelQuoteBtn: { alignItems: 'center' as const, paddingVertical: 12 },
+  cancelQuoteText: { fontSize: 14, fontWeight: '600' as const, color: Colors.textSecondary },
 });

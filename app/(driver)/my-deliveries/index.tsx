@@ -17,7 +17,7 @@ import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { EmptyState } from '@/components/EmptyState';
 import DeliveryRouteMap from '@/components/DeliveryRouteMap';
 import { Order } from '@/types';
-import { formatPrice, formatDate } from '@/utils/helpers';
+import { formatPrice, formatDate, formatDistance } from '@/utils/helpers';
 import { sendLocalNotification } from '@/services/notifications';
 
 type DriverFilter = 'all' | 'active' | 'delivered';
@@ -218,8 +218,19 @@ export default function MyDeliveriesScreen() {
 
           <View style={[styles.cardMeta, isRTL && styles.rowRTL]}>
             <Text style={styles.cardDate}>{formatDate(item.createdAt, locale)}</Text>
-            <Text style={styles.cardFee}>{formatPrice(item.deliveryFee, locale)}</Text>
+            <Text style={styles.cardFee}>
+              {locale === 'ar' ? 'أرباحك' : 'Earning'}: {formatPrice(item.deliveryFee, locale)}
+            </Text>
           </View>
+
+          {(item as any).deliveryDistanceKm > 0 && (
+            <View style={[styles.locationRow, isRTL && styles.rowRTL]}>
+              <Navigation2 size={14} color={Colors.textTertiary} />
+              <Text style={[styles.locationText, isRTL && styles.rtlText]}>
+                {locale === 'ar' ? 'المسافة' : 'Distance'}: {formatDistance((item as any).deliveryDistanceKm, locale)}
+              </Text>
+            </View>
+          )}
 
           {ds && (
             <View style={styles.deliveryStatusRow}>

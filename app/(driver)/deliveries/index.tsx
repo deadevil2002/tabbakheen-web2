@@ -16,7 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import { EmptyState } from '@/components/EmptyState';
 import { Order } from '@/types';
-import { formatPrice, formatDate } from '@/utils/helpers';
+import { formatPrice, formatDate, formatDistance } from '@/utils/helpers';
 import { sendLocalNotification } from '@/services/notifications';
 
 export default function AvailableDeliveriesScreen() {
@@ -52,7 +52,7 @@ export default function AvailableDeliveriesScreen() {
               try {
                 console.log('[AvailableDeliveries] Driver accepting order:', order.id, 'driverUid:', user.uid);
                 await driverAcceptDelivery(order.id, user.uid);
-                sendLocalNotification(
+                void sendLocalNotification(
                   t('deliveryAccepted'),
                   t('deliveryAcceptedBody'),
                 );
@@ -97,9 +97,18 @@ export default function AvailableDeliveriesScreen() {
             </View>
           )}
 
+          {(item as any).deliveryDistanceKm > 0 && (
+            <View style={[styles.locationRow, isRTL && styles.rowRTL]}>
+              <MapPin size={14} color={Colors.textTertiary} />
+              <Text style={[styles.locationText, isRTL && styles.rtlText]}>
+                {locale === 'ar' ? 'المسافة' : 'Distance'}: {formatDistance((item as any).deliveryDistanceKm, locale)}
+              </Text>
+            </View>
+          )}
+
           <View style={styles.cardFooter}>
             <View style={[styles.priceRow, isRTL && styles.rowRTL]}>
-              <Text style={[styles.feeLabel, isRTL && styles.rtlText]}>{t('deliveryFee')}:</Text>
+              <Text style={[styles.feeLabel, isRTL && styles.rtlText]}>{locale === 'ar' ? 'أرباحك' : 'Your Earning'}:</Text>
               <Text style={styles.feeValue}>{formatPrice(item.deliveryFee, locale)}</Text>
             </View>
 

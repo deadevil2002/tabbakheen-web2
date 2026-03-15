@@ -158,6 +158,9 @@ export interface Order {
   customerLng: number | null;
   pickupAddress: string;
   dropoffAddress: string;
+  deliveryDistanceKm: number;
+  deliveryQuoteId: string;
+  deliveryPricingVersion: string;
   createdAt: string;
   updatedAt: string;
 }

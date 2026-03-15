@@ -2639,5 +2639,189 @@ async function handleRequest(request) {
       }
     }
 
+    // ============================================================
+    // FINALIZE DELIVERY METHOD (secure backend pricing)
+    // ============================================================
+
+    if (path === '/finalize-delivery' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const { orderId, method } = body;
+        if (!orderId || !method || !['self_pickup', 'driver'].includes(method)) {
+          return Response.json({ success: false, error: 'Missing or invalid orderId/method' }, { status: 400, headers: { 'Access-Control-Allow-Origin': '*' } });
+        }
+        console.log('[Worker] Finalize delivery: orderId=' + orderId + ' method=' + method);
+        const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
+        const order = await getFirestoreDoc('orders', orderId, accessToken);
+        if (!order) {
+          return Response.json({ success: false, error: 'Order not found' }, { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
+        }
+
+        if (method === 'self_pickup') {
+          const fields = {
+            deliveryMethod: 'self_pickup',
+            deliveryStatus: 'self_pickup_selected',
+            deliveryFee: 0,
+            totalAmount: order.priceSnapshot || 0,
+            deliveryDistanceKm: 0,
+            deliveryPricingVersion: 'v1'
+          };
+          await updateFirestoreDocument('orders', orderId, fields, accessToken);
+          console.log('[Worker] Self pickup finalized for order:', orderId);
+          await handleEvent('self_pickup_selected', orderId, accessToken);
+          return Response.json({ success: true, deliveryFee: 0, totalAmount: fields.totalAmount, deliveryDistanceKm: 0 }, {
+            headers: { 'Access-Control-Allow-Origin': '*' }
+          });
+        }
+
+        // Driver delivery - calculate fee from coords
+        const providerLat = order.providerLat;
+        const providerLng = order.providerLng;
+        const customerLat = order.customerLat;
+        const customerLng = order.customerLng;
+
+        // Load delivery pricing from app_settings
+        let pricing = { baseFee: 5, perKmInsideCity: 2, perKmOutsideCity: 3, maxFee: 50 };
+        try {
+          const settings = await getFirestoreDoc('app_settings', 'main', accessToken);
+          if (settings && settings.deliveryPricing) {
+            pricing = settings.deliveryPricing;
+          }
+        } catch (e) {
+          console.log('[Worker] Could not load delivery pricing, using defaults:', e.message);
+        }
+
+        let distanceKm = 0;
+        let deliveryFee = pricing.baseFee || 5;
+
+        if (providerLat && providerLng && customerLat && customerLng) {
+          // Haversine distance
+          const R = 6371;
+          const dLat = (customerLat - providerLat) * Math.PI / 180;
+          const dLng = (customerLng - providerLng) * Math.PI / 180;
+          const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(providerLat * Math.PI / 180) * Math.cos(customerLat * Math.PI / 180) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          distanceKm = R * c;
+          distanceKm = Math.round(distanceKm * 10) / 10;
+
+          const perKm = pricing.perKmInsideCity || 2;
+          deliveryFee = (pricing.baseFee || 5) + distanceKm * perKm;
+          deliveryFee = Math.round(deliveryFee);
+          if (pricing.maxFee && deliveryFee > pricing.maxFee) {
+            deliveryFee = pricing.maxFee;
+          }
+        }
+
+        const priceSnapshot = order.priceSnapshot || 0;
+        const totalAmount = priceSnapshot + deliveryFee;
+        const quoteId = 'dq_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+
+        const fields = {
+          deliveryMethod: 'driver',
+          deliveryStatus: 'ready_for_driver',
+          deliveryFee: deliveryFee,
+          totalAmount: totalAmount,
+          deliveryDistanceKm: distanceKm,
+          deliveryQuoteId: quoteId,
+          deliveryPricingVersion: 'v1'
+        };
+        await updateFirestoreDocument('orders', orderId, fields, accessToken);
+        console.log('[Worker] Driver delivery finalized: orderId=' + orderId + ' fee=' + deliveryFee + ' dist=' + distanceKm + 'km total=' + totalAmount);
+
+        // Send push notifications
+        await handleEvent('driver_delivery_requested', orderId, accessToken);
+
+        return Response.json({
+          success: true,
+          deliveryFee: deliveryFee,
+          totalAmount: totalAmount,
+          deliveryDistanceKm: distanceKm,
+          deliveryQuoteId: quoteId
+        }, {
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
+      } catch (e) {
+        console.error('[Worker] Finalize delivery error:', e);
+        return Response.json({ success: false, error: e.message || 'Internal error' }, {
+          status: 500,
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+    }
+
+    // ============================================================
+    // GET DELIVERY QUOTE (preview only, no writes)
+    // ============================================================
+
+    if (path === '/delivery-quote' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const { orderId } = body;
+        if (!orderId) {
+          return Response.json({ success: false, error: 'Missing orderId' }, { status: 400, headers: { 'Access-Control-Allow-Origin': '*' } });
+        }
+        const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
+        const order = await getFirestoreDoc('orders', orderId, accessToken);
+        if (!order) {
+          return Response.json({ success: false, error: 'Order not found' }, { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
+        }
+
+        let pricing = { baseFee: 5, perKmInsideCity: 2, perKmOutsideCity: 3, maxFee: 50 };
+        try {
+          const settings = await getFirestoreDoc('app_settings', 'main', accessToken);
+          if (settings && settings.deliveryPricing) {
+            pricing = settings.deliveryPricing;
+          }
+        } catch (e) {
+          console.log('[Worker] Could not load pricing for quote:', e.message);
+        }
+
+        const providerLat = order.providerLat;
+        const providerLng = order.providerLng;
+        const customerLat = order.customerLat;
+        const customerLng = order.customerLng;
+
+        let distanceKm = 0;
+        let deliveryFee = pricing.baseFee || 5;
+
+        if (providerLat && providerLng && customerLat && customerLng) {
+          const R = 6371;
+          const dLat = (customerLat - providerLat) * Math.PI / 180;
+          const dLng = (customerLng - providerLng) * Math.PI / 180;
+          const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(providerLat * Math.PI / 180) * Math.cos(customerLat * Math.PI / 180) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          distanceKm = Math.round(R * c * 10) / 10;
+
+          const perKm = pricing.perKmInsideCity || 2;
+          deliveryFee = (pricing.baseFee || 5) + distanceKm * perKm;
+          deliveryFee = Math.round(deliveryFee);
+          if (pricing.maxFee && deliveryFee > pricing.maxFee) {
+            deliveryFee = pricing.maxFee;
+          }
+        }
+
+        const priceSnapshot = order.priceSnapshot || 0;
+
+        return Response.json({
+          success: true,
+          deliveryFee: deliveryFee,
+          totalAmount: priceSnapshot + deliveryFee,
+          deliveryDistanceKm: distanceKm,
+          subtotal: priceSnapshot
+        }, {
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
+      } catch (e) {
+        return Response.json({ success: false, error: e.message || 'Internal error' }, {
+          status: 500,
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+    }
+
     return Response.json({ success: false, error: 'Not found' }, { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
 }

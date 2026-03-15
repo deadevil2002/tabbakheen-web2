@@ -42,8 +42,7 @@ service cloud.firestore {
     }
 
     function isOrderDelivered(orderId) {
-      return
-        get(/databases/$(database)/documents/orders/$(orderId)).data.status == "delivered"
+      return get(/databases/$(database)/documents/orders/$(orderId)).data.status == "delivered"
         || get(/databases/$(database)/documents/orders/$(orderId)).data.deliveryStatus == "delivered";
     }
 
@@ -195,8 +194,13 @@ service cloud.firestore {
                 'driverRatingStars',
                 'driverRatingComment',
 
+                /* delivery choice flow */
                 'deliveryMethod',
-                'deliveryStatus'
+                'deliveryStatus',
+
+                /* safe quote reference fields only */
+                'deliveryQuoteId',
+                'deliveryPricingVersion'
               ])
           )
 

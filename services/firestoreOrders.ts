@@ -98,6 +98,9 @@ function toOrder(id: string, d: Record<string, any>): Order {
     customerLng: d.customerLng ?? null,
     pickupAddress: d.pickupAddress ?? '',
     dropoffAddress: d.dropoffAddress ?? '',
+    deliveryDistanceKm: d.deliveryDistanceKm ?? 0,
+    deliveryQuoteId: d.deliveryQuoteId ?? '',
+    deliveryPricingVersion: d.deliveryPricingVersion ?? '',
     createdAt:
       d.createdAt?.toDate?.()?.toISOString?.() ??
       d.createdAt ??

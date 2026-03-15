@@ -33,6 +33,81 @@ export async function sendPushNotification(
   }
 }
 
+export interface DeliveryQuote {
+  deliveryFee: number;
+  totalAmount: number;
+  deliveryDistanceKm: number;
+  subtotal: number;
+}
+
+export interface DeliveryFinalizeResult {
+  deliveryFee: number;
+  totalAmount: number;
+  deliveryDistanceKm: number;
+  deliveryQuoteId?: string;
+}
+
+export async function getDeliveryQuote(
+  orderId: string,
+): Promise<DeliveryQuote> {
+  try {
+    console.log(`[PushAPI] Getting delivery quote for order ${orderId}`);
+    const response = await fetch(`${PUSH_API_URL}/delivery-quote`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': PUSH_API_KEY,
+      },
+      body: JSON.stringify({ orderId }),
+    });
+    const data = await response.json();
+    console.log(`[PushAPI] Delivery quote response:`, JSON.stringify(data));
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to get delivery quote');
+    }
+    return {
+      deliveryFee: data.deliveryFee ?? 0,
+      totalAmount: data.totalAmount ?? 0,
+      deliveryDistanceKm: data.deliveryDistanceKm ?? 0,
+      subtotal: data.subtotal ?? 0,
+    };
+  } catch (e: any) {
+    console.log(`[PushAPI] Error getting delivery quote:`, e);
+    throw e;
+  }
+}
+
+export async function finalizeDeliveryMethod(
+  orderId: string,
+  method: 'self_pickup' | 'driver',
+): Promise<DeliveryFinalizeResult> {
+  try {
+    console.log(`[PushAPI] Finalizing delivery: orderId=${orderId} method=${method}`);
+    const response = await fetch(`${PUSH_API_URL}/finalize-delivery`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': PUSH_API_KEY,
+      },
+      body: JSON.stringify({ orderId, method }),
+    });
+    const data = await response.json();
+    console.log(`[PushAPI] Finalize delivery response:`, JSON.stringify(data));
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to finalize delivery');
+    }
+    return {
+      deliveryFee: data.deliveryFee ?? 0,
+      totalAmount: data.totalAmount ?? 0,
+      deliveryDistanceKm: data.deliveryDistanceKm ?? 0,
+      deliveryQuoteId: data.deliveryQuoteId,
+    };
+  } catch (e: any) {
+    console.log(`[PushAPI] Error finalizing delivery:`, e);
+    throw e;
+  }
+}
+
 export async function aggregateRatingViaWorker(
   type: 'provider' | 'driver',
   uid: string,

@@ -29,7 +29,7 @@ import {
 } from '@/mocks/data';
 import { generateId, generateOrderNumber, generateOrderRef, calculateDeliveryFee } from '@/utils/helpers';
 import { isFirebaseConfigured } from '@/services/firebase';
-import { sendPushNotification, aggregateRatingViaWorker } from '@/services/pushApi';
+import { sendPushNotification, aggregateRatingViaWorker, getDeliveryQuote, finalizeDeliveryMethod as workerFinalizeDelivery } from '@/services/pushApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { fsSubscribeByRole, fsUpdateUser } from '@/services/firestoreUsers';
 import { fsSubscribeOffers, fsCreateOffer, fsUpdateOffer } from '@/services/firestoreOffers';
@@ -358,6 +358,9 @@ export const [DataProvider, useData] = createContextHook(() => {
         customerLng: authUser?.location?.lng ?? null,
         pickupAddress: provider?.address ?? '',
         dropoffAddress: authUser?.address ?? '',
+        deliveryDistanceKm: 0,
+        deliveryQuoteId: '',
+        deliveryPricingVersion: '',
         createdAt: now,
         updatedAt: now,
       };
@@ -544,25 +547,10 @@ export const [DataProvider, useData] = createContextHook(() => {
   const setDeliveryMethod = useCallback(
     async (orderId: string, method: DeliveryMethod, deliveryNotes?: string) => {
       if (fb) {
-        const changes: Record<string, any> = {
-          deliveryMethod: method,
-        };
-        if (method === 'self_pickup') {
-          changes.deliveryStatus = 'self_pickup_selected';
-          console.log('[DataContext] Customer chose SELF PICKUP for order:', orderId);
-        } else if (method === 'driver') {
-          changes.deliveryStatus = 'ready_for_driver';
-          console.log('[DataContext] Customer chose DRIVER DELIVERY for order:', orderId);
-        }
-        console.log('[DataContext] setDeliveryMethod Firestore payload (customer-safe):', JSON.stringify(changes));
-        await fsUpdateOrder(orderId, changes);
-        console.log('[DataContext] Delivery method persisted to Firestore:', orderId, '->', method);
-        if (method === 'self_pickup') {
-          void sendPushNotification('self_pickup_selected', orderId);
-        } else if (method === 'driver') {
-          void sendPushNotification('driver_delivery_requested', orderId);
-        }
-        return;
+        console.log('[DataContext] Finalizing delivery via Worker: orderId=' + orderId + ' method=' + method);
+        const result = await workerFinalizeDelivery(orderId, method === 'self_pickup' ? 'self_pickup' : 'driver');
+        console.log('[DataContext] Worker finalize result:', JSON.stringify(result));
+        return result;
       }
 
       const now = new Date().toISOString();
@@ -584,6 +572,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       });
       await saveOrders(updated);
       console.log('[DataContext] Delivery method set:', orderId, '->', method);
+      return undefined;
     },
     [orders, fb],
   );
@@ -1059,7 +1048,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     (providerUid: string, customerLat?: number, customerLng?: number): number => {
       const provider = providers.find((p) => p.uid === providerUid);
       if (!provider?.location || !customerLat || !customerLng) {
-        return appSettings.deliveryPricing.baseFee;
+        return appSettings.deliveryPricing?.baseFee ?? 5;
       }
       return calculateDeliveryFee(
         provider.location.lat,
@@ -1070,6 +1059,27 @@ export const [DataProvider, useData] = createContextHook(() => {
       );
     },
     [providers, appSettings],
+  );
+
+  const fetchDeliveryQuote = useCallback(
+    async (orderId: string) => {
+      if (fb) {
+        console.log('[DataContext] Fetching delivery quote from Worker for order:', orderId);
+        const quote = await getDeliveryQuote(orderId);
+        console.log('[DataContext] Delivery quote:', JSON.stringify(quote));
+        return quote;
+      }
+      const order = orders.find((o) => o.id === orderId);
+      if (!order) return { deliveryFee: 0, totalAmount: 0, deliveryDistanceKm: 0, subtotal: 0 };
+      const fee = computeDeliveryFee(order.providerUid, order.customerLat ?? undefined, order.customerLng ?? undefined);
+      return {
+        deliveryFee: fee,
+        totalAmount: order.priceSnapshot + fee,
+        deliveryDistanceKm: 0,
+        subtotal: order.priceSnapshot,
+      };
+    },
+    [orders, fb, computeDeliveryFee],
   );
 
   // ======= COMPUTED =======
@@ -1127,6 +1137,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     updateDeliveryStatusAsDriver,
     driverAcceptDelivery,
     computeDeliveryFee,
+    fetchDeliveryQuote,
     markOrderReady,
   }), [
     offers, orders, ratings, driverRatings, providers, drivers, subscriptions, appSettings,
@@ -1138,6 +1149,6 @@ export const [DataProvider, useData] = createContextHook(() => {
     getOrdersByProvider, getOrdersByDriver, getAvailableDeliveries, getAvailableDrivers,
     getRatingsByProvider, getRatingsByDriver, getSubscription, isProviderSubscriptionValid,
     createSubscription, updateProviderPaymentMethods, updateDriverAvailability,
-    updateDeliveryStatusAsDriver, driverAcceptDelivery, computeDeliveryFee, markOrderReady,
+    updateDeliveryStatusAsDriver, driverAcceptDelivery, computeDeliveryFee, fetchDeliveryQuote, markOrderReady,
   ]);
 });
