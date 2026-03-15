@@ -29,6 +29,7 @@ import {
 } from '@/mocks/data';
 import { generateId, generateOrderNumber, generateOrderRef, calculateDeliveryFee } from '@/utils/helpers';
 import { isFirebaseConfigured } from '@/services/firebase';
+import { sendPushNotification } from '@/services/pushApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { fsSubscribeByRole, fsUpdateUser } from '@/services/firestoreUsers';
 import { fsSubscribeOffers, fsCreateOffer, fsUpdateOffer } from '@/services/firestoreOffers';
@@ -390,6 +391,13 @@ export const [DataProvider, useData] = createContextHook(() => {
       if (fb) {
         await fsUpdateDeliveryStatus(orderId, newStatus);
         console.log('[DataContext] Delivery status updated via Firestore:', orderId, '->', newStatus);
+        if (newStatus === 'picked_up') {
+          void sendPushNotification('picked_up', orderId);
+        } else if (newStatus === 'arrived') {
+          void sendPushNotification('arrived', orderId);
+        } else if (newStatus === 'delivered') {
+          void sendPushNotification('delivered', orderId);
+        }
         return;
       }
 
@@ -421,6 +429,11 @@ export const [DataProvider, useData] = createContextHook(() => {
         }
         await fsUpdateOrder(orderId, changes);
         console.log('[DataContext] Order status updated via Firestore:', orderId, '->', status, 'changes:', JSON.stringify(changes));
+        if (status === 'accepted') {
+          void sendPushNotification('order_accepted', orderId);
+        } else if (status === 'delivered' && order?.deliveryMethod === 'self_pickup') {
+          void sendPushNotification('self_pickup_completed', orderId);
+        }
         return;
       }
 
@@ -542,6 +555,11 @@ export const [DataProvider, useData] = createContextHook(() => {
         console.log('[DataContext] setDeliveryMethod Firestore payload (customer-safe):', JSON.stringify(changes));
         await fsUpdateOrder(orderId, changes);
         console.log('[DataContext] Delivery method persisted to Firestore:', orderId, '->', method);
+        if (method === 'self_pickup') {
+          void sendPushNotification('self_pickup_selected', orderId);
+        } else if (method === 'driver') {
+          void sendPushNotification('driver_delivery_requested', orderId);
+        }
         return;
       }
 
@@ -618,6 +636,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       if (fb) {
         await fsDriverAcceptOrder(orderId, driverUid);
         console.log('[DataContext] Driver self-accepted delivery via Firestore:', driverUid, 'order:', orderId);
+        void sendPushNotification('driver_assigned', orderId);
         return;
       }
 
@@ -679,6 +698,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         }
         await fsUpdateOrder(orderId, changes);
         console.log('[DataContext] Order marked delivered via Firestore (provider action):', orderId);
+        void sendPushNotification('delivered', orderId);
         return;
       }
 
@@ -1005,6 +1025,7 @@ export const [DataProvider, useData] = createContextHook(() => {
           status: 'ready_for_pickup',
         });
         console.log('[DataContext] Order marked ready via Firestore (customer will choose delivery):', orderId);
+        void sendPushNotification('order_ready', orderId);
         return;
       }
       const now = new Date().toISOString();
