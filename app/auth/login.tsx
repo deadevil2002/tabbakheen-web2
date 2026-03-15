@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Mail, Lock, Globe } from 'lucide-react-native';
+import { Mail, Lock, Globe, Eye, EyeOff } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
@@ -26,6 +26,7 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const handleLogin = useCallback(async () => {
@@ -51,11 +52,11 @@ export default function LoginScreen() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [email, password, login, locale, t]);
+  }, [email, password, login, locale, t, router]);
 
   const goToRegister = useCallback(() => {
     router.push('/auth/register' as any);
-  }, []);
+  }, [router]);
 
 
   return (
@@ -118,10 +119,13 @@ export default function LoginScreen() {
                   placeholderTextColor={Colors.textTertiary}
                   value={password}
                   onChangeText={setPassword}
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
                   textAlign={isRTL ? 'right' : 'left'}
                   testID="login-password"
                 />
+                <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
+                  {showPassword ? <EyeOff size={20} color={Colors.textTertiary} /> : <Eye size={20} color={Colors.textTertiary} />}
+                </Pressable>
               </View>
             </View>
 

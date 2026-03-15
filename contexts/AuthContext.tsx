@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import createContextHook from '@nkzw/create-context-hook';
 import { User, UserRole } from '@/types';
@@ -27,7 +27,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   useEffect(() => {
     if (!fb) {
-      loadMockSession();
+      void loadMockSession();
       return;
     }
 
@@ -183,6 +183,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         );
         console.log('[Auth] Firebase register success:', credential.user.uid);
 
+        const now = new Date();
         const newUser: User = {
           uid: credential.user.uid,
           email: data.email,
@@ -197,7 +198,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           ratingAverage: 0,
           ratingCount: 0,
           fcmToken: '',
-          createdAt: new Date().toISOString(),
+          createdAt: now.toISOString(),
         };
 
         await fsCreateUser(newUser);
@@ -263,7 +264,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     [user, fb],
   );
 
-  return {
+  return useMemo(() => ({
     user,
     isLoading,
     isAuthenticated: !!user,
@@ -271,5 +272,5 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     register,
     logout,
     updateUser,
-  };
+  }), [user, isLoading, login, register, logout, updateUser]);
 });

@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Mail, Lock, User, Phone, ShoppingBag, ChefHat, Truck } from 'lucide-react-native';
+import { Mail, Lock, User, Phone, ShoppingBag, ChefHat, Truck, Eye, EyeOff } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -28,6 +28,7 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState<string>('');
   const [phone, setPhone] = useState<string>('');
   const [password, setPassword] = useState<string>('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
   const [role, setRole] = useState<UserRole>('customer');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -63,11 +64,11 @@ export default function RegisterScreen() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [displayName, email, phone, password, role, register, locale, t]);
+  }, [displayName, email, phone, password, role, register, locale, t, router]);
 
   const goToLogin = useCallback(() => {
     router.back();
-  }, []);
+  }, [router]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -165,10 +166,13 @@ export default function RegisterScreen() {
                   placeholderTextColor={Colors.textTertiary}
                   value={password}
                   onChangeText={setPassword}
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
                   textAlign={isRTL ? 'right' : 'left'}
                   testID="register-password"
                 />
+                <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
+                  {showPassword ? <EyeOff size={20} color={Colors.textTertiary} /> : <Eye size={20} color={Colors.textTertiary} />}
+                </Pressable>
               </View>
             </View>
 

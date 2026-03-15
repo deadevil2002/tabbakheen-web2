@@ -3,9 +3,20 @@ import { Tabs } from 'expo-router';
 import { LayoutDashboard, Truck, ClipboardList, UserCircle } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { checkAccountAccess } from '@/utils/accountGating';
+import AccountGateScreen from '@/components/AccountGateScreen';
 
 export default function DriverLayout() {
   const { t } = useLocale();
+  const { user } = useAuth();
+
+  if (user) {
+    const gateResult = checkAccountAccess(user);
+    if (!gateResult.allowed) {
+      return <AccountGateScreen gateResult={gateResult} />;
+    }
+  }
 
   return (
     <Tabs

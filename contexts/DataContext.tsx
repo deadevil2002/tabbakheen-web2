@@ -29,7 +29,7 @@ import {
 } from '@/mocks/data';
 import { generateId, generateOrderNumber, generateOrderRef, calculateDeliveryFee } from '@/utils/helpers';
 import { isFirebaseConfigured } from '@/services/firebase';
-import { sendPushNotification } from '@/services/pushApi';
+import { sendPushNotification, aggregateRatingViaWorker } from '@/services/pushApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { fsSubscribeByRole, fsUpdateUser } from '@/services/firestoreUsers';
 import { fsSubscribeOffers, fsCreateOffer, fsUpdateOffer } from '@/services/firestoreOffers';
@@ -345,6 +345,8 @@ export const [DataProvider, useData] = createContextHook(() => {
         paidAt: null,
         ratingSubmitted: false,
         driverRatingSubmitted: false,
+        providerHasRating: false,
+        driverHasRating: false,
         note: order.note,
         deliveryNotes: '',
         stcPayProofImageUrl: '',
@@ -742,16 +744,23 @@ export const [DataProvider, useData] = createContextHook(() => {
             rating.stars,
             rating.comment,
           );
-          await fsUpdateOrder(rating.orderId, { ratingSubmitted: true });
+          await fsUpdateOrder(rating.orderId, {
+            providerHasRating: true,
+            providerRatingStars: rating.stars,
+            providerRatingComment: rating.comment,
+          });
+          console.log('[DataContext] Provider rating + order flags saved to Firestore');
+          void aggregateRatingViaWorker('provider', rating.providerUid);
         } catch (e) {
           console.log('[DataContext] Error submitting rating to Firestore:', e);
+          throw e;
         }
         setOrders((prev) =>
-          prev.map((o) => (o.id === rating.orderId ? { ...o, ratingSubmitted: true } : o)),
+          prev.map((o) => (o.id === rating.orderId ? { ...o, ratingSubmitted: true, providerHasRating: true } : o)),
         );
       } else {
         const updatedOrders = orders.map((o) =>
-          o.id === rating.orderId ? { ...o, ratingSubmitted: true } : o,
+          o.id === rating.orderId ? { ...o, ratingSubmitted: true, providerHasRating: true } : o,
         );
         await saveOrders(updatedOrders);
       }
@@ -797,16 +806,23 @@ export const [DataProvider, useData] = createContextHook(() => {
             rating.stars,
             rating.comment,
           );
-          await fsUpdateOrder(rating.orderId, { driverRatingSubmitted: true });
+          await fsUpdateOrder(rating.orderId, {
+            driverHasRating: true,
+            driverRatingStars: rating.stars,
+            driverRatingComment: rating.comment,
+          });
+          console.log('[DataContext] Driver rating + order flags saved to Firestore');
+          void aggregateRatingViaWorker('driver', rating.driverUid);
         } catch (e) {
           console.log('[DataContext] Error submitting driver rating to Firestore:', e);
+          throw e;
         }
         setOrders((prev) =>
-          prev.map((o) => (o.id === rating.orderId ? { ...o, driverRatingSubmitted: true } : o)),
+          prev.map((o) => (o.id === rating.orderId ? { ...o, driverRatingSubmitted: true, driverHasRating: true } : o)),
         );
       } else {
         const updatedOrders = orders.map((o) =>
-          o.id === rating.orderId ? { ...o, driverRatingSubmitted: true } : o,
+          o.id === rating.orderId ? { ...o, driverRatingSubmitted: true, driverHasRating: true } : o,
         );
         await saveOrders(updatedOrders);
       }

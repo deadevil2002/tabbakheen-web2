@@ -1,0 +1,298 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* =========================
+       Helpers
+       ========================= */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isCurrentUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function getUserRole(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.role;
+    }
+
+    function isProvider(userId) {
+      return isSignedIn()
+        && request.auth.uid == userId
+        && getUserRole(userId) == "provider";
+    }
+
+    function isDriver() {
+      return isSignedIn()
+        && getUserRole(request.auth.uid) == "driver";
+    }
+
+    function isOrderCustomer(orderId) {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/orders/$(orderId)).data.customerUid == request.auth.uid;
+    }
+
+    function isOrderProvider(orderId, providerUid) {
+      return get(/databases/$(database)/documents/orders/$(orderId)).data.providerUid == providerUid;
+    }
+
+    function isOrderDriver(orderId, driverUid) {
+      return get(/databases/$(database)/documents/orders/$(orderId)).data.driverUid == driverUid;
+    }
+
+    function isOrderDelivered(orderId) {
+      return
+        get(/databases/$(database)/documents/orders/$(orderId)).data.status == "delivered"
+        || get(/databases/$(database)/documents/orders/$(orderId)).data.deliveryStatus == "delivered";
+    }
+
+    /* =========================
+       users
+       ========================= */
+    match /users/{userId} {
+
+      allow read: if
+        isCurrentUser(userId)
+        || resource.data.role == "provider";
+
+      allow create: if
+        isCurrentUser(userId)
+        && !request.resource.data.keys().hasAny([
+          'successfulOrders',
+          'ratingAvg',
+          'ratingCount',
+          'providerRatingAvg',
+          'providerRatingCount',
+          'driverRatingAvg',
+          'driverRatingCount',
+          'accountStatus',
+          'subscriptionStatus',
+          'subscriptionPlan',
+          'trialEndsAt',
+          'subscriptionEndsAt',
+          'activatedByAdmin',
+          'approvedByAdmin',
+          'isApproved',
+          'disabledAt',
+          'disabledReason'
+        ]);
+
+      allow delete: if isCurrentUser(userId);
+
+      allow update: if
+        (
+          isCurrentUser(userId)
+          &&
+          !request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasAny([
+              'role',
+              'email',
+              'createdAt',
+
+              /* stats / aggregates */
+              'successfulOrders',
+              'ratingAvg',
+              'ratingCount',
+              'providerRatingAvg',
+              'providerRatingCount',
+              'driverRatingAvg',
+              'driverRatingCount',
+
+              /* admin / subscription controlled fields */
+              'accountStatus',
+              'subscriptionStatus',
+              'subscriptionPlan',
+              'trialEndsAt',
+              'subscriptionEndsAt',
+              'activatedByAdmin',
+              'approvedByAdmin',
+              'isApproved',
+              'disabledAt',
+              'disabledReason'
+            ])
+        );
+
+      match /notifications/{notifId} {
+        allow read, write: if isCurrentUser(userId);
+      }
+    }
+
+    /* =========================
+       offers
+       ========================= */
+    match /offers/{offerId} {
+
+      allow read: if true;
+
+      allow create: if
+        isSignedIn()
+        && request.resource.data.providerId == request.auth.uid
+        && isProvider(request.auth.uid);
+
+      allow update: if
+        isSignedIn()
+        && resource.data.providerId == request.auth.uid
+        && isProvider(request.auth.uid);
+
+      allow delete: if false;
+    }
+
+    /* =========================
+       orders
+       ========================= */
+    match /orders/{orderId} {
+
+      allow read: if isSignedIn()
+        && (
+          request.auth.uid == resource.data.customerUid
+          || request.auth.uid == resource.data.providerUid
+          || request.auth.uid == resource.data.driverUid
+          || (
+              isDriver()
+              && resource.data.deliveryStatus == "ready_for_driver"
+              && resource.data.driverUid == null
+            )
+        );
+
+      allow create: if isSignedIn()
+        && request.resource.data.customerUid == request.auth.uid
+        && request.resource.data.paymentMethod in ['STC_PAY', 'CASH']
+        && request.resource.data.paymentStatus == 'PENDING'
+        && request.resource.data.providerUid is string
+        && request.resource.data.providerUid != request.auth.uid;
+
+      allow update: if isSignedIn()
+        && (
+          /* ======================
+             CUSTOMER UPDATE
+             ====================== */
+          (
+            request.auth.uid == resource.data.customerUid
+            &&
+            request.resource.data
+              .diff(resource.data)
+              .affectedKeys()
+              .hasOnly([
+                'stcPayProofImageUrl',
+                'stcPayProofNote',
+                'paymentStatus',
+                'paymentReference',
+
+                /* current rating fields */
+                'hasRating',
+                'ratingStars',
+                'ratingComment',
+
+                /* future split rating fields */
+                'providerHasRating',
+                'providerRatingStars',
+                'providerRatingComment',
+                'driverHasRating',
+                'driverRatingStars',
+                'driverRatingComment',
+
+                'deliveryMethod',
+                'deliveryStatus'
+              ])
+          )
+
+          ||
+
+          /* ======================
+             PROVIDER UPDATE
+             ====================== */
+          (
+            request.auth.uid == resource.data.providerUid
+            &&
+            request.resource.data
+              .diff(resource.data)
+              .affectedKeys()
+              .hasOnly([
+                'status',
+                'providerComment',
+                'statusReason',
+                'paymentStatus',
+                'deliveryStatus'
+              ])
+          )
+
+          ||
+
+          /* ======================
+             DRIVER UPDATE
+             ====================== */
+          (
+            isDriver()
+            &&
+            request.auth.uid == request.resource.data.driverUid
+            &&
+            request.resource.data
+              .diff(resource.data)
+              .affectedKeys()
+              .hasOnly([
+                'driverUid',
+                'deliveryStatus'
+              ])
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    /* =========================
+       provider_ratings
+       ========================= */
+    match /provider_ratings/{providerUid} {
+      match /ratings/{orderId} {
+
+        allow read: if true;
+
+        allow create, update: if
+          isSignedIn()
+          && request.auth.uid == request.resource.data.customerUid
+          && providerUid != request.auth.uid
+          && isOrderCustomer(orderId)
+          && isOrderProvider(orderId, providerUid)
+          && isOrderDelivered(orderId);
+      }
+    }
+
+    /* =========================
+       driver_ratings
+       ========================= */
+    match /driver_ratings/{driverUid} {
+      match /ratings/{orderId} {
+
+        allow read: if true;
+
+        allow create, update: if
+          isSignedIn()
+          && request.auth.uid == request.resource.data.customerUid
+          && driverUid != request.auth.uid
+          && isOrderCustomer(orderId)
+          && isOrderDriver(orderId, driverUid)
+          && isOrderDelivered(orderId);
+      }
+    }
+
+    /* =========================
+       app config
+       ========================= */
+    match /app_config/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /app_settings/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

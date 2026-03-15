@@ -39,6 +39,8 @@ export type OrderStatus =
 
 export type SubscriptionStatus = 'trialing' | 'active' | 'expired' | 'canceled' | 'past_due';
 
+export type AccountStatus = 'active' | 'trial' | 'suspended' | 'disabled';
+
 export type VehicleType = 'car' | 'motorcycle' | 'bicycle';
 
 export interface StcPayConfig {
@@ -82,6 +84,15 @@ export interface User {
   maxDistanceKm?: number;
   hasAcceptedTerms?: boolean;
   isOwner?: boolean;
+  accountStatus?: AccountStatus;
+  subscriptionStatus?: SubscriptionStatus;
+  subscriptionPlan?: string;
+  trialEndsAt?: string;
+  subscriptionEndsAt?: string;
+  activatedByAdmin?: boolean;
+  disabledReason?: string;
+  expoPushToken?: string;
+  pushNotificationsEnabled?: boolean;
 }
 
 export interface Driver {
@@ -134,6 +145,8 @@ export interface Order {
   paidAt: string | null;
   ratingSubmitted: boolean;
   driverRatingSubmitted: boolean;
+  providerHasRating: boolean;
+  driverHasRating: boolean;
   note: string;
   deliveryNotes: string;
   stcPayProofImageUrl: string;

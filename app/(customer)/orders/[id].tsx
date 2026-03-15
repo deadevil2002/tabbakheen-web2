@@ -43,8 +43,8 @@ export default function CustomerOrderDetailScreen() {
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
 
   const isDelivered = order?.status === 'delivered' || order?.deliveryStatus === 'delivered';
-  const canRateProvider = isDelivered && !order?.ratingSubmitted;
-  const canRateDriver = isDelivered && !order?.driverRatingSubmitted && !!order?.driverUid;
+  const canRateProvider = isDelivered && !order?.providerHasRating && !order?.ratingSubmitted;
+  const canRateDriver = isDelivered && !order?.driverHasRating && !order?.driverRatingSubmitted && !!order?.driverUid;
   const driverAccepted = !!order?.driverUid && order?.deliveryStatus !== 'ready_for_driver';
   const canChooseDelivery = order?.status === 'ready_for_pickup' && !order?.deliveryMethod && !order?.deliveryStatus;
   const canSubmitProof = order && (order.paymentMethod === 'stc_pay' || order.paymentMethod === 'bank_transfer') && order.paymentStatus !== 'paid' && order.paymentStatus !== 'paid_confirmed' && order.paymentStatus !== 'proof_sent' && order.status !== 'rejected' && order.status !== 'cancelled';

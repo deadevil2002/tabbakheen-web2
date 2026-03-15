@@ -32,3 +32,24 @@ export async function sendPushNotification(
     console.log(`[PushAPI] Error sending ${event}:`, e);
   }
 }
+
+export async function aggregateRatingViaWorker(
+  type: 'provider' | 'driver',
+  uid: string,
+): Promise<void> {
+  try {
+    console.log(`[PushAPI] Aggregating ${type} rating for ${uid}`);
+    const response = await fetch(`${PUSH_API_URL}/aggregate-rating`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': PUSH_API_KEY,
+      },
+      body: JSON.stringify({ type, uid }),
+    });
+    const data = await response.json();
+    console.log(`[PushAPI] Aggregate response:`, JSON.stringify(data));
+  } catch (e) {
+    console.log(`[PushAPI] Error aggregating ${type} rating:`, e);
+  }
+}

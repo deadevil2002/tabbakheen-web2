@@ -410,37 +410,104 @@ export default {
       return Response.json({ status: 'ok', service: 'tabbakheen-push-api' });
     }
 
-    if (url.pathname !== '/notify' || request.method !== 'POST') {
-      return Response.json({ success: false, error: 'Not found' }, { status: 404 });
-    }
-
     const apiKey = request.headers.get('x-api-key');
     if (!apiKey || apiKey !== env.API_KEY) {
-      return Response.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      return Response.json({ success: false, error: 'Unauthorized' }, { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
     }
 
-    try {
-      const body = await request.json();
-      const { event, orderId } = body;
+    if (url.pathname === '/notify' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const { event, orderId } = body;
 
-      if (!event || !orderId) {
-        return Response.json({ success: false, error: 'Missing event or orderId' }, { status: 400 });
+        if (!event || !orderId) {
+          return Response.json({ success: false, error: 'Missing event or orderId' }, { status: 400 });
+        }
+
+        console.log(`[Worker] Processing event: ${event} for order: ${orderId}`);
+
+        const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
+        const result = await handleEvent(event, orderId, accessToken);
+
+        return Response.json(result, {
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
+      } catch (e) {
+        console.error('[Worker] Error:', e);
+        return Response.json({ success: false, error: e.message || 'Internal error' }, {
+          status: 500,
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
       }
-
-      console.log(`[Worker] Processing event: ${event} for order: ${orderId}`);
-
-      const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
-      const result = await handleEvent(event, orderId, accessToken);
-
-      return Response.json(result, {
-        headers: { 'Access-Control-Allow-Origin': '*' }
-      });
-    } catch (e) {
-      console.error('[Worker] Error:', e);
-      return Response.json({ success: false, error: e.message || 'Internal error' }, {
-        status: 500,
-        headers: { 'Access-Control-Allow-Origin': '*' }
-      });
     }
+
+    if (url.pathname === '/aggregate-rating' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const { type, uid } = body;
+
+        if (!type || !uid || !['provider', 'driver'].includes(type)) {
+          return Response.json({ success: false, error: 'Missing or invalid type/uid' }, { status: 400, headers: { 'Access-Control-Allow-Origin': '*' } });
+        }
+
+        console.log(`[Worker] Aggregating ${type} rating for ${uid}`);
+
+        const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
+        const collectionPath = type === 'provider' ? 'provider_ratings' : 'driver_ratings';
+
+        const ratingsUrl = `${FIRESTORE_BASE}/${collectionPath}/${uid}/ratings`;
+        const ratingsResponse = await fetch(ratingsUrl, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+
+        let ratings = [];
+        if (ratingsResponse.ok) {
+          const ratingsData = await ratingsResponse.json();
+          if (ratingsData.documents) {
+            ratings = ratingsData.documents.map(doc => parseFirestoreDoc(doc)).filter(Boolean);
+          }
+        }
+
+        const count = ratings.length;
+        const avg = count > 0 ? ratings.reduce((sum, r) => sum + (r.stars || 0), 0) / count : 0;
+        const roundedAvg = Math.round(avg * 10) / 10;
+
+        console.log(`[Worker] ${type} ${uid}: ${count} ratings, avg ${roundedAvg}`);
+
+        const updateUrl = `${FIRESTORE_BASE}/users/${uid}?updateMask.fieldPaths=ratingAverage&updateMask.fieldPaths=ratingCount`;
+        const updateResponse = await fetch(updateUrl, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            fields: {
+              ratingAverage: { doubleValue: roundedAvg },
+              ratingCount: { integerValue: String(count) }
+            }
+          })
+        });
+
+        if (!updateResponse.ok) {
+          const errText = await updateResponse.text();
+          console.error(`[Worker] Failed to update user rating: ${errText}`);
+          return Response.json({ success: false, error: 'Failed to update user rating' }, { status: 500, headers: { 'Access-Control-Allow-Origin': '*' } });
+        }
+
+        console.log(`[Worker] Updated ${type} ${uid} rating: avg=${roundedAvg}, count=${count}`);
+        return Response.json({ success: true, ratingAverage: roundedAvg, ratingCount: count }, {
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
+      } catch (e) {
+        console.error('[Worker] Aggregate rating error:', e);
+        return Response.json({ success: false, error: e.message || 'Internal error' }, {
+          status: 500,
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+    }
+
+    return Response.json({ success: false, error: 'Not found' }, { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
   }
 };

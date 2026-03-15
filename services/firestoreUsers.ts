@@ -17,6 +17,12 @@ const COLLECTION = 'users';
 const FORBIDDEN_FIELDS = [
   'uid', 'role', 'email', 'createdAt',
   'successfulOrders', 'ratingAvg', 'ratingAverage', 'ratingCount',
+  'providerRatingAvg', 'providerRatingCount',
+  'driverRatingAvg', 'driverRatingCount',
+  'accountStatus', 'subscriptionStatus', 'subscriptionPlan',
+  'trialEndsAt', 'subscriptionEndsAt',
+  'activatedByAdmin', 'approvedByAdmin', 'isApproved',
+  'disabledAt', 'disabledReason',
 ];
 
 function toUser(id: string, data: Record<string, any>): User {
@@ -33,7 +39,7 @@ function toUser(id: string, data: Record<string, any>): User {
     ratingAverage: data.ratingAverage ?? 0,
     ratingCount: data.ratingCount ?? 0,
     fcmToken: data.fcmToken ?? '',
-    createdAt: data.createdAt ?? new Date().toISOString(),
+    createdAt: data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? new Date().toISOString(),
     lastLoginAt: data.lastLoginAt,
     paymentMethods: data.paymentMethods,
     vehicleType: data.vehicleType,
@@ -43,6 +49,15 @@ function toUser(id: string, data: Record<string, any>): User {
     isAvailable: data.isAvailable,
     maxDistanceKm: data.maxDistanceKm,
     hasAcceptedTerms: data.hasAcceptedTerms,
+    accountStatus: data.accountStatus,
+    subscriptionStatus: data.subscriptionStatus,
+    subscriptionPlan: data.subscriptionPlan,
+    trialEndsAt: data.trialEndsAt?.toDate?.()?.toISOString?.() ?? data.trialEndsAt,
+    subscriptionEndsAt: data.subscriptionEndsAt?.toDate?.()?.toISOString?.() ?? data.subscriptionEndsAt,
+    activatedByAdmin: data.activatedByAdmin,
+    disabledReason: data.disabledReason,
+    expoPushToken: data.expoPushToken,
+    pushNotificationsEnabled: data.pushNotificationsEnabled,
   };
 }
 
