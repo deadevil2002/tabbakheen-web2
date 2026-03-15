@@ -33,29 +33,8 @@ export default function CustomerOrdersScreen() {
     (order: Order) => {
       router.push(`/(customer)/orders/${order.id}` as any);
     },
-    [],
+    [router],
   );
-
-  if (!user) {
-    return (
-      <View style={styles.container}>
-        <SafeAreaView edges={['top']} style={styles.headerSafe}>
-          <Text style={[styles.headerTitle, isRTL && styles.rtlText]}>{t('orders')}</Text>
-        </SafeAreaView>
-        <View style={styles.guestContainer}>
-          <ClipboardList size={48} color={Colors.textTertiary} />
-          <Text style={[styles.guestTitle, isRTL && styles.rtlText]}>{t('loginRequired')}</Text>
-          <Text style={[styles.guestDesc, isRTL && styles.rtlText]}>{t('loginRequiredMsg')}</Text>
-          <Pressable
-            style={({ pressed }) => [styles.guestLoginBtn, pressed && { opacity: 0.9 }]}
-            onPress={() => router.push('/auth/login' as any)}
-          >
-            <Text style={styles.guestLoginBtnText}>{t('login')}</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
 
   const renderOrder = useCallback(
     ({ item }: { item: Order }) => {
@@ -85,6 +64,27 @@ export default function CustomerOrdersScreen() {
     },
     [isRTL, locale, t, getProviderById, handleOrderPress],
   );
+
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.headerSafe}>
+          <Text style={[styles.headerTitle, isRTL && styles.rtlText]}>{t('orders')}</Text>
+        </SafeAreaView>
+        <View style={styles.guestContainer}>
+          <ClipboardList size={48} color={Colors.textTertiary} />
+          <Text style={[styles.guestTitle, isRTL && styles.rtlText]}>{t('loginRequired')}</Text>
+          <Text style={[styles.guestDesc, isRTL && styles.rtlText]}>{t('loginRequiredMsg')}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.guestLoginBtn, pressed && { opacity: 0.9 }]}
+            onPress={() => router.push('/auth/login' as any)}
+          >
+            <Text style={styles.guestLoginBtnText}>{t('login')}</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
