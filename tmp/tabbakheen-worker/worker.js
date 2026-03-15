@@ -1477,9 +1477,15 @@ function getAdminHTML() {
 'supportWhatsapp:"\u0648\u0627\u062A\u0633\u0627\u0628 \u0627\u0644\u062F\u0639\u0645",' +
 'deliveryPricing:"\u062A\u0633\u0639\u064A\u0631 \u0627\u0644\u062A\u0648\u0635\u064A\u0644",' +
 'baseFee:"\u0631\u0633\u0645 \u0623\u0633\u0627\u0633\u064A (SAR)",' +
-'perKmCity:"\u0644\u0643\u0644 \u0643\u0645 (\u062F\u0627\u062E\u0644)",' +
-'perKmOut:"\u0644\u0643\u0644 \u0643\u0645 (\u062E\u0627\u0631\u062C)",' +
+'perKmCity:"\u0633\u0639\u0631 \u0627\u0644\u0643\u064A\u0644\u0648\u0645\u062A\u0631 (SAR)",' +
+'minFee:"\u0627\u0644\u062D\u062F \u0627\u0644\u0623\u062F\u0646\u0649 (SAR)",' +
 'maxFee:"\u0627\u0644\u062D\u062F \u0627\u0644\u0623\u0642\u0635\u0649 (SAR)",' +
+'formulaPreview:"\u0645\u0639\u0627\u064A\u0646\u0629 \u0627\u0644\u0635\u064A\u063A\u0629",' +
+'distance:"\u0627\u0644\u0645\u0633\u0627\u0641\u0629",' +
+'estimatedFee:"\u0627\u0644\u0631\u0633\u0645 \u0627\u0644\u0645\u062A\u0648\u0642\u0639",' +
+'pricingFormula:"\u0627\u0644\u0635\u064A\u063A\u0629: \u0631\u0633\u0645 \u0623\u0633\u0627\u0633\u064A + (\u0645\u0633\u0627\u0641\u0629 \u00D7 \u0633\u0639\u0631/\u0643\u0645)",' +
+'invalidMinMax:"\u0627\u0644\u062D\u062F \u0627\u0644\u0623\u062F\u0646\u0649 \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0623\u0642\u0644 \u0645\u0646 \u0627\u0644\u062D\u062F \u0627\u0644\u0623\u0642\u0635\u0649",' +
+'noNegative:"\u0627\u0644\u0642\u064A\u0645 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 \u0623\u0643\u0628\u0631 \u0645\u0646 \u0635\u0641\u0631",' +
 'saveSettings:"\u062D\u0641\u0638 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A",' +
 'settingsSaved:"\u062A\u0645 \u062D\u0641\u0638 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A",' +
 'failedSave:"\u0641\u0634\u0644 \u0627\u0644\u062D\u0641\u0638",' +
@@ -1614,9 +1620,15 @@ function getAdminHTML() {
 'supportWhatsapp:"Support WhatsApp",' +
 'deliveryPricing:"Delivery Pricing",' +
 'baseFee:"Base Fee (SAR)",' +
-'perKmCity:"Per KM (City)",' +
-'perKmOut:"Per KM (Outside)",' +
-'maxFee:"Max Fee (SAR)",' +
+'perKmCity:"Price per KM (SAR)",' +
+'minFee:"Minimum Fee (SAR)",' +
+'maxFee:"Maximum Fee (SAR)",' +
+'formulaPreview:"Formula Preview",' +
+'distance:"Distance",' +
+'estimatedFee:"Estimated Fee",' +
+'pricingFormula:"Formula: Base Fee + (Distance \u00D7 Price/KM)",' +
+'invalidMinMax:"Minimum fee must be less than maximum fee",' +
+'noNegative:"Values must be greater than zero",' +
 'saveSettings:"Save Settings",' +
 'settingsSaved:"Settings saved",' +
 'failedSave:"Failed to save",' +
@@ -2063,12 +2075,16 @@ function getAdminHTML() {
 '    \'<div class="form-group"><label>\'+t("supportWhatsapp")+\'</label><input id="s-supportWhatsapp" value="\'+esc(appSettings.supportWhatsapp||"")+\'"></div>\'+\n' +
 '    \'</div>\'+\n' +
 '    \'<div class="settings-section"><h3>\'+t("deliveryPricing")+\'</h3>\'+\n' +
+'    \'<p style="font-size:13px;color:var(--text2);margin-bottom:16px">\'+t("pricingFormula")+\'</p>\'+\n' +
 '    \'<div class="grid-2">\'+\n' +
-'    \'<div class="form-group"><label>\'+t("baseFee")+\'</label><input type="number" id="s-baseFee" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.baseFee||15)+\'"></div>\'+\n' +
-'    \'<div class="form-group"><label>\'+t("perKmCity")+\'</label><input type="number" step="0.5" id="s-perKmCity" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.perKmInsideCity||2)+\'"></div>\'+\n' +
-'    \'<div class="form-group"><label>\'+t("perKmOut")+\'</label><input type="number" step="0.5" id="s-perKmOut" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.perKmOutsideCity||3)+\'"></div>\'+\n' +
-'    \'<div class="form-group"><label>\'+t("maxFee")+\'</label><input type="number" id="s-maxFee" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.maxFee||50)+\'"></div>\'+\n' +
-'    \'</div></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("baseFee")+\'</label><input type="number" min="0" step="0.5" id="s-baseFee" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.baseFee!=null?appSettings.deliveryPricing.baseFee:5)+\'" oninput="updatePricingPreview()"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("perKmCity")+\'</label><input type="number" min="0" step="0.5" id="s-perKmCity" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.perKmInsideCity!=null?appSettings.deliveryPricing.perKmInsideCity:2)+\'" oninput="updatePricingPreview()"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("minFee")+\'</label><input type="number" min="0" step="0.5" id="s-minFee" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.minFee!=null?appSettings.deliveryPricing.minFee:5)+\'" oninput="updatePricingPreview()"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("maxFee")+\'</label><input type="number" min="0" step="0.5" id="s-maxFee" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.maxFee!=null?appSettings.deliveryPricing.maxFee:50)+\'" oninput="updatePricingPreview()"></div>\'+\n' +
+'    \'</div>\'+\n' +
+'    \'<div id="pricing-validation" style="margin-top:8px"></div>\'+\n' +
+'    \'<div id="pricing-preview" style="margin-top:12px;padding:16px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px"></div>\'+\n' +
+'    \'</div>\'+\n' +
 '    \'<div class="settings-section"><h3>\'+t("subWarning")+\'</h3>\'+\n' +
 '    \'<div class="form-group"><label>\'+t("warningDays")+\'</label><input type="number" id="s-warningDays" value="\'+(appSettings.subscriptionWarningDays||7)+\'"></div>\'+\n' +
 '    \'</div>\'+\n' +
@@ -2085,6 +2101,7 @@ function getAdminHTML() {
 '    \'<button class="btn btn-sm btn-warning" onclick="changePassword()">\'+t("changePasswordBtn")+\'</button>\'+\n' +
 '    \'</div>\'+\n' +
 '    \'<button class="btn btn-primary" onclick="saveSettings()">\'+t("saveSettings")+\'</button>\';\n' +
+'  setTimeout(updatePricingPreview,50);\n' +
 '}\n' +
 '\nasync function uploadBanner(){\n' +
 '  var fileInput=document.getElementById("banner-file");\n' +
@@ -2125,10 +2142,10 @@ function getAdminHTML() {
 '    supportWhatsapp:document.getElementById("s-supportWhatsapp")?document.getElementById("s-supportWhatsapp").value:"",\n' +
 '    deliveryPricing:{\n' +
 '      currency:"SAR",\n' +
-'      baseFee:parseFloat(document.getElementById("s-baseFee")?document.getElementById("s-baseFee").value:"15")||15,\n' +
-'      perKmInsideCity:parseFloat(document.getElementById("s-perKmCity")?document.getElementById("s-perKmCity").value:"2")||2,\n' +
-'      perKmOutsideCity:parseFloat(document.getElementById("s-perKmOut")?document.getElementById("s-perKmOut").value:"3")||3,\n' +
-'      maxFee:parseFloat(document.getElementById("s-maxFee")?document.getElementById("s-maxFee").value:"50")||50\n' +
+'      baseFee:Math.max(0,parseFloat(document.getElementById("s-baseFee")?document.getElementById("s-baseFee").value:"5")||5),\n' +
+'      perKmInsideCity:Math.max(0,parseFloat(document.getElementById("s-perKmCity")?document.getElementById("s-perKmCity").value:"2")||2),\n' +
+'      minFee:Math.max(0,parseFloat(document.getElementById("s-minFee")?document.getElementById("s-minFee").value:"5")||5),\n' +
+'      maxFee:Math.max(0,parseFloat(document.getElementById("s-maxFee")?document.getElementById("s-maxFee").value:"50")||50)\n' +
 '    },\n' +
 '    defaultLanguage:lang,\n' +
 '    subscriptionWarningDays:parseInt(document.getElementById("s-warningDays")?document.getElementById("s-warningDays").value:"7")||7,\n' +
@@ -2136,6 +2153,8 @@ function getAdminHTML() {
 '    notifyOnNewProvider:document.getElementById("s-notifyNewProvider")?document.getElementById("s-notifyNewProvider").checked:false,\n' +
 '    notifyOnNewDriver:document.getElementById("s-notifyNewDriver")?document.getElementById("s-notifyNewDriver").checked:false\n' +
 '  };\n' +
+'  var dp=fields.deliveryPricing;if(dp&&dp.minFee>dp.maxFee&&dp.maxFee>0){toast(t("invalidMinMax"),"error");return;}\n' +
+'  if(dp&&(dp.baseFee<0||dp.perKmInsideCity<0||dp.minFee<0||dp.maxFee<0)){toast(t("noNegative"),"error");return;}\n' +
 '  var data=await api("/settings",{method:"POST",body:JSON.stringify(fields)});\n' +
 '  if(data&&data.success)toast(t("settingsSaved"));\n' +
 '  else toast(data&&data.error||t("failedSave"),"error");\n' +
@@ -2154,6 +2173,33 @@ function getAdminHTML() {
 '      document.getElementById("s-curPw").value="";document.getElementById("s-newPw").value="";document.getElementById("s-confirmPw").value="";\n' +
 '    }else{msgEl.textContent=data&&data.error||t("passwordFailed");msgEl.className="err-msg";msgEl.style.display="block";}\n' +
 '  }catch(e){msgEl.textContent=e.message;msgEl.className="err-msg";msgEl.style.display="block";}\n' +
+'}\n' +
+'\nfunction updatePricingPreview(){\n' +
+'  var baseFee=parseFloat(document.getElementById("s-baseFee")?document.getElementById("s-baseFee").value:"5")||0;\n' +
+'  var perKm=parseFloat(document.getElementById("s-perKmCity")?document.getElementById("s-perKmCity").value:"2")||0;\n' +
+'  var minFee=parseFloat(document.getElementById("s-minFee")?document.getElementById("s-minFee").value:"5")||0;\n' +
+'  var maxFee=parseFloat(document.getElementById("s-maxFee")?document.getElementById("s-maxFee").value:"50")||0;\n' +
+'  var validEl=document.getElementById("pricing-validation");\n' +
+'  var prevEl=document.getElementById("pricing-preview");\n' +
+'  if(!validEl||!prevEl)return;\n' +
+'  var errors=[];\n' +
+'  if(baseFee<0||perKm<0||minFee<0||maxFee<0)errors.push(t("noNegative"));\n' +
+'  if(minFee>maxFee&&maxFee>0)errors.push(t("invalidMinMax"));\n' +
+'  if(errors.length){validEl.innerHTML=\'<div style="color:var(--error);font-size:13px;padding:8px;background:#fef2f2;border-radius:6px">\'+errors.join("<br>")+\'</div>\';}\n' +
+'  else{validEl.innerHTML="";}\n' +
+'  var examples=[3,5,7.5,10,15,20];\n' +
+'  var html=\'<div style="font-size:13px;font-weight:600;color:var(--primary);margin-bottom:10px">\'+t("formulaPreview")+\'</div>\';\n' +
+'  html+=\'<table style="width:100%;font-size:13px;border-collapse:collapse">\';\n' +
+'  html+=\'<tr style="background:#e0f2e9"><th style="padding:6px 10px;text-align:\'+( lang==="ar"?"right":"left")+\'>\'+t("distance")+\' (km)</th><th style="padding:6px 10px;text-align:\'+( lang==="ar"?"right":"left")+\'>\'+t("estimatedFee")+\' (SAR)</th></tr>\';\n' +
+'  examples.forEach(function(d){\n' +
+'    var fee=baseFee+d*perKm;\n' +
+'    fee=Math.round(fee);\n' +
+'    if(minFee>0&&fee<minFee)fee=minFee;\n' +
+'    if(maxFee>0&&fee>maxFee)fee=maxFee;\n' +
+'    html+=\'<tr><td style="padding:5px 10px;border-bottom:1px solid #d1fae5">\'+d+\' km</td><td style="padding:5px 10px;border-bottom:1px solid #d1fae5;font-weight:600">\'+fee+\' SAR</td></tr>\';\n' +
+'  });\n' +
+'  html+=\'</table>\';\n' +
+'  prevEl.innerHTML=html;\n' +
 '}\n' +
 '\nif(lang==="ar"){document.documentElement.dir="rtl";document.documentElement.lang="ar";}\n' +
 'else{document.documentElement.dir="ltr";document.documentElement.lang="en";}\n' +
@@ -2198,7 +2244,7 @@ async function handleRequest(request) {
     }
 
     if (path === '/' && request.method === 'GET') {
-      return Response.json({ status: 'ok', service: 'tabbakheen-api', version: '2.1.0', admin: true, pdf: true });
+      return Response.json({ status: 'ok', service: 'tabbakheen-api', version: '2.2.0', admin: true, pdf: true, deliveryPricingAdmin: true });
     }
 
     // ============================================================
@@ -2681,11 +2727,11 @@ async function handleRequest(request) {
         const customerLng = order.customerLng;
 
         // Load delivery pricing from app_settings
-        let pricing = { baseFee: 5, perKmInsideCity: 2, perKmOutsideCity: 3, maxFee: 50 };
+        let pricing = { baseFee: 5, perKmInsideCity: 2, minFee: 5, maxFee: 50 };
         try {
           const settings = await getFirestoreDoc('app_settings', 'main', accessToken);
           if (settings && settings.deliveryPricing) {
-            pricing = settings.deliveryPricing;
+            pricing = { ...pricing, ...settings.deliveryPricing };
           }
         } catch (e) {
           console.log('[Worker] Could not load delivery pricing, using defaults:', e.message);
@@ -2709,10 +2755,14 @@ async function handleRequest(request) {
           const perKm = pricing.perKmInsideCity || 2;
           deliveryFee = (pricing.baseFee || 5) + distanceKm * perKm;
           deliveryFee = Math.round(deliveryFee);
+          if (pricing.minFee && deliveryFee < pricing.minFee) {
+            deliveryFee = pricing.minFee;
+          }
           if (pricing.maxFee && deliveryFee > pricing.maxFee) {
             deliveryFee = pricing.maxFee;
           }
         }
+        console.log('[Worker] Pricing: baseFee=' + pricing.baseFee + ' perKm=' + pricing.perKmInsideCity + ' minFee=' + pricing.minFee + ' maxFee=' + pricing.maxFee + ' dist=' + distanceKm + ' fee=' + deliveryFee);
 
         const priceSnapshot = order.priceSnapshot || 0;
         const totalAmount = priceSnapshot + deliveryFee;
@@ -2768,11 +2818,11 @@ async function handleRequest(request) {
           return Response.json({ success: false, error: 'Order not found' }, { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
         }
 
-        let pricing = { baseFee: 5, perKmInsideCity: 2, perKmOutsideCity: 3, maxFee: 50 };
+        let pricing = { baseFee: 5, perKmInsideCity: 2, minFee: 5, maxFee: 50 };
         try {
           const settings = await getFirestoreDoc('app_settings', 'main', accessToken);
           if (settings && settings.deliveryPricing) {
-            pricing = settings.deliveryPricing;
+            pricing = { ...pricing, ...settings.deliveryPricing };
           }
         } catch (e) {
           console.log('[Worker] Could not load pricing for quote:', e.message);
@@ -2799,6 +2849,9 @@ async function handleRequest(request) {
           const perKm = pricing.perKmInsideCity || 2;
           deliveryFee = (pricing.baseFee || 5) + distanceKm * perKm;
           deliveryFee = Math.round(deliveryFee);
+          if (pricing.minFee && deliveryFee < pricing.minFee) {
+            deliveryFee = pricing.minFee;
+          }
           if (pricing.maxFee && deliveryFee > pricing.maxFee) {
             deliveryFee = pricing.maxFee;
           }
