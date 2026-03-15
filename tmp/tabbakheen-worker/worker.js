@@ -1,11 +1,9 @@
 const FIRESTORE_BASE = 'https://firestore.googleapis.com/v1/projects/tabbakheen-99883/databases/(default)/documents';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const CLOUDINARY_CLOUD = 'dv6n9vnly';
-const CLOUDINARY_PRESET = 'tabbakheen_upload';
 
 // ============================================================
-// FIRESTORE HELPERS (existing)
+// FIRESTORE HELPERS
 // ============================================================
 
 function base64url(buffer) {
@@ -158,10 +156,6 @@ async function queryFirestore(collectionId, fieldPath, op, value, accessToken) {
   return results.filter(r => r.document).map(r => parseFirestoreDoc(r.document));
 }
 
-// ============================================================
-// NEW: Admin Firestore helpers
-// ============================================================
-
 function toFirestoreValue(value) {
   if (value === null || value === undefined) return { nullValue: null };
   if (typeof value === 'string') return { stringValue: value };
@@ -208,6 +202,56 @@ async function listAllUsers(accessToken) {
   return users;
 }
 
+async function listAllOrders(accessToken) {
+  const orders = [];
+  let pageToken = null;
+  do {
+    let url = `${FIRESTORE_BASE}/orders?pageSize=300`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Failed to list orders: ${response.status} ${text}`);
+    }
+    const data = await response.json();
+    if (data.documents) {
+      for (const doc of data.documents) {
+        const parsed = parseFirestoreDoc(doc);
+        if (parsed) orders.push(parsed);
+      }
+    }
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+  return orders;
+}
+
+async function listAllOffers(accessToken) {
+  const offers = [];
+  let pageToken = null;
+  do {
+    let url = `${FIRESTORE_BASE}/offers?pageSize=300`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Failed to list offers: ${response.status} ${text}`);
+    }
+    const data = await response.json();
+    if (data.documents) {
+      for (const doc of data.documents) {
+        const parsed = parseFirestoreDoc(doc);
+        if (parsed) offers.push(parsed);
+      }
+    }
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+  return offers;
+}
+
 async function updateFirestoreDocument(collectionPath, docId, fields, accessToken) {
   const fieldPaths = Object.keys(fields);
   const maskParams = fieldPaths.map(f => `updateMask.fieldPaths=${encodeURIComponent(f)}`).join('&');
@@ -231,8 +275,124 @@ async function updateFirestoreDocument(collectionPath, docId, fields, accessToke
   return await response.json();
 }
 
+async function createFirestoreDocument(collectionPath, docId, fields, accessToken) {
+  const url = docId
+    ? `${FIRESTORE_BASE}/${collectionPath}/${docId}`
+    : `${FIRESTORE_BASE}/${collectionPath}`;
+  const firestoreFields = {};
+  for (const [key, value] of Object.entries(fields)) {
+    firestoreFields[key] = toFirestoreValue(value);
+  }
+  const method = docId ? 'PATCH' : 'POST';
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ fields: firestoreFields })
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Firestore CREATE ${collectionPath} failed: ${response.status} ${text}`);
+  }
+  return await response.json();
+}
+
 // ============================================================
-// PUSH NOTIFICATION HELPERS (existing, unchanged)
+// CLOUDINARY SIGNED UPLOAD
+// ============================================================
+
+async function sha1Hex(str) {
+  const data = new TextEncoder().encode(str);
+  const hash = await crypto.subtle.digest('SHA-1', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function uploadToCloudinary(imageBase64, folder, env) {
+  const cloudName = env.CLOUDINARY_CLOUD_NAME || 'dv6n9vnly';
+  const apiKey = env.CLOUDINARY_API_KEY;
+  const apiSecret = env.CLOUDINARY_API_SECRET;
+
+  if (!apiKey || !apiSecret) {
+    throw new Error('Cloudinary API credentials not configured. Set CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET as Worker secrets.');
+  }
+
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const params = { folder, timestamp };
+  const sortedStr = Object.keys(params).sort().map(k => k + '=' + params[k]).join('&');
+  const signature = await sha1Hex(sortedStr + apiSecret);
+
+  const formData = new FormData();
+  formData.append('file', imageBase64);
+  formData.append('api_key', apiKey);
+  formData.append('timestamp', timestamp);
+  formData.append('folder', folder);
+  formData.append('signature', signature);
+
+  console.log('[Cloudinary] Uploading to folder:', folder, 'cloud:', cloudName);
+  const res = await fetch('https://api.cloudinary.com/v1_1/' + cloudName + '/image/upload', {
+    method: 'POST',
+    body: formData
+  });
+
+  const result = await res.json();
+  if (!res.ok || result.error) {
+    const errMsg = result.error ? result.error.message : ('HTTP ' + res.status);
+    console.error('[Cloudinary] Upload failed:', errMsg);
+    throw new Error('Cloudinary upload failed: ' + errMsg);
+  }
+
+  console.log('[Cloudinary] Upload success:', result.secure_url);
+  return { secure_url: result.secure_url, public_id: result.public_id };
+}
+
+// ============================================================
+// PASSWORD HASHING
+// ============================================================
+
+async function hashPassword(password) {
+  const data = new TextEncoder().encode(password + '_tbk_salt_2026');
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ============================================================
+// EMAIL HELPER
+// ============================================================
+
+async function sendEmail(to, subject, html, env) {
+  const apiKey = env.EMAIL_API_KEY;
+  if (!apiKey) {
+    console.log('[Email] EMAIL_API_KEY not configured, skipping email to:', to);
+    return { sent: false, reason: 'EMAIL_API_KEY not configured' };
+  }
+  const from = env.EMAIL_FROM || 'Tabbakheen <noreply@tabbakheen.com>';
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ from, to: [to], subject, html })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      console.log('[Email] Sent to', to, 'id:', data.id);
+      return { sent: true, id: data.id };
+    } else {
+      console.error('[Email] Failed:', JSON.stringify(data));
+      return { sent: false, reason: data.message || 'Failed' };
+    }
+  } catch (e) {
+    console.error('[Email] Error:', e);
+    return { sent: false, reason: e.message };
+  }
+}
+
+// ============================================================
+// PUSH NOTIFICATION HELPERS
 // ============================================================
 
 function isExpoPushToken(token) {
@@ -276,7 +436,7 @@ async function sendExpoPush(messages) {
 }
 
 // ============================================================
-// PUSH EVENT HANDLER (existing, unchanged)
+// PUSH EVENT HANDLER
 // ============================================================
 
 async function handleEvent(event, orderId, accessToken) {
@@ -296,7 +456,7 @@ async function handleEvent(event, orderId, accessToken) {
           messages.push({
             to: token,
             title: '\u062A\u0645 \u0642\u0628\u0648\u0644 \u0637\u0644\u0628\u0643 \u2705',
-            body: `\u0637\u0644\u0628\u0643 "${orderLabel}" \u062A\u0645 \u0642\u0628\u0648\u0644\u0647 \u0648\u062C\u0627\u0631\u064A \u0627\u0644\u062A\u062D\u0636\u064A\u0631`,
+            body: '\u0637\u0644\u0628\u0643 "' + orderLabel + '" \u062A\u0645 \u0642\u0628\u0648\u0644\u0647 \u0648\u062C\u0627\u0631\u064A \u0627\u0644\u062A\u062D\u0636\u064A\u0631',
             data: { type: 'order_accepted', orderId, role: 'customer' },
             sound: 'default'
           });
@@ -311,7 +471,7 @@ async function handleEvent(event, orderId, accessToken) {
           messages.push({
             to: token,
             title: '\u0637\u0644\u0628\u0643 \u062C\u0627\u0647\u0632 \uD83C\uDF7D\uFE0F',
-            body: `\u0637\u0644\u0628\u0643 "${orderLabel}" \u062C\u0627\u0647\u0632. \u0627\u062E\u062A\u0631 \u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0627\u0633\u062A\u0644\u0627\u0645`,
+            body: '\u0637\u0644\u0628\u0643 "' + orderLabel + '" \u062C\u0627\u0647\u0632. \u0627\u062E\u062A\u0631 \u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0627\u0633\u062A\u0644\u0627\u0645',
             data: { type: 'order_ready', orderId, role: 'customer' },
             sound: 'default'
           });
@@ -326,7 +486,7 @@ async function handleEvent(event, orderId, accessToken) {
           messages.push({
             to: token,
             title: '\u0627\u0633\u062A\u0644\u0627\u0645 \u0630\u0627\u062A\u064A \uD83D\uDCE6',
-            body: `\u0627\u0644\u0639\u0645\u064A\u0644 \u0633\u064A\u0633\u062A\u0644\u0645 \u0627\u0644\u0637\u0644\u0628 "${orderLabel}" \u0628\u0646\u0641\u0633\u0647`,
+            body: '\u0627\u0644\u0639\u0645\u064A\u0644 \u0633\u064A\u0633\u062A\u0644\u0645 \u0627\u0644\u0637\u0644\u0628 "' + orderLabel + '" \u0628\u0646\u0641\u0633\u0647',
             data: { type: 'self_pickup_selected', orderId, role: 'provider' },
             sound: 'default'
           });
@@ -341,7 +501,7 @@ async function handleEvent(event, orderId, accessToken) {
           messages.push({
             to: providerToken,
             title: '\u062A\u0648\u0635\u064A\u0644 \u0628\u0645\u0646\u062F\u0648\u0628 \uD83D\uDE97',
-            body: `\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u062A\u0648\u0635\u064A\u0644 \u0627\u0644\u0637\u0644\u0628 "${orderLabel}" \u0628\u0648\u0627\u0633\u0637\u0629 \u0645\u0646\u062F\u0648\u0628`,
+            body: '\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u062A\u0648\u0635\u064A\u0644 \u0627\u0644\u0637\u0644\u0628 "' + orderLabel + '" \u0628\u0648\u0627\u0633\u0637\u0629 \u0645\u0646\u062F\u0648\u0628',
             data: { type: 'driver_delivery_requested', orderId, role: 'provider' },
             sound: 'default'
           });
@@ -352,7 +512,7 @@ async function handleEvent(event, orderId, accessToken) {
         messages.push({
           to: token,
           title: '\u062A\u0648\u0635\u064A\u0644\u0629 \u062C\u062F\u064A\u062F\u0629 \u0645\u062A\u0627\u062D\u0629 \uD83D\uDE80',
-          body: `\u062A\u0648\u0635\u064A\u0644\u0629 \u062C\u062F\u064A\u062F\u0629 \u0645\u062A\u0627\u062D\u0629 \u0644\u0644\u0637\u0644\u0628 "${orderLabel}"`,
+          body: '\u062A\u0648\u0635\u064A\u0644\u0629 \u062C\u062F\u064A\u062F\u0629 \u0645\u062A\u0627\u062D\u0629 \u0644\u0644\u0637\u0644\u0628 "' + orderLabel + '"',
           data: { type: 'new_delivery_available', orderId, role: 'driver' },
           sound: 'default'
         });
@@ -366,7 +526,7 @@ async function handleEvent(event, orderId, accessToken) {
           messages.push({
             to: customerToken,
             title: '\u062A\u0645 \u062A\u0639\u064A\u064A\u0646 \u0645\u0646\u062F\u0648\u0628 \uD83C\uDFCD\uFE0F',
-            body: `\u062A\u0645 \u062A\u0639\u064A\u064A\u0646 \u0645\u0646\u062F\u0648\u0628 \u0644\u062A\u0648\u0635\u064A\u0644 \u0637\u0644\u0628\u0643 "${orderLabel}"`,
+            body: '\u062A\u0645 \u062A\u0639\u064A\u064A\u0646 \u0645\u0646\u062F\u0648\u0628 \u0644\u062A\u0648\u0635\u064A\u0644 \u0637\u0644\u0628\u0643 "' + orderLabel + '"',
             data: { type: 'driver_assigned', orderId, role: 'customer' },
             sound: 'default'
           });
@@ -378,7 +538,7 @@ async function handleEvent(event, orderId, accessToken) {
           messages.push({
             to: providerToken,
             title: '\u0645\u0646\u062F\u0648\u0628 \u0641\u064A \u0627\u0644\u0637\u0631\u064A\u0642 \uD83C\uDFCD\uFE0F',
-            body: `\u0645\u0646\u062F\u0648\u0628 \u0641\u064A \u0637\u0631\u064A\u0642\u0647 \u0644\u0627\u0633\u062A\u0644\u0627\u0645 \u0627\u0644\u0637\u0644\u0628 "${orderLabel}"`,
+            body: '\u0645\u0646\u062F\u0648\u0628 \u0641\u064A \u0637\u0631\u064A\u0642\u0647 \u0644\u0627\u0633\u062A\u0644\u0627\u0645 \u0627\u0644\u0637\u0644\u0628 "' + orderLabel + '"',
             data: { type: 'driver_assigned', orderId, role: 'provider' },
             sound: 'default'
           });
@@ -393,7 +553,7 @@ async function handleEvent(event, orderId, accessToken) {
           messages.push({
             to: token,
             title: '\u0627\u0644\u0645\u0646\u062F\u0648\u0628 \u0627\u0633\u062A\u0644\u0645 \u0637\u0644\u0628\u0643 \uD83D\uDCE6',
-            body: `\u0627\u0644\u0645\u0646\u062F\u0648\u0628 \u0627\u0633\u062A\u0644\u0645 \u0637\u0644\u0628\u0643 "${orderLabel}" \u0648\u0641\u064A \u0627\u0644\u0637\u0631\u064A\u0642 \u0625\u0644\u064A\u0643`,
+            body: '\u0627\u0644\u0645\u0646\u062F\u0648\u0628 \u0627\u0633\u062A\u0644\u0645 \u0637\u0644\u0628\u0643 "' + orderLabel + '" \u0648\u0641\u064A \u0627\u0644\u0637\u0631\u064A\u0642 \u0625\u0644\u064A\u0643',
             data: { type: 'order_picked_up', orderId, role: 'customer' },
             sound: 'default'
           });
@@ -408,7 +568,7 @@ async function handleEvent(event, orderId, accessToken) {
           messages.push({
             to: token,
             title: '\u0627\u0644\u0645\u0646\u062F\u0648\u0628 \u0648\u0635\u0644 \uD83D\uDCCD',
-            body: `\u0627\u0644\u0645\u0646\u062F\u0648\u0628 \u0648\u0635\u0644 \u0644\u0645\u0648\u0642\u0639\u0643 \u0628\u0637\u0644\u0628\u0643 "${orderLabel}"`,
+            body: '\u0627\u0644\u0645\u0646\u062F\u0648\u0628 \u0648\u0635\u0644 \u0644\u0645\u0648\u0642\u0639\u0643 \u0628\u0637\u0644\u0628\u0643 "' + orderLabel + '"',
             data: { type: 'driver_arrived', orderId, role: 'customer' },
             sound: 'default'
           });
@@ -423,7 +583,7 @@ async function handleEvent(event, orderId, accessToken) {
           messages.push({
             to: customerToken,
             title: '\u062A\u0645 \u0627\u0644\u062A\u0648\u0635\u064A\u0644 \u2705',
-            body: `\u0637\u0644\u0628\u0643 "${orderLabel}" \u062A\u0645 \u062A\u0648\u0635\u064A\u0644\u0647 \u0628\u0646\u062C\u0627\u062D`,
+            body: '\u0637\u0644\u0628\u0643 "' + orderLabel + '" \u062A\u0645 \u062A\u0648\u0635\u064A\u0644\u0647 \u0628\u0646\u062C\u0627\u062D',
             data: { type: 'order_delivered', orderId, role: 'customer' },
             sound: 'default'
           });
@@ -435,7 +595,7 @@ async function handleEvent(event, orderId, accessToken) {
           messages.push({
             to: providerToken,
             title: '\u062A\u0645 \u0627\u0644\u062A\u0648\u0635\u064A\u0644 \u2705',
-            body: `\u0627\u0644\u0637\u0644\u0628 "${orderLabel}" \u062A\u0645 \u062A\u0648\u0635\u064A\u0644\u0647 \u0644\u0644\u0639\u0645\u064A\u0644 \u0628\u0646\u062C\u0627\u062D`,
+            body: '\u0627\u0644\u0637\u0644\u0628 "' + orderLabel + '" \u062A\u0645 \u062A\u0648\u0635\u064A\u0644\u0647 \u0644\u0644\u0639\u0645\u064A\u0644 \u0628\u0646\u062C\u0627\u062D',
             data: { type: 'order_delivered', orderId, role: 'provider' },
             sound: 'default'
           });
@@ -450,7 +610,7 @@ async function handleEvent(event, orderId, accessToken) {
           messages.push({
             to: token,
             title: '\u062A\u0645 \u062A\u0633\u0644\u064A\u0645 \u0627\u0644\u0637\u0644\u0628 \u2705',
-            body: `\u0637\u0644\u0628\u0643 "${orderLabel}" \u062A\u0645 \u062A\u0633\u0644\u064A\u0645\u0647 \u0628\u0646\u062C\u0627\u062D`,
+            body: '\u0637\u0644\u0628\u0643 "' + orderLabel + '" \u062A\u0645 \u062A\u0633\u0644\u064A\u0645\u0647 \u0628\u0646\u062C\u0627\u062D',
             data: { type: 'order_completed', orderId, role: 'customer' },
             sound: 'default'
           });
@@ -459,12 +619,12 @@ async function handleEvent(event, orderId, accessToken) {
       break;
     }
     default:
-      return { success: false, error: `Unknown event: ${event}` };
+      return { success: false, error: 'Unknown event: ' + event };
   }
 
   if (messages.length > 0) {
     await sendExpoPush(messages);
-    console.log(`[Push] Sent ${messages.length} notifications for ${event} on order ${orderId}`);
+    console.log('[Push] Sent ' + messages.length + ' notifications for ' + event + ' on order ' + orderId);
   }
 
   return { success: true, notificationsSent: messages.length };
@@ -488,7 +648,7 @@ async function createAdminToken(env) {
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
   const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return `${payload}.${sigB64}`;
+  return payload + '.' + sigB64;
 }
 
 async function verifyAdminToken(token, env) {
@@ -517,6 +677,20 @@ async function verifyAdminToken(token, env) {
   }
 }
 
+async function verifyAdminPassword(password, env, accessToken) {
+  if (password === env.ADMIN_PASSWORD) return true;
+  try {
+    const adminDoc = await getFirestoreDoc('app_config', 'admin', accessToken);
+    if (adminDoc && adminDoc.passwordHash) {
+      const inputHash = await hashPassword(password);
+      return inputHash === adminDoc.passwordHash;
+    }
+  } catch (e) {
+    console.log('[Admin] Firestore password check error:', e);
+  }
+  return false;
+}
+
 function getTokenFromRequest(request) {
   const authHeader = request.headers.get('Authorization');
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -536,508 +710,936 @@ function jsonResponse(data, status = 200) {
 }
 
 // ============================================================
+// INVOICE HTML GENERATOR
+// ============================================================
+
+function generateInvoiceHTML(invoice, lang) {
+  const isAr = lang === 'ar';
+  const dir = isAr ? 'rtl' : 'ltr';
+  const biz = {
+    name: '\u0645\u0624\u0633\u0633\u0629 \u0633\u0627\u0644\u0645 \u0628\u0646 \u0639\u0644\u064A \u0627\u0644\u0646\u0639\u064A\u0645\u064A',
+    cr: '7050191290',
+    building: '2500',
+    street: '\u0623\u062D\u0645\u062F \u0628\u0646 \u062D\u062C\u0631 \u0627\u0644\u0639\u0633\u0642\u0644\u0627\u0646\u064A',
+    district: '\u062D\u064A \u0637\u064A\u0628\u0629',
+    city: '\u0627\u0644\u062C\u0628\u064A\u0644',
+    postal: '35513',
+    country: '\u0627\u0644\u0645\u0645\u0644\u0643\u0629 \u0627\u0644\u0639\u0631\u0628\u064A\u0629 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629'
+  };
+  return '<!DOCTYPE html><html dir="' + dir + '" lang="' + lang + '"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + (isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice') + ' ' + (invoice.invoiceNumber || '') + '</title><style>' +
+    'body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;margin:0;padding:20px;background:#f8f9fa;color:#1a1a2e}' +
+    '.invoice{max-width:800px;margin:0 auto;background:#fff;border-radius:12px;padding:40px;box-shadow:0 2px 8px rgba(0,0,0,.08)}' +
+    '.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:30px;padding-bottom:20px;border-bottom:2px solid #e8722a}' +
+    '.logo h1{color:#e8722a;font-size:28px;margin:0}.logo p{color:#666;margin:4px 0 0}' +
+    '.inv-info{text-align:' + (isAr ? 'left' : 'right') + '}.inv-info h2{color:#1a1a2e;font-size:20px;margin:0 0 8px}' +
+    '.inv-info p{margin:2px 0;font-size:13px;color:#555}' +
+    '.details{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px}' +
+    '.detail-box{background:#f8fafc;border-radius:8px;padding:16px}.detail-box h3{font-size:14px;color:#e8722a;margin:0 0 8px}' +
+    '.detail-box p{margin:3px 0;font-size:13px;color:#333}' +
+    'table{width:100%;border-collapse:collapse;margin:20px 0}' +
+    'th{background:#f1f5f9;padding:10px 16px;text-align:' + (isAr ? 'right' : 'left') + ';font-size:13px;color:#555;font-weight:600}' +
+    'td{padding:10px 16px;border-bottom:1px solid #f1f5f9;font-size:14px}' +
+    '.total-row td{font-weight:700;font-size:16px;border-top:2px solid #e8722a;background:#fff8f0}' +
+    '.footer{margin-top:30px;padding-top:20px;border-top:1px solid #eee;font-size:12px;color:#888;text-align:center}' +
+    '.footer p{margin:2px 0}' +
+    '.print-btn{display:block;margin:20px auto;padding:10px 24px;background:#e8722a;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer}' +
+    '@media print{.print-btn{display:none}body{background:#fff;padding:0}.invoice{box-shadow:none}}' +
+    '</style></head><body>' +
+    '<div class="invoice">' +
+    '<div class="header"><div class="logo"><h1>Tabbakheen</h1><p>\u0637\u0628\u0627\u062E\u064A\u0646</p></div>' +
+    '<div class="inv-info"><h2>' + (isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice') + '</h2>' +
+    '<p>' + (isAr ? '\u0631\u0642\u0645 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629' : 'Invoice #') + ': ' + (invoice.invoiceNumber || 'N/A') + '</p>' +
+    '<p>' + (isAr ? '\u0627\u0644\u062A\u0627\u0631\u064A\u062E' : 'Date') + ': ' + (invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString(isAr ? 'ar-SA' : 'en-US') : 'N/A') + '</p>' +
+    '</div></div>' +
+    '<div class="details">' +
+    '<div class="detail-box"><h3>' + (isAr ? '\u0635\u0627\u062F\u0631\u0629 \u0645\u0646' : 'Issued By') + '</h3>' +
+    '<p><strong>' + biz.name + '</strong></p>' +
+    '<p>' + (isAr ? '\u0633\u062C\u0644 \u062A\u062C\u0627\u0631\u064A' : 'CR') + ': ' + biz.cr + '</p>' +
+    '<p>' + biz.building + ' ' + biz.street + '</p>' +
+    '<p>' + biz.district + ', ' + biz.city + ' ' + biz.postal + '</p>' +
+    '<p>' + biz.country + '</p></div>' +
+    '<div class="detail-box"><h3>' + (isAr ? '\u0641\u0627\u062A\u0648\u0631\u0629 \u0625\u0644\u0649' : 'Invoice To') + '</h3>' +
+    '<p><strong>' + (invoice.userName || 'N/A') + '</strong></p>' +
+    '<p>' + (invoice.userEmail || '') + '</p>' +
+    '<p>' + (invoice.userPhone || '') + '</p></div></div>' +
+    '<table><thead><tr>' +
+    '<th>' + (isAr ? '\u0627\u0644\u0628\u064A\u0627\u0646' : 'Description') + '</th>' +
+    '<th>' + (isAr ? '\u0627\u0644\u0641\u062A\u0631\u0629' : 'Period') + '</th>' +
+    '<th>' + (isAr ? '\u0627\u0644\u0645\u0628\u0644\u063A' : 'Amount') + '</th>' +
+    '</tr></thead><tbody>' +
+    '<tr><td>' + (isAr ? '\u0627\u0634\u062A\u0631\u0627\u0643' : 'Subscription') + ' - ' + (invoice.subscriptionPlan || 'Basic') + '</td>' +
+    '<td>' + (invoice.startDate || '') + ' - ' + (invoice.endDate || '') + '</td>' +
+    '<td>' + (invoice.amount || 0) + ' ' + (invoice.currency || 'SAR') + '</td></tr>' +
+    '<tr class="total-row"><td colspan="2">' + (isAr ? '\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A' : 'Total') + '</td>' +
+    '<td>' + (invoice.amount || 0) + ' ' + (invoice.currency || 'SAR') + '</td></tr>' +
+    '</tbody></table>' +
+    (invoice.notes ? '<p style="font-size:13px;color:#666"><strong>' + (isAr ? '\u0645\u0644\u0627\u062D\u0638\u0627\u062A' : 'Notes') + ':</strong> ' + invoice.notes + '</p>' : '') +
+    (invoice.paymentMethod ? '<p style="font-size:13px;color:#666"><strong>' + (isAr ? '\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062F\u0641\u0639' : 'Payment Method') + ':</strong> ' + invoice.paymentMethod + '</p>' : '') +
+    '<div class="footer">' +
+    '<p>' + biz.name + '</p>' +
+    '<p>' + (isAr ? '\u0633\u062C\u0644 \u062A\u062C\u0627\u0631\u064A' : 'CR') + ': ' + biz.cr + ' | ' + biz.building + ' ' + biz.street + ', ' + biz.district + ', ' + biz.city + ' ' + biz.postal + '</p>' +
+    '<p>' + biz.country + '</p></div></div>' +
+    '<button class="print-btn" onclick="window.print()">' + (isAr ? '\u0637\u0628\u0627\u0639\u0629 / \u062D\u0641\u0638 PDF' : 'Print / Save as PDF') + '</button>' +
+    '</body></html>';
+}
+
+// ============================================================
 // ADMIN DASHBOARD HTML
 // ============================================================
 
 function getAdminHTML() {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Tabbakheen Admin</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{--primary:#0d9488;--primary-dark:#0f766e;--bg:#f1f5f9;--sidebar:#0f172a;--sidebar-hover:#1e293b;--card:#fff;--text:#0f172a;--text2:#64748b;--text3:#94a3b8;--border:#e2e8f0;--success:#10b981;--warning:#f59e0b;--error:#ef4444;--info:#3b82f6;--orange:#e8722a;--radius:12px}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-#login-view{display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%)}
-.login-card{background:var(--card);border-radius:16px;padding:40px;width:380px;max-width:90vw;box-shadow:0 25px 50px rgba(0,0,0,0.25)}
-.login-logo{text-align:center;margin-bottom:24px}
-.login-logo h1{font-size:24px;color:var(--orange);margin-bottom:4px}
-.login-logo p{color:var(--text2);font-size:14px}
-.form-group{margin-bottom:16px}
-.form-group label{display:block;font-size:13px;font-weight:600;color:var(--text2);margin-bottom:6px}
-.form-group input,.form-group select,.form-group textarea{width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;outline:none;transition:border .2s}
-.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--primary)}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}
-.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-dark)}
-.btn-success{background:var(--success);color:#fff}.btn-success:hover{opacity:.9}
-.btn-warning{background:var(--warning);color:#fff}.btn-warning:hover{opacity:.9}
-.btn-danger{background:var(--error);color:#fff}.btn-danger:hover{opacity:.9}
-.btn-secondary{background:var(--border);color:var(--text)}.btn-secondary:hover{background:#cbd5e1}
-.btn-sm{padding:6px 12px;font-size:12px;border-radius:6px}
-.btn-block{width:100%;padding:12px}
-.err-msg{background:#fef2f2;color:var(--error);padding:10px;border-radius:8px;font-size:13px;margin-bottom:12px;display:none}
-#main-view{display:none}
-.layout{display:flex;min-height:100vh}
-.sidebar{width:240px;background:var(--sidebar);padding:20px 0;display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
-.sidebar-logo{padding:0 20px 24px;border-bottom:1px solid rgba(255,255,255,.08)}
-.sidebar-logo h2{color:var(--orange);font-size:18px}
-.sidebar-logo span{color:var(--text3);font-size:12px}
-.sidebar-nav{flex:1;padding:16px 0}
-.nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;color:var(--text3);font-size:14px;cursor:pointer;transition:all .15s;border-left:3px solid transparent}
-.nav-item:hover{background:var(--sidebar-hover);color:#fff}
-.nav-item.active{background:var(--sidebar-hover);color:#fff;border-left-color:var(--primary)}
-.nav-item svg{width:18px;height:18px;flex-shrink:0}
-.sidebar-footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,.08)}
-.sidebar-footer .nav-item{padding:10px 0}
-.main{margin-left:240px;flex:1;padding:24px 32px;min-height:100vh}
-.page-title{font-size:24px;font-weight:700;margin-bottom:24px}
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:32px}
-.stat-card{background:var(--card);border-radius:var(--radius);padding:20px;border-top:4px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,.06)}
-.stat-card .label{font-size:13px;color:var(--text2);margin-bottom:8px}
-.stat-card .value{font-size:28px;font-weight:700}
-.stat-card.blue{border-top-color:var(--info)}.stat-card.blue .value{color:var(--info)}
-.stat-card.green{border-top-color:var(--success)}.stat-card.green .value{color:var(--success)}
-.stat-card.orange{border-top-color:var(--orange)}.stat-card.orange .value{color:var(--orange)}
-.stat-card.purple{border-top-color:#8b5cf6}.stat-card.purple .value{color:#8b5cf6}
-.stat-card.amber{border-top-color:var(--warning)}.stat-card.amber .value{color:var(--warning)}
-.stat-card.red{border-top-color:var(--error)}.stat-card.red .value{color:var(--error)}
-.stat-card.teal{border-top-color:var(--primary)}.stat-card.teal .value{color:var(--primary)}
-.filters{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
-.filters select,.filters input{padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--card)}
-.filters input{min-width:200px}
-.table-wrap{background:var(--card);border-radius:var(--radius);overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-table{width:100%;border-collapse:collapse}
-th{background:#f8fafc;padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
-td{padding:12px 16px;font-size:13px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
-tr:hover td{background:#f8fafc}
-.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
-.badge-green{background:#d1fae5;color:#065f46}
-.badge-blue{background:#dbeafe;color:#1e40af}
-.badge-yellow{background:#fef3c7;color:#92400e}
-.badge-red{background:#fee2e2;color:#991b1b}
-.badge-gray{background:#f3f4f6;color:#374151}
-.badge-purple{background:#ede9fe;color:#5b21b6}
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:center;justify-content:center}
-.modal-overlay.show{display:flex}
-.modal{background:var(--card);border-radius:16px;padding:28px;width:480px;max-width:92vw;max-height:90vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,.2)}
-.modal h3{font-size:18px;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--border)}
-.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
-.toggle{display:flex;align-items:center;gap:10px;cursor:pointer}
-.toggle input{width:18px;height:18px;accent-color:var(--primary)}
-.settings-section{background:var(--card);border-radius:var(--radius);padding:24px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-.settings-section h3{font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border)}
-.banner-preview{width:100%;max-width:400px;aspect-ratio:16/7;object-fit:cover;border-radius:8px;border:1px solid var(--border);margin-bottom:12px;background:#f1f5f9}
-.upload-row{display:flex;gap:10px;align-items:center;margin-bottom:12px}
-.file-input{font-size:13px}
-.loading{text-align:center;padding:40px;color:var(--text2)}
-.empty{text-align:center;padding:40px;color:var(--text3)}
-.user-info-row{display:flex;gap:8px;align-items:center;margin-bottom:4px}
-.user-info-row .name{font-weight:600;color:var(--text)}
-.user-info-row .email{color:var(--text2);font-size:12px}
-.toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;color:#fff;font-size:14px;font-weight:500;z-index:999;opacity:0;transform:translateY(-10px);transition:all .3s}
-.toast.show{opacity:1;transform:translateY(0)}
-.toast.success{background:var(--success)}.toast.error{background:var(--error)}
-@media(max-width:768px){
-  .sidebar{width:60px}.sidebar-logo h2,.sidebar-logo span,.nav-item span{display:none}.nav-item{justify-content:center;padding:12px}.main{margin-left:60px;padding:16px}
-  .stats-grid{grid-template-columns:repeat(2,1fr)}.filters{flex-direction:column}.filters select,.filters input{width:100%}
-}
-</style>
-</head>
-<body>
-
-<div id="login-view">
-  <div class="login-card">
-    <div class="login-logo">
-      <h1>Tabbakheen</h1>
-      <p>Admin Dashboard</p>
-    </div>
-    <div id="login-error" class="err-msg"></div>
-    <div class="form-group">
-      <label>Admin Password</label>
-      <input type="password" id="login-password" placeholder="Enter admin password" onkeydown="if(event.key==='Enter')doLogin()">
-    </div>
-    <button class="btn btn-primary btn-block" onclick="doLogin()">Sign In</button>
-  </div>
-</div>
-
-<div id="main-view">
-  <div class="layout">
-    <div class="sidebar">
-      <div class="sidebar-logo">
-        <h2>Tabbakheen</h2>
-        <span>Admin Panel</span>
-      </div>
-      <div class="sidebar-nav">
-        <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-          <span>Dashboard</span>
-        </div>
-        <div class="nav-item" data-page="users" onclick="navigate('users')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          <span>Users</span>
-        </div>
-        <div class="nav-item" data-page="settings" onclick="navigate('settings')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span>Settings</span>
-        </div>
-      </div>
-      <div class="sidebar-footer">
-        <div class="nav-item" onclick="doLogout()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          <span>Logout</span>
-        </div>
-      </div>
-    </div>
-    <div class="main">
-      <div id="page-content"></div>
-    </div>
-  </div>
-</div>
-
-<div id="modal-overlay" class="modal-overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal" id="modal-content"></div>
-</div>
-
-<div id="toast" class="toast"></div>
-
-<script>
-let TOKEN = sessionStorage.getItem('tbk_admin_token');
-let currentPage = 'dashboard';
-let allUsers = [];
-let appSettings = {};
-
-async function api(path, opts = {}) {
-  const res = await fetch('/admin/api' + path, {
-    ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + TOKEN,
-      ...(opts.headers || {})
-    }
-  });
-  if (res.status === 401) {
-    sessionStorage.removeItem('tbk_admin_token');
-    TOKEN = null;
-    showLogin();
-    return null;
-  }
-  return res.json();
-}
-
-function showLogin() {
-  document.getElementById('login-view').style.display = 'flex';
-  document.getElementById('main-view').style.display = 'none';
-}
-
-function showMain() {
-  document.getElementById('login-view').style.display = 'none';
-  document.getElementById('main-view').style.display = 'block';
-  navigate('dashboard');
-}
-
-async function doLogin() {
-  const pw = document.getElementById('login-password').value;
-  const errEl = document.getElementById('login-error');
-  if (!pw) { errEl.textContent = 'Please enter password'; errEl.style.display = 'block'; return; }
-  errEl.style.display = 'none';
-  try {
-    const res = await fetch('/admin/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw })
-    });
-    const data = await res.json();
-    if (data.token) {
-      TOKEN = data.token;
-      sessionStorage.setItem('tbk_admin_token', TOKEN);
-      showMain();
-    } else {
-      errEl.textContent = data.error || 'Invalid password';
-      errEl.style.display = 'block';
-    }
-  } catch (e) {
-    errEl.textContent = 'Connection error';
-    errEl.style.display = 'block';
-  }
-}
-
-function doLogout() {
-  TOKEN = null;
-  sessionStorage.removeItem('tbk_admin_token');
-  showLogin();
-}
-
-function navigate(page) {
-  currentPage = page;
-  document.querySelectorAll('.nav-item[data-page]').forEach(el => {
-    el.classList.toggle('active', el.dataset.page === page);
-  });
-  renderPage();
-}
-
-function toast(msg, type = 'success') {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast show ' + type;
-  setTimeout(() => t.className = 'toast', 3000);
-}
-
-function closeModal() {
-  document.getElementById('modal-overlay').classList.remove('show');
-}
-
-function openModal(html) {
-  document.getElementById('modal-content').innerHTML = html;
-  document.getElementById('modal-overlay').classList.add('show');
-}
-
-function roleBadge(role) {
-  const m = { customer: 'blue', provider: 'orange', driver: 'purple' };
-  const l = { customer: 'Customer', provider: 'Provider', driver: 'Driver' };
-  return '<span class="badge badge-' + (m[role]||'gray') + '">' + (l[role]||role) + '</span>';
-}
-
-function statusBadge(status) {
-  const m = { active: 'green', trial: 'yellow', suspended: 'yellow', disabled: 'red' };
-  return '<span class="badge badge-' + (m[status]||'gray') + '">' + (status||'N/A') + '</span>';
-}
-
-function subBadge(status) {
-  const m = { active: 'green', trialing: 'blue', expired: 'red', canceled: 'gray', past_due: 'yellow' };
-  return '<span class="badge badge-' + (m[status]||'gray') + '">' + (status||'N/A') + '</span>';
-}
-
-async function renderPage() {
-  const c = document.getElementById('page-content');
-  c.innerHTML = '<div class="loading">Loading...</div>';
-  try {
-    if (currentPage === 'dashboard') await renderDashboard(c);
-    else if (currentPage === 'users') await renderUsers(c);
-    else if (currentPage === 'settings') await renderSettings(c);
-  } catch (e) {
-    c.innerHTML = '<div class="empty">Error: ' + e.message + '</div>';
-  }
-}
-
-async function renderDashboard(c) {
-  const data = await api('/stats');
-  if (!data) return;
-  const s = data.stats;
-  c.innerHTML = '<h1 class="page-title">Dashboard</h1>' +
-    '<div class="stats-grid">' +
-    statCard('Total Users', s.totalUsers, 'blue') +
-    statCard('Customers', s.customers, 'green') +
-    statCard('Providers', s.providers, 'orange') +
-    statCard('Drivers', s.drivers, 'purple') +
-    statCard('Providers in Trial', s.providersInTrial, 'amber') +
-    statCard('Drivers in Trial', s.driversInTrial, 'amber') +
-    statCard('Suspended', s.suspendedAccounts, 'red') +
-    statCard('Active Subs', s.activeSubscriptions, 'teal') +
-    '</div>';
-}
-
-function statCard(label, value, color) {
-  return '<div class="stat-card ' + color + '"><div class="label">' + label + '</div><div class="value">' + (value||0) + '</div></div>';
-}
-
-async function renderUsers(c) {
-  const data = await api('/users');
-  if (!data) return;
-  allUsers = data.users || [];
-  c.innerHTML = '<h1 class="page-title">Users (' + allUsers.length + ')</h1>' +
-    '<div class="filters">' +
-    '<select id="f-role" onchange="filterUsers()"><option value="">All Roles</option><option value="customer">Customer</option><option value="provider">Provider</option><option value="driver">Driver</option></select>' +
-    '<select id="f-status" onchange="filterUsers()"><option value="">All Status</option><option value="active">Active</option><option value="trial">Trial</option><option value="suspended">Suspended</option><option value="disabled">Disabled</option></select>' +
-    '<select id="f-sub" onchange="filterUsers()"><option value="">All Subscriptions</option><option value="trialing">Trialing</option><option value="active">Active</option><option value="expired">Expired</option><option value="canceled">Canceled</option><option value="past_due">Past Due</option></select>' +
-    '<input type="text" id="f-search" placeholder="Search name, email, phone..." oninput="filterUsers()">' +
-    '</div>' +
-    '<div class="table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Account</th><th>Subscription</th><th>Created</th><th>Actions</th></tr></thead><tbody id="users-tbody"></tbody></table></div>';
-  filterUsers();
-}
-
-function filterUsers() {
-  const role = document.getElementById('f-role')?.value || '';
-  const status = document.getElementById('f-status')?.value || '';
-  const sub = document.getElementById('f-sub')?.value || '';
-  const search = (document.getElementById('f-search')?.value || '').toLowerCase();
-  let filtered = allUsers;
-  if (role) filtered = filtered.filter(u => u.role === role);
-  if (status) filtered = filtered.filter(u => u.accountStatus === status);
-  if (sub) filtered = filtered.filter(u => u.subscriptionStatus === sub);
-  if (search) filtered = filtered.filter(u =>
-    (u.displayName||'').toLowerCase().includes(search) ||
-    (u.email||'').toLowerCase().includes(search) ||
-    (u.phone||'').includes(search)
-  );
-  const tbody = document.getElementById('users-tbody');
-  if (!tbody) return;
-  if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty">No users found</td></tr>';
-    return;
-  }
-  tbody.innerHTML = filtered.map(u => {
-    const created = u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A';
-    return '<tr>' +
-      '<td><div class="user-info-row"><span class="name">' + esc(u.displayName||'No name') + '</span></div><div class="user-info-row"><span class="email">' + esc(u.email||'') + '</span></div></td>' +
-      '<td>' + roleBadge(u.role) + '</td>' +
-      '<td>' + statusBadge(u.accountStatus) + '</td>' +
-      '<td>' + subBadge(u.subscriptionStatus) + '</td>' +
-      '<td style="font-size:12px;color:var(--text2)">' + created + '</td>' +
-      '<td><button class="btn btn-sm btn-primary" onclick="editUser(\\'' + u._id + '\\')">Edit</button></td>' +
-      '</tr>';
-  }).join('');
-}
-
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-function editUser(uid) {
-  const u = allUsers.find(x => x._id === uid);
-  if (!u) return;
-  const trialDate = u.trialEndsAt ? u.trialEndsAt.split('T')[0] : '';
-  const subDate = u.subscriptionEndsAt ? u.subscriptionEndsAt.split('T')[0] : '';
-  openModal(
-    '<h3>Edit User: ' + esc(u.displayName || u.email || uid) + '</h3>' +
-    '<div style="margin-bottom:12px;font-size:13px;color:var(--text2)">UID: ' + uid + '<br>Role: ' + (u.role||'N/A') + ' | Email: ' + esc(u.email||'') + '</div>' +
-    '<div class="form-group"><label>Account Status</label><select id="eu-accountStatus"><option value="">-- Not Set --</option><option value="active"' + (u.accountStatus==='active'?' selected':'') + '>Active</option><option value="trial"' + (u.accountStatus==='trial'?' selected':'') + '>Trial</option><option value="suspended"' + (u.accountStatus==='suspended'?' selected':'') + '>Suspended</option><option value="disabled"' + (u.accountStatus==='disabled'?' selected':'') + '>Disabled</option></select></div>' +
-    '<div class="form-group"><label>Subscription Status</label><select id="eu-subscriptionStatus"><option value="">-- Not Set --</option><option value="trialing"' + (u.subscriptionStatus==='trialing'?' selected':'') + '>Trialing</option><option value="active"' + (u.subscriptionStatus==='active'?' selected':'') + '>Active</option><option value="expired"' + (u.subscriptionStatus==='expired'?' selected':'') + '>Expired</option><option value="canceled"' + (u.subscriptionStatus==='canceled'?' selected':'') + '>Canceled</option><option value="past_due"' + (u.subscriptionStatus==='past_due'?' selected':'') + '>Past Due</option></select></div>' +
-    '<div class="form-group"><label>Subscription Plan</label><input id="eu-subscriptionPlan" value="' + esc(u.subscriptionPlan||'') + '" placeholder="e.g. tabbakheen_basic"></div>' +
-    '<div class="form-group"><label>Trial Ends At</label><input type="date" id="eu-trialEndsAt" value="' + trialDate + '"></div>' +
-    '<div class="form-group"><label>Subscription Ends At</label><input type="date" id="eu-subscriptionEndsAt" value="' + subDate + '"></div>' +
-    '<div class="form-group"><label class="toggle"><input type="checkbox" id="eu-activatedByAdmin"' + (u.activatedByAdmin?' checked':'') + '> Activated by Admin</label></div>' +
-    '<div class="form-group"><label>Disabled Reason</label><textarea id="eu-disabledReason" rows="2" placeholder="Reason for disabling...">' + esc(u.disabledReason||'') + '</textarea></div>' +
-    '<div class="modal-actions">' +
-    '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>' +
-    '<button class="btn btn-success" onclick="quickAction(\\'' + uid + '\\',\\'activate\\')">Activate</button>' +
-    '<button class="btn btn-warning" onclick="quickAction(\\'' + uid + '\\',\\'suspend\\')">Suspend</button>' +
-    '<button class="btn btn-primary" onclick="saveUser(\\'' + uid + '\\')">Save Changes</button>' +
-    '</div>'
-  );
-}
-
-async function quickAction(uid, action) {
-  let fields = {};
-  if (action === 'activate') {
-    fields = { accountStatus: 'active', subscriptionStatus: 'active', activatedByAdmin: true, disabledReason: '' };
-  } else if (action === 'suspend') {
-    fields = { accountStatus: 'suspended' };
-  }
-  const data = await api('/users/' + uid + '/update', { method: 'POST', body: JSON.stringify(fields) });
-  if (data && data.success) {
-    toast('User updated successfully');
-    closeModal();
-    renderPage();
-  } else {
-    toast(data?.error || 'Failed to update user', 'error');
-  }
-}
-
-async function saveUser(uid) {
-  const fields = {};
-  const accountStatus = document.getElementById('eu-accountStatus').value;
-  const subscriptionStatus = document.getElementById('eu-subscriptionStatus').value;
-  const subscriptionPlan = document.getElementById('eu-subscriptionPlan').value;
-  const trialEndsAt = document.getElementById('eu-trialEndsAt').value;
-  const subscriptionEndsAt = document.getElementById('eu-subscriptionEndsAt').value;
-  const activatedByAdmin = document.getElementById('eu-activatedByAdmin').checked;
-  const disabledReason = document.getElementById('eu-disabledReason').value;
-
-  if (accountStatus) fields.accountStatus = accountStatus;
-  if (subscriptionStatus) fields.subscriptionStatus = subscriptionStatus;
-  if (subscriptionPlan) fields.subscriptionPlan = subscriptionPlan;
-  if (trialEndsAt) fields.trialEndsAt = new Date(trialEndsAt).toISOString();
-  if (subscriptionEndsAt) fields.subscriptionEndsAt = new Date(subscriptionEndsAt).toISOString();
-  fields.activatedByAdmin = activatedByAdmin;
-  if (disabledReason) fields.disabledReason = disabledReason;
-  else fields.disabledReason = '';
-
-  if (Object.keys(fields).length === 0) { toast('No changes to save', 'error'); return; }
-
-  const data = await api('/users/' + uid + '/update', { method: 'POST', body: JSON.stringify(fields) });
-  if (data && data.success) {
-    toast('User saved successfully');
-    closeModal();
-    renderPage();
-  } else {
-    toast(data?.error || 'Failed to save', 'error');
-  }
-}
-
-async function renderSettings(c) {
-  const data = await api('/settings');
-  if (!data) return;
-  appSettings = data.settings || {};
-  const bannerUrl = appSettings.bannerImageUrl || '';
-  const bannerEnabled = appSettings.bannerEnabled !== false;
-  c.innerHTML = '<h1 class="page-title">App Settings</h1>' +
-    '<div class="settings-section"><h3>Home Banner</h3>' +
-    (bannerUrl ? '<img class="banner-preview" src="' + esc(bannerUrl) + '" alt="Banner">' : '<div class="banner-preview" style="display:flex;align-items:center;justify-content:center;color:var(--text3)">No banner set</div>') +
-    '<div class="upload-row"><input type="file" id="banner-file" accept="image/*" class="file-input"><button class="btn btn-sm btn-primary" onclick="uploadBanner()">Upload</button></div>' +
-    '<div class="form-group"><label>Banner Image URL</label><input id="s-bannerImageUrl" value="' + esc(bannerUrl) + '" placeholder="https://..."></div>' +
-    '<div class="form-group"><label class="toggle"><input type="checkbox" id="s-bannerEnabled"' + (bannerEnabled?' checked':'') + '> Banner Enabled</label></div>' +
-    '</div>' +
-    '<div class="settings-section"><h3>Support Contact</h3>' +
-    '<div class="form-group"><label>Support Email</label><input id="s-supportEmail" value="' + esc(appSettings.supportEmail||'') + '" placeholder="support@example.com"></div>' +
-    '<div class="form-group"><label>Support WhatsApp</label><input id="s-supportWhatsapp" value="' + esc(appSettings.supportWhatsapp||'') + '" placeholder="966500000000"></div>' +
-    '</div>' +
-    '<div class="settings-section"><h3>Delivery Pricing</h3>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' +
-    '<div class="form-group"><label>Base Fee (SAR)</label><input type="number" id="s-baseFee" value="' + (appSettings.deliveryPricing?.baseFee||15) + '"></div>' +
-    '<div class="form-group"><label>Per KM (City)</label><input type="number" step="0.5" id="s-perKmCity" value="' + (appSettings.deliveryPricing?.perKmInsideCity||2) + '"></div>' +
-    '<div class="form-group"><label>Per KM (Outside)</label><input type="number" step="0.5" id="s-perKmOut" value="' + (appSettings.deliveryPricing?.perKmOutsideCity||3) + '"></div>' +
-    '<div class="form-group"><label>Max Fee (SAR)</label><input type="number" id="s-maxFee" value="' + (appSettings.deliveryPricing?.maxFee||50) + '"></div>' +
-    '</div></div>' +
-    '<button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>';
-}
-
-async function uploadBanner() {
-  const fileInput = document.getElementById('banner-file');
-  if (!fileInput.files.length) { toast('Select a file first', 'error'); return; }
-  const file = fileInput.files[0];
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('upload_preset', '${CLOUDINARY_PRESET}');
-  formData.append('folder', 'tabbakheen/banners');
-  toast('Uploading...');
-  try {
-    const res = await fetch('https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload', { method: 'POST', body: formData });
-    const data = await res.json();
-    if (data.secure_url) {
-      document.getElementById('s-bannerImageUrl').value = data.secure_url;
-      toast('Image uploaded successfully');
-    } else {
-      toast('Upload failed: ' + (data.error?.message || 'Unknown error'), 'error');
-    }
-  } catch (e) {
-    toast('Upload error: ' + e.message, 'error');
-  }
-}
-
-async function saveSettings() {
-  const fields = {
-    bannerImageUrl: document.getElementById('s-bannerImageUrl').value,
-    bannerEnabled: document.getElementById('s-bannerEnabled').checked,
-    supportEmail: document.getElementById('s-supportEmail').value,
-    supportWhatsapp: document.getElementById('s-supportWhatsapp').value,
-    deliveryPricing: {
-      currency: 'SAR',
-      baseFee: parseFloat(document.getElementById('s-baseFee').value) || 15,
-      perKmInsideCity: parseFloat(document.getElementById('s-perKmCity').value) || 2,
-      perKmOutsideCity: parseFloat(document.getElementById('s-perKmOut').value) || 3,
-      maxFee: parseFloat(document.getElementById('s-maxFee').value) || 50
-    }
-  };
-  const data = await api('/settings', { method: 'POST', body: JSON.stringify(fields) });
-  if (data && data.success) {
-    toast('Settings saved successfully');
-    renderPage();
-  } else {
-    toast(data?.error || 'Failed to save settings', 'error');
-  }
-}
-
-// Init
-if (TOKEN) {
-  api('/stats').then(d => {
-    if (d) showMain(); else showLogin();
-  }).catch(() => showLogin());
-} else {
-  showLogin();
-}
-</script>
-</body>
-</html>`;
+  return '<!DOCTYPE html>\n<html lang="ar" dir="rtl">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,initial-scale=1.0">\n<title>Tabbakheen Admin</title>\n<style>\n' +
+'*{margin:0;padding:0;box-sizing:border-box}\n' +
+':root{--primary:#0d9488;--primary-dark:#0f766e;--bg:#f1f5f9;--sidebar:#0f172a;--sidebar-hover:#1e293b;--card:#fff;--text:#0f172a;--text2:#64748b;--text3:#94a3b8;--border:#e2e8f0;--success:#10b981;--warning:#f59e0b;--error:#ef4444;--info:#3b82f6;--orange:#e8722a;--radius:12px}\n' +
+'body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}\n' +
+'#login-view{display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%)}\n' +
+'.login-card{background:var(--card);border-radius:16px;padding:40px;width:380px;max-width:90vw;box-shadow:0 25px 50px rgba(0,0,0,0.25)}\n' +
+'.login-logo{text-align:center;margin-bottom:24px}\n' +
+'.login-logo h1{font-size:24px;color:var(--orange);margin-bottom:4px}\n' +
+'.login-logo p{color:var(--text2);font-size:14px}\n' +
+'.form-group{margin-bottom:16px}\n' +
+'.form-group label{display:block;font-size:13px;font-weight:600;color:var(--text2);margin-bottom:6px}\n' +
+'.form-group input,.form-group select,.form-group textarea{width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;outline:none;transition:border .2s}\n' +
+'.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--primary)}\n' +
+'.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}\n' +
+'.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-dark)}\n' +
+'.btn-success{background:var(--success);color:#fff}.btn-success:hover{opacity:.9}\n' +
+'.btn-warning{background:var(--warning);color:#fff}.btn-warning:hover{opacity:.9}\n' +
+'.btn-danger{background:var(--error);color:#fff}.btn-danger:hover{opacity:.9}\n' +
+'.btn-secondary{background:var(--border);color:var(--text)}.btn-secondary:hover{background:#cbd5e1}\n' +
+'.btn-orange{background:var(--orange);color:#fff}.btn-orange:hover{opacity:.9}\n' +
+'.btn-sm{padding:6px 12px;font-size:12px;border-radius:6px}\n' +
+'.btn-block{width:100%;padding:12px}\n' +
+'.btn:disabled{opacity:.5;cursor:not-allowed}\n' +
+'.err-msg{background:#fef2f2;color:var(--error);padding:10px;border-radius:8px;font-size:13px;margin-bottom:12px;display:none}\n' +
+'.success-msg{background:#d1fae5;color:#065f46;padding:10px;border-radius:8px;font-size:13px;margin-bottom:12px;display:none}\n' +
+'#main-view{display:none}\n' +
+'.layout{display:flex;min-height:100vh}\n' +
+'.sidebar{width:240px;background:var(--sidebar);padding:20px 0;display:flex;flex-direction:column;position:fixed;top:0;bottom:0;z-index:100}\n' +
+'html[dir="rtl"] .sidebar{right:0}html[dir="ltr"] .sidebar{left:0}\n' +
+'.sidebar-logo{padding:0 20px 24px;border-bottom:1px solid rgba(255,255,255,.08)}\n' +
+'.sidebar-logo h2{color:var(--orange);font-size:18px}\n' +
+'.sidebar-logo span{color:var(--text3);font-size:12px}\n' +
+'.sidebar-nav{flex:1;padding:16px 0}\n' +
+'.nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;color:var(--text3);font-size:14px;cursor:pointer;transition:all .15s;border-left:3px solid transparent}\n' +
+'html[dir="rtl"] .nav-item{border-left:none;border-right:3px solid transparent}\n' +
+'.nav-item:hover{background:var(--sidebar-hover);color:#fff}\n' +
+'.nav-item.active{background:var(--sidebar-hover);color:#fff;border-left-color:var(--primary)}\n' +
+'html[dir="rtl"] .nav-item.active{border-left-color:transparent;border-right-color:var(--primary)}\n' +
+'.nav-item svg{width:18px;height:18px;flex-shrink:0}\n' +
+'.sidebar-footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,.08)}\n' +
+'.sidebar-footer .nav-item{padding:10px 0}\n' +
+'.main{flex:1;padding:24px 32px;min-height:100vh}\n' +
+'html[dir="rtl"] .main{margin-right:240px}html[dir="ltr"] .main{margin-left:240px}\n' +
+'.page-title{font-size:24px;font-weight:700;margin-bottom:24px}\n' +
+'.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:32px}\n' +
+'.stat-card{background:var(--card);border-radius:var(--radius);padding:20px;border-top:4px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,.06);cursor:pointer;transition:transform .15s}\n' +
+'.stat-card:hover{transform:translateY(-2px)}\n' +
+'.stat-card .label{font-size:13px;color:var(--text2);margin-bottom:8px}\n' +
+'.stat-card .value{font-size:28px;font-weight:700}\n' +
+'.stat-card.blue{border-top-color:var(--info)}.stat-card.blue .value{color:var(--info)}\n' +
+'.stat-card.green{border-top-color:var(--success)}.stat-card.green .value{color:var(--success)}\n' +
+'.stat-card.orange{border-top-color:var(--orange)}.stat-card.orange .value{color:var(--orange)}\n' +
+'.stat-card.purple{border-top-color:#8b5cf6}.stat-card.purple .value{color:#8b5cf6}\n' +
+'.stat-card.amber{border-top-color:var(--warning)}.stat-card.amber .value{color:var(--warning)}\n' +
+'.stat-card.red{border-top-color:var(--error)}.stat-card.red .value{color:var(--error)}\n' +
+'.stat-card.teal{border-top-color:var(--primary)}.stat-card.teal .value{color:var(--primary)}\n' +
+'.filters{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:center}\n' +
+'.filters select,.filters input{padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--card)}\n' +
+'.filters input{min-width:200px}\n' +
+'.table-wrap{background:var(--card);border-radius:var(--radius);overflow:auto;box-shadow:0 1px 3px rgba(0,0,0,.06)}\n' +
+'table{width:100%;border-collapse:collapse}\n' +
+'th{background:#f8fafc;padding:12px 16px;font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}\n' +
+'html[dir="rtl"] th{text-align:right}html[dir="ltr"] th{text-align:left}\n' +
+'td{padding:12px 16px;font-size:13px;border-bottom:1px solid #f1f5f9;vertical-align:middle}\n' +
+'tr:hover td{background:#f8fafc}\n' +
+'.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}\n' +
+'.badge-green{background:#d1fae5;color:#065f46}\n' +
+'.badge-blue{background:#dbeafe;color:#1e40af}\n' +
+'.badge-yellow{background:#fef3c7;color:#92400e}\n' +
+'.badge-red{background:#fee2e2;color:#991b1b}\n' +
+'.badge-gray{background:#f3f4f6;color:#374151}\n' +
+'.badge-purple{background:#ede9fe;color:#5b21b6}\n' +
+'.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:center;justify-content:center}\n' +
+'.modal-overlay.show{display:flex}\n' +
+'.modal{background:var(--card);border-radius:16px;padding:28px;width:560px;max-width:92vw;max-height:90vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,.2)}\n' +
+'.modal h3{font-size:18px;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--border)}\n' +
+'.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border);flex-wrap:wrap}\n' +
+'.toggle{display:flex;align-items:center;gap:10px;cursor:pointer}\n' +
+'.toggle input{width:18px;height:18px;accent-color:var(--primary)}\n' +
+'.settings-section{background:var(--card);border-radius:var(--radius);padding:24px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.06)}\n' +
+'.settings-section h3{font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border)}\n' +
+'.banner-preview{width:100%;max-width:400px;aspect-ratio:16/7;object-fit:cover;border-radius:8px;border:1px solid var(--border);margin-bottom:12px;background:#f1f5f9}\n' +
+'.upload-row{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}\n' +
+'.file-input{font-size:13px}\n' +
+'.loading{text-align:center;padding:40px;color:var(--text2)}\n' +
+'.empty{text-align:center;padding:40px;color:var(--text3)}\n' +
+'.user-info-row{display:flex;gap:8px;align-items:center;margin-bottom:4px}\n' +
+'.user-info-row .name{font-weight:600;color:var(--text)}\n' +
+'.user-info-row .email{color:var(--text2);font-size:12px}\n' +
+'.toast{position:fixed;top:20px;z-index:999;padding:12px 20px;border-radius:8px;color:#fff;font-size:14px;font-weight:500;opacity:0;transform:translateY(-10px);transition:all .3s}\n' +
+'html[dir="rtl"] .toast{left:20px}html[dir="ltr"] .toast{right:20px}\n' +
+'.toast.show{opacity:1;transform:translateY(0)}\n' +
+'.toast.success{background:var(--success)}.toast.error{background:var(--error)}\n' +
+'.lang-switch{display:flex;border:1.5px solid var(--border);border-radius:8px;overflow:hidden}\n' +
+'.lang-switch button{padding:6px 16px;border:none;background:var(--bg);font-size:13px;cursor:pointer;font-weight:500}\n' +
+'.lang-switch button.active{background:var(--primary);color:#fff}\n' +
+'.sub-warn{color:var(--warning);font-weight:600;font-size:12px}\n' +
+'.sub-expired{color:var(--error);font-weight:600;font-size:12px}\n' +
+'.sub-active{color:var(--success);font-weight:600;font-size:12px}\n' +
+'.drill-section{background:var(--card);border-radius:var(--radius);padding:20px;margin-top:20px;box-shadow:0 1px 3px rgba(0,0,0,.06)}\n' +
+'.drill-section h3{margin-bottom:16px;font-size:16px}\n' +
+'.drill-close{float:right;cursor:pointer;color:var(--text2);font-size:18px;line-height:1}\n' +
+'html[dir="rtl"] .drill-close{float:left}\n' +
+'.img-thumb{width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer}\n' +
+'.img-modal{max-width:90vw;max-height:80vh;border-radius:8px}\n' +
+'.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}\n' +
+'@media(max-width:768px){\n' +
+'  .sidebar{width:60px}.sidebar-logo h2,.sidebar-logo span,.nav-item span{display:none}.nav-item{justify-content:center;padding:12px}\n' +
+'  html[dir="rtl"] .main{margin-right:60px}html[dir="ltr"] .main{margin-left:60px}\n' +
+'  .main{padding:16px}.stats-grid{grid-template-columns:repeat(2,1fr)}.filters{flex-direction:column}.filters select,.filters input{width:100%}\n' +
+'  .grid-2{grid-template-columns:1fr}\n' +
+'}\n' +
+'</style>\n</head>\n<body>\n' +
+'\n<div id="login-view">\n' +
+'  <div class="login-card">\n' +
+'    <div class="login-logo">\n' +
+'      <h1>Tabbakheen</h1>\n' +
+'      <p id="login-subtitle"></p>\n' +
+'    </div>\n' +
+'    <div id="login-error" class="err-msg"></div>\n' +
+'    <div class="form-group">\n' +
+'      <label id="login-pw-label"></label>\n' +
+'      <input type="password" id="login-password" onkeydown="if(event.key===\'Enter\')doLogin()">\n' +
+'    </div>\n' +
+'    <button class="btn btn-primary btn-block" onclick="doLogin()" id="login-btn"></button>\n' +
+'  </div>\n</div>\n' +
+'\n<div id="main-view">\n' +
+'  <div class="layout">\n' +
+'    <div class="sidebar">\n' +
+'      <div class="sidebar-logo">\n' +
+'        <h2>Tabbakheen</h2>\n' +
+'        <span id="sidebar-subtitle"></span>\n' +
+'      </div>\n' +
+'      <div class="sidebar-nav">\n' +
+'        <div class="nav-item active" data-page="dashboard" onclick="navigate(\'dashboard\')">\n' +
+'          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>\n' +
+'          <span id="nav-dashboard"></span>\n' +
+'        </div>\n' +
+'        <div class="nav-item" data-page="users" onclick="navigate(\'users\')">\n' +
+'          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>\n' +
+'          <span id="nav-users"></span>\n' +
+'        </div>\n' +
+'        <div class="nav-item" data-page="settings" onclick="navigate(\'settings\')">\n' +
+'          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>\n' +
+'          <span id="nav-settings"></span>\n' +
+'        </div>\n' +
+'      </div>\n' +
+'      <div class="sidebar-footer">\n' +
+'        <div class="nav-item" onclick="doLogout()">\n' +
+'          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>\n' +
+'          <span id="nav-logout"></span>\n' +
+'        </div>\n' +
+'      </div>\n' +
+'    </div>\n' +
+'    <div class="main">\n' +
+'      <div id="page-content"></div>\n' +
+'    </div>\n' +
+'  </div>\n</div>\n' +
+'\n<div id="modal-overlay" class="modal-overlay" onclick="if(event.target===this)closeModal()">\n' +
+'  <div class="modal" id="modal-content"></div>\n</div>\n' +
+'\n<div id="toast" class="toast"></div>\n' +
+'\n<script>\n' +
+'var T={ar:{' +
+'adminDashboard:"\u0644\u0648\u062D\u0629 \u062A\u062D\u0643\u0645 \u0637\u0628\u0627\u062E\u064A\u0646",' +
+'adminPanel:"\u0644\u0648\u062D\u0629 \u0627\u0644\u0625\u062F\u0627\u0631\u0629",' +
+'adminPassword:"\u0643\u0644\u0645\u0629 \u0645\u0631\u0648\u0631 \u0627\u0644\u0645\u0633\u0624\u0648\u0644",' +
+'signIn:"\u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644",' +
+'invalidPassword:"\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u063A\u064A\u0631 \u0635\u062D\u064A\u062D\u0629",' +
+'connectionError:"\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u0627\u062A\u0635\u0627\u0644",' +
+'enterPassword:"\u0623\u062F\u062E\u0644 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631",' +
+'dashboard:"\u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645",' +
+'users:"\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645\u064A\u0646",' +
+'settings:"\u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A",' +
+'logout:"\u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062E\u0631\u0648\u062C",' +
+'totalUsers:"\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645\u064A\u0646",' +
+'customers:"\u0627\u0644\u0639\u0645\u0644\u0627\u0621",' +
+'providers:"\u0645\u0642\u062F\u0645\u064A \u0627\u0644\u062E\u062F\u0645\u0629",' +
+'drivers:"\u0627\u0644\u0633\u0627\u0626\u0642\u064A\u0646",' +
+'providersInTrial:"\u0645\u0642\u062F\u0645\u064A\u0646 \u0641\u064A \u0627\u0644\u062A\u062C\u0631\u064A\u0628\u064A",' +
+'driversInTrial:"\u0633\u0627\u0626\u0642\u064A\u0646 \u0641\u064A \u0627\u0644\u062A\u062C\u0631\u064A\u0628\u064A",' +
+'suspended:"\u0645\u0648\u0642\u0648\u0641\u064A\u0646",' +
+'activeSubs:"\u0627\u0634\u062A\u0631\u0627\u0643\u0627\u062A \u0641\u0639\u0627\u0644\u0629",' +
+'loading:"\u062C\u0627\u0631\u064A \u0627\u0644\u062A\u062D\u0645\u064A\u0644...",' +
+'noData:"\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A",' +
+'name:"\u0627\u0644\u0627\u0633\u0645",' +
+'email:"\u0627\u0644\u0628\u0631\u064A\u062F",' +
+'phone:"\u0627\u0644\u062C\u0648\u0627\u0644",' +
+'totalOrders:"\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0637\u0644\u0628\u0627\u062A",' +
+'delivered:"\u0645\u0643\u062A\u0645\u0644",' +
+'canceled:"\u0645\u0644\u063A\u064A",' +
+'rating:"\u0627\u0644\u062A\u0642\u064A\u064A\u0645",' +
+'images:"\u0627\u0644\u0635\u0648\u0631",' +
+'allRoles:"\u062C\u0645\u064A\u0639 \u0627\u0644\u0623\u062F\u0648\u0627\u0631",' +
+'customer:"\u0639\u0645\u064A\u0644",' +
+'provider:"\u0645\u0642\u062F\u0645 \u062E\u062F\u0645\u0629",' +
+'driver:"\u0633\u0627\u0626\u0642",' +
+'allStatus:"\u062C\u0645\u064A\u0639 \u0627\u0644\u062D\u0627\u0644\u0627\u062A",' +
+'active:"\u0641\u0639\u0627\u0644",' +
+'trial:"\u062A\u062C\u0631\u064A\u0628\u064A",' +
+'disabled:"\u0645\u0639\u0637\u0644",' +
+'allSubs:"\u062C\u0645\u064A\u0639 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643\u0627\u062A",' +
+'trialing:"\u062A\u062C\u0631\u064A\u0628\u064A",' +
+'expired:"\u0645\u0646\u062A\u0647\u064A",' +
+'canceledSub:"\u0645\u0644\u063A\u064A",' +
+'pastDue:"\u0645\u062A\u0623\u062E\u0631",' +
+'searchPlaceholder:"\u0628\u062D\u062B \u0628\u0627\u0644\u0627\u0633\u0645\u060C \u0627\u0644\u0628\u0631\u064A\u062F\u060C \u0627\u0644\u062C\u0648\u0627\u0644...",' +
+'edit:"\u062A\u0639\u062F\u064A\u0644",' +
+'noUsersFound:"\u0644\u0627 \u064A\u0648\u062C\u062F \u0645\u0633\u062A\u062E\u062F\u0645\u064A\u0646",' +
+'user:"\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645",' +
+'role:"\u0627\u0644\u062F\u0648\u0631",' +
+'account:"\u0627\u0644\u062D\u0633\u0627\u0628",' +
+'subscription:"\u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643",' +
+'created:"\u0627\u0644\u0625\u0646\u0634\u0627\u0621",' +
+'actions:"\u0625\u062C\u0631\u0627\u0621\u0627\u062A",' +
+'subStatus:"\u062D\u0627\u0644\u0629 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643",' +
+'editUser:"\u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645",' +
+'accountStatus:"\u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u0633\u0627\u0628",' +
+'subscriptionStatus:"\u062D\u0627\u0644\u0629 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643",' +
+'subscriptionPlan:"\u062E\u0637\u0629 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643",' +
+'trialEndsAt:"\u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u062A\u062C\u0631\u064A\u0628\u064A",' +
+'subscriptionEndsAt:"\u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643",' +
+'activatedByAdmin:"\u0645\u0641\u0639\u0644 \u0628\u0648\u0627\u0633\u0637\u0629 \u0627\u0644\u0645\u0633\u0624\u0648\u0644",' +
+'disabledReason:"\u0633\u0628\u0628 \u0627\u0644\u062A\u0639\u0637\u064A\u0644",' +
+'cancel:"\u0625\u0644\u063A\u0627\u0621",' +
+'activate:"\u062A\u0641\u0639\u064A\u0644",' +
+'suspend:"\u0625\u064A\u0642\u0627\u0641",' +
+'save:"\u062D\u0641\u0638",' +
+'userUpdated:"\u062A\u0645 \u062A\u062D\u062F\u064A\u062B \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645",' +
+'failedUpdate:"\u0641\u0634\u0644 \u0627\u0644\u062A\u062D\u062F\u064A\u062B",' +
+'noChanges:"\u0644\u0627 \u062A\u0648\u062C\u062F \u062A\u063A\u064A\u064A\u0631\u0627\u062A",' +
+'notSet:"\u063A\u064A\u0631 \u0645\u062D\u062F\u062F",' +
+'expiringIn:"\u064A\u0646\u062A\u0647\u064A \u062E\u0644\u0627\u0644",' +
+'days:"\u064A\u0648\u0645",' +
+'daysRemaining:"\u064A\u0648\u0645 \u0645\u062A\u0628\u0642\u064A",' +
+'appSettings:"\u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0627\u0644\u062A\u0637\u0628\u064A\u0642",' +
+'homeBanner:"\u0628\u0627\u0646\u0631 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629",' +
+'upload:"\u0631\u0641\u0639",' +
+'uploading:"\u062C\u0627\u0631\u064A \u0627\u0644\u0631\u0641\u0639...",' +
+'uploadSuccess:"\u062A\u0645 \u0631\u0641\u0639 \u0627\u0644\u0635\u0648\u0631\u0629 \u0628\u0646\u062C\u0627\u062D",' +
+'uploadFailed:"\u0641\u0634\u0644 \u0631\u0641\u0639 \u0627\u0644\u0635\u0648\u0631\u0629",' +
+'bannerUrl:"\u0631\u0627\u0628\u0637 \u0635\u0648\u0631\u0629 \u0627\u0644\u0628\u0627\u0646\u0631",' +
+'bannerEnabled:"\u0627\u0644\u0628\u0627\u0646\u0631 \u0645\u0641\u0639\u0644",' +
+'noBanner:"\u0644\u0627 \u064A\u0648\u062C\u062F \u0628\u0627\u0646\u0631",' +
+'supportContact:"\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u062F\u0639\u0645",' +
+'supportEmail:"\u0628\u0631\u064A\u062F \u0627\u0644\u062F\u0639\u0645",' +
+'supportWhatsapp:"\u0648\u0627\u062A\u0633\u0627\u0628 \u0627\u0644\u062F\u0639\u0645",' +
+'deliveryPricing:"\u062A\u0633\u0639\u064A\u0631 \u0627\u0644\u062A\u0648\u0635\u064A\u0644",' +
+'baseFee:"\u0631\u0633\u0645 \u0623\u0633\u0627\u0633\u064A (SAR)",' +
+'perKmCity:"\u0644\u0643\u0644 \u0643\u0645 (\u062F\u0627\u062E\u0644)",' +
+'perKmOut:"\u0644\u0643\u0644 \u0643\u0645 (\u062E\u0627\u0631\u062C)",' +
+'maxFee:"\u0627\u0644\u062D\u062F \u0627\u0644\u0623\u0642\u0635\u0649 (SAR)",' +
+'saveSettings:"\u062D\u0641\u0638 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A",' +
+'settingsSaved:"\u062A\u0645 \u062D\u0641\u0638 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A",' +
+'failedSave:"\u0641\u0634\u0644 \u0627\u0644\u062D\u0641\u0638",' +
+'language:"\u0627\u0644\u0644\u063A\u0629",' +
+'arabic:"\u0627\u0644\u0639\u0631\u0628\u064A\u0629",' +
+'english:"English",' +
+'changePassword:"\u062A\u063A\u064A\u064A\u0631 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631",' +
+'currentPassword:"\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062D\u0627\u0644\u064A\u0629",' +
+'newPassword:"\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062C\u062F\u064A\u062F\u0629",' +
+'confirmNewPassword:"\u062A\u0623\u0643\u064A\u062F \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631",' +
+'changePasswordBtn:"\u062A\u063A\u064A\u064A\u0631",' +
+'passwordChanged:"\u062A\u0645 \u062A\u063A\u064A\u064A\u0631 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631",' +
+'passwordMismatch:"\u0643\u0644\u0645\u0627\u062A \u0627\u0644\u0645\u0631\u0648\u0631 \u063A\u064A\u0631 \u0645\u062A\u0637\u0627\u0628\u0642\u0629",' +
+'passwordFailed:"\u0641\u0634\u0644 \u062A\u063A\u064A\u064A\u0631 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631",' +
+'adminNotifications:"\u0625\u0634\u0639\u0627\u0631\u0627\u062A \u0627\u0644\u0645\u0633\u0624\u0648\u0644",' +
+'notifyNewUser:"\u0625\u0634\u0639\u0627\u0631 \u0639\u0646\u062F \u062A\u0633\u062C\u064A\u0644 \u0639\u0645\u064A\u0644 \u062C\u062F\u064A\u062F",' +
+'notifyNewProvider:"\u0625\u0634\u0639\u0627\u0631 \u0639\u0646\u062F \u062A\u0633\u062C\u064A\u0644 \u0645\u0642\u062F\u0645 \u062E\u062F\u0645\u0629 \u062C\u062F\u064A\u062F",' +
+'notifyNewDriver:"\u0625\u0634\u0639\u0627\u0631 \u0639\u0646\u062F \u062A\u0633\u062C\u064A\u0644 \u0633\u0627\u0626\u0642 \u062C\u062F\u064A\u062F",' +
+'subWarning:"\u062A\u0646\u0628\u064A\u0647 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643",' +
+'warningDays:"\u0623\u064A\u0627\u0645 \u0627\u0644\u062A\u0646\u0628\u064A\u0647 \u0642\u0628\u0644 \u0627\u0644\u0627\u0646\u062A\u0647\u0627\u0621",' +
+'sendReminder:"\u0625\u0631\u0633\u0627\u0644 \u062A\u0630\u0643\u064A\u0631",' +
+'reminderSent:"\u062A\u0645 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u062A\u0630\u0643\u064A\u0631",' +
+'addSubscription:"\u0625\u0636\u0627\u0641\u0629 \u0627\u0634\u062A\u0631\u0627\u0643",' +
+'amount:"\u0627\u0644\u0645\u0628\u0644\u063A",' +
+'startDate:"\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0628\u062F\u0627\u064A\u0629",' +
+'endDate:"\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0646\u0647\u0627\u064A\u0629",' +
+'paymentMethod:"\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062F\u0641\u0639",' +
+'planName:"\u0627\u0633\u0645 \u0627\u0644\u062E\u0637\u0629",' +
+'notes:"\u0645\u0644\u0627\u062D\u0638\u0627\u062A",' +
+'generateInvoice:"\u0625\u0646\u0634\u0627\u0621 \u0641\u0627\u062A\u0648\u0631\u0629",' +
+'viewInvoice:"\u0639\u0631\u0636 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629",' +
+'sendByEmail:"\u0625\u0631\u0633\u0627\u0644 \u0628\u0627\u0644\u0628\u0631\u064A\u062F",' +
+'invoiceSaved:"\u062A\u0645 \u062D\u0641\u0638 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629",' +
+'invoiceSent:"\u062A\u0645 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629",' +
+'close:"\u0625\u063A\u0644\u0627\u0642",' +
+'selectFile:"\u0627\u062E\u062A\u0631 \u0645\u0644\u0641",' +
+'noName:"\u0628\u062F\u0648\u0646 \u0627\u0633\u0645",' +
+'na:"\u063A\u064A\u0631 \u0645\u062A\u0648\u0641\u0631",' +
+'clickToExpand:"\u0627\u0636\u063A\u0637 \u0644\u0644\u062A\u0641\u0627\u0635\u064A\u0644"' +
+'},en:{' +
+'adminDashboard:"Tabbakheen Admin",' +
+'adminPanel:"Admin Panel",' +
+'adminPassword:"Admin Password",' +
+'signIn:"Sign In",' +
+'invalidPassword:"Invalid password",' +
+'connectionError:"Connection error",' +
+'enterPassword:"Enter admin password",' +
+'dashboard:"Dashboard",' +
+'users:"Users",' +
+'settings:"Settings",' +
+'logout:"Logout",' +
+'totalUsers:"Total Users",' +
+'customers:"Customers",' +
+'providers:"Providers",' +
+'drivers:"Drivers",' +
+'providersInTrial:"Providers in Trial",' +
+'driversInTrial:"Drivers in Trial",' +
+'suspended:"Suspended",' +
+'activeSubs:"Active Subscriptions",' +
+'loading:"Loading...",' +
+'noData:"No data",' +
+'name:"Name",' +
+'email:"Email",' +
+'phone:"Phone",' +
+'totalOrders:"Total Orders",' +
+'delivered:"Delivered",' +
+'canceled:"Canceled",' +
+'rating:"Rating",' +
+'images:"Images",' +
+'allRoles:"All Roles",' +
+'customer:"Customer",' +
+'provider:"Provider",' +
+'driver:"Driver",' +
+'allStatus:"All Status",' +
+'active:"Active",' +
+'trial:"Trial",' +
+'disabled:"Disabled",' +
+'allSubs:"All Subscriptions",' +
+'trialing:"Trialing",' +
+'expired:"Expired",' +
+'canceledSub:"Canceled",' +
+'pastDue:"Past Due",' +
+'searchPlaceholder:"Search name, email, phone...",' +
+'edit:"Edit",' +
+'noUsersFound:"No users found",' +
+'user:"User",' +
+'role:"Role",' +
+'account:"Account",' +
+'subscription:"Subscription",' +
+'created:"Created",' +
+'actions:"Actions",' +
+'subStatus:"Sub Status",' +
+'editUser:"Edit User",' +
+'accountStatus:"Account Status",' +
+'subscriptionStatus:"Subscription Status",' +
+'subscriptionPlan:"Subscription Plan",' +
+'trialEndsAt:"Trial Ends At",' +
+'subscriptionEndsAt:"Subscription Ends At",' +
+'activatedByAdmin:"Activated by Admin",' +
+'disabledReason:"Disabled Reason",' +
+'cancel:"Cancel",' +
+'activate:"Activate",' +
+'suspend:"Suspend",' +
+'save:"Save",' +
+'userUpdated:"User updated",' +
+'failedUpdate:"Failed to update",' +
+'noChanges:"No changes",' +
+'notSet:"Not Set",' +
+'expiringIn:"Expiring in",' +
+'days:"days",' +
+'daysRemaining:"days remaining",' +
+'appSettings:"App Settings",' +
+'homeBanner:"Home Banner",' +
+'upload:"Upload",' +
+'uploading:"Uploading...",' +
+'uploadSuccess:"Image uploaded successfully",' +
+'uploadFailed:"Image upload failed",' +
+'bannerUrl:"Banner Image URL",' +
+'bannerEnabled:"Banner Enabled",' +
+'noBanner:"No banner set",' +
+'supportContact:"Support Contact",' +
+'supportEmail:"Support Email",' +
+'supportWhatsapp:"Support WhatsApp",' +
+'deliveryPricing:"Delivery Pricing",' +
+'baseFee:"Base Fee (SAR)",' +
+'perKmCity:"Per KM (City)",' +
+'perKmOut:"Per KM (Outside)",' +
+'maxFee:"Max Fee (SAR)",' +
+'saveSettings:"Save Settings",' +
+'settingsSaved:"Settings saved",' +
+'failedSave:"Failed to save",' +
+'language:"Language",' +
+'arabic:"\u0627\u0644\u0639\u0631\u0628\u064A\u0629",' +
+'english:"English",' +
+'changePassword:"Change Password",' +
+'currentPassword:"Current Password",' +
+'newPassword:"New Password",' +
+'confirmNewPassword:"Confirm Password",' +
+'changePasswordBtn:"Change",' +
+'passwordChanged:"Password changed",' +
+'passwordMismatch:"Passwords do not match",' +
+'passwordFailed:"Password change failed",' +
+'adminNotifications:"Admin Notifications",' +
+'notifyNewUser:"Notify on new customer signup",' +
+'notifyNewProvider:"Notify on new provider signup",' +
+'notifyNewDriver:"Notify on new driver signup",' +
+'subWarning:"Subscription Warning",' +
+'warningDays:"Warning days before expiry",' +
+'sendReminder:"Send Reminder",' +
+'reminderSent:"Reminder sent",' +
+'addSubscription:"Add Subscription",' +
+'amount:"Amount",' +
+'startDate:"Start Date",' +
+'endDate:"End Date",' +
+'paymentMethod:"Payment Method",' +
+'planName:"Plan Name",' +
+'notes:"Notes",' +
+'generateInvoice:"Generate Invoice",' +
+'viewInvoice:"View Invoice",' +
+'sendByEmail:"Send by Email",' +
+'invoiceSaved:"Invoice saved",' +
+'invoiceSent:"Invoice sent",' +
+'close:"Close",' +
+'selectFile:"Select file",' +
+'noName:"No name",' +
+'na:"N/A",' +
+'clickToExpand:"Click to expand"' +
+'}};\n' +
+'var lang=localStorage.getItem("tbk_admin_lang")||"ar";\n' +
+'function t(k){return(T[lang]&&T[lang][k])||T.en[k]||k;}\n' +
+'function setLang(l){lang=l;localStorage.setItem("tbk_admin_lang",l);var d=l==="ar"?"rtl":"ltr";document.documentElement.dir=d;document.documentElement.lang=l;updateStaticLabels();renderPage();}\n' +
+'function updateStaticLabels(){\n' +
+'  var s=document.getElementById;\n' +
+'  document.getElementById("login-subtitle").textContent=t("adminDashboard");\n' +
+'  document.getElementById("login-pw-label").textContent=t("adminPassword");\n' +
+'  document.getElementById("login-password").placeholder=t("enterPassword");\n' +
+'  document.getElementById("login-btn").textContent=t("signIn");\n' +
+'  document.getElementById("sidebar-subtitle").textContent=t("adminPanel");\n' +
+'  document.getElementById("nav-dashboard").textContent=t("dashboard");\n' +
+'  document.getElementById("nav-users").textContent=t("users");\n' +
+'  document.getElementById("nav-settings").textContent=t("settings");\n' +
+'  document.getElementById("nav-logout").textContent=t("logout");\n' +
+'}\n' +
+'\nvar TOKEN=sessionStorage.getItem("tbk_admin_token");\n' +
+'var currentPage="dashboard";\n' +
+'var allUsers=[];\n' +
+'var allOrders=[];\n' +
+'var allOffers=[];\n' +
+'var appSettings={};\n' +
+'\nasync function api(path,opts){\n' +
+'  opts=opts||{};\n' +
+'  var h={"Content-Type":"application/json","Authorization":"Bearer "+TOKEN};\n' +
+'  if(opts.headers)for(var k in opts.headers)h[k]=opts.headers[k];\n' +
+'  opts.headers=h;\n' +
+'  var res=await fetch("/admin/api"+path,opts);\n' +
+'  if(res.status===401){sessionStorage.removeItem("tbk_admin_token");TOKEN=null;showLogin();return null;}\n' +
+'  return res.json();\n' +
+'}\n' +
+'\nfunction showLogin(){document.getElementById("login-view").style.display="flex";document.getElementById("main-view").style.display="none";}\n' +
+'function showMain(){document.getElementById("login-view").style.display="none";document.getElementById("main-view").style.display="block";navigate("dashboard");}\n' +
+'\nasync function doLogin(){\n' +
+'  var pw=document.getElementById("login-password").value;\n' +
+'  var errEl=document.getElementById("login-error");\n' +
+'  if(!pw){errEl.textContent=t("enterPassword");errEl.style.display="block";return;}\n' +
+'  errEl.style.display="none";\n' +
+'  try{\n' +
+'    var res=await fetch("/admin/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pw})});\n' +
+'    var data=await res.json();\n' +
+'    if(data.token){TOKEN=data.token;sessionStorage.setItem("tbk_admin_token",TOKEN);showMain();}\n' +
+'    else{errEl.textContent=data.error||t("invalidPassword");errEl.style.display="block";}\n' +
+'  }catch(e){errEl.textContent=t("connectionError");errEl.style.display="block";}\n' +
+'}\n' +
+'\nfunction doLogout(){TOKEN=null;sessionStorage.removeItem("tbk_admin_token");showLogin();}\n' +
+'\nfunction navigate(page){\n' +
+'  currentPage=page;\n' +
+'  document.querySelectorAll(".nav-item[data-page]").forEach(function(el){el.classList.toggle("active",el.dataset.page===page);});\n' +
+'  renderPage();\n' +
+'}\n' +
+'\nfunction toast(msg,type){type=type||"success";var t=document.getElementById("toast");t.textContent=msg;t.className="toast show "+type;setTimeout(function(){t.className="toast";},3000);}\n' +
+'function closeModal(){document.getElementById("modal-overlay").classList.remove("show");}\n' +
+'function openModal(html){document.getElementById("modal-content").innerHTML=html;document.getElementById("modal-overlay").classList.add("show");}\n' +
+'function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML;}\n' +
+'\nfunction roleBadge(role){\n' +
+'  var m={customer:"blue",provider:"orange",driver:"purple"};\n' +
+'  var l={customer:t("customer"),provider:t("provider"),driver:t("driver")};\n' +
+'  return \'<span class="badge badge-\'+(m[role]||"gray")+\'">\'+( l[role]||role)+\'</span>\';\n' +
+'}\n' +
+'function statusBadge(status){\n' +
+'  var m={active:"green",trial:"yellow",suspended:"yellow",disabled:"red"};\n' +
+'  var l={active:t("active"),trial:t("trial"),suspended:t("suspend"),disabled:t("disabled")};\n' +
+'  return \'<span class="badge badge-\'+(m[status]||"gray")+\'">\'+( l[status]||status||t("na"))+\'</span>\';\n' +
+'}\n' +
+'function subBadge(status){\n' +
+'  var m={active:"green",trialing:"blue",expired:"red",canceled:"gray",past_due:"yellow"};\n' +
+'  var l={active:t("active"),trialing:t("trialing"),expired:t("expired"),canceled:t("canceledSub"),past_due:t("pastDue")};\n' +
+'  return \'<span class="badge badge-\'+(m[status]||"gray")+\'">\'+( l[status]||status||t("na"))+\'</span>\';\n' +
+'}\n' +
+'\nfunction getSubDaysRemaining(u){\n' +
+'  var endDate=u.subscriptionEndsAt||u.trialEndsAt;\n' +
+'  if(!endDate)return null;\n' +
+'  var diff=Math.ceil((new Date(endDate)-Date.now())/(1000*60*60*24));\n' +
+'  return diff;\n' +
+'}\n' +
+'\nfunction subStatusLabel(u){\n' +
+'  if(u.role==="customer")return "";\n' +
+'  var days=getSubDaysRemaining(u);\n' +
+'  if(days===null)return "";\n' +
+'  var warnDays=appSettings.subscriptionWarningDays||7;\n' +
+'  if(days<=0)return \'<span class="sub-expired">\'+t("expired")+" ("+Math.abs(days)+" "+t("days")+")</span>";\n' +
+'  if(days<=warnDays)return \'<span class="sub-warn">\'+t("expiringIn")+" "+days+" "+t("days")+"</span>";\n' +
+'  return \'<span class="sub-active">\'+days+" "+t("daysRemaining")+"</span>";\n' +
+'}\n' +
+'\nasync function renderPage(){\n' +
+'  var c=document.getElementById("page-content");\n' +
+'  c.innerHTML=\'<div class="loading">\'+t("loading")+\'</div>\';\n' +
+'  try{\n' +
+'    if(currentPage==="dashboard")await renderDashboard(c);\n' +
+'    else if(currentPage==="users")await renderUsers(c);\n' +
+'    else if(currentPage==="settings")await renderSettings(c);\n' +
+'  }catch(e){c.innerHTML=\'<div class="empty">Error: \'+e.message+\'</div>\';}\n' +
+'}\n' +
+'\nasync function renderDashboard(c){\n' +
+'  var data=await api("/stats");\n' +
+'  if(!data)return;\n' +
+'  var s=data.stats;\n' +
+'  allUsers=data.users||[];\n' +
+'  allOrders=data.orders||[];\n' +
+'  allOffers=data.offers||[];\n' +
+'  c.innerHTML=\'<h1 class="page-title">\'+t("dashboard")+\'</h1>\'+\n' +
+'    \'<div class="stats-grid">\'+\n' +
+'    statCard("totalUsers",s.totalUsers,"blue","all")+\n' +
+'    statCard("customers",s.customers,"green","customer")+\n' +
+'    statCard("providers",s.providers,"orange","provider")+\n' +
+'    statCard("drivers",s.drivers,"purple","driver")+\n' +
+'    statCard("providersInTrial",s.providersInTrial,"amber")+\n' +
+'    statCard("driversInTrial",s.driversInTrial,"amber")+\n' +
+'    statCard("suspended",s.suspendedAccounts,"red")+\n' +
+'    statCard("activeSubs",s.activeSubscriptions,"teal")+\n' +
+'    \'</div><div id="drill-down"></div>\';\n' +
+'}\n' +
+'\nfunction statCard(labelKey,value,color,drillRole){\n' +
+'  var onclick=drillRole?\'onclick="drillDown(\\\'\'+drillRole+\'\\\')"\':"";\n' +
+'  return \'<div class="stat-card \'+color+\'" \'+onclick+\'><div class="label">\'+t(labelKey)+\'</div><div class="value">\'+(value||0)+\'</div></div>\';\n' +
+'}\n' +
+'\nfunction drillDown(role){\n' +
+'  var dd=document.getElementById("drill-down");\n' +
+'  if(!dd)return;\n' +
+'  var users=role==="all"?allUsers:allUsers.filter(function(u){return u.role===role;});\n' +
+'  var roleLabel=role==="all"?t("totalUsers"):t(role==="customer"?"customers":role==="provider"?"providers":"drivers");\n' +
+'  var isProvider=role==="provider";\n' +
+'  var isDriver=role==="driver";\n' +
+'  var html=\'<div class="drill-section"><span class="drill-close" onclick="this.parentElement.remove()">&times;</span><h3>\'+roleLabel+" ("+users.length+")</h3>";\n' +
+'  html+=\'<div class="table-wrap"><table><thead><tr>\';\n' +
+'  html+="<th>"+t("name")+"</th><th>"+t("email")+"</th><th>"+t("phone")+"</th><th>"+t("totalOrders")+"</th><th>"+t("delivered")+"</th><th>"+t("canceled")+"</th>";\n' +
+'  if(isProvider||isDriver)html+="<th>"+t("rating")+"</th>";\n' +
+'  if(isProvider)html+="<th>"+t("images")+"</th>";\n' +
+'  if(isDriver)html+="<th>"+t("images")+"</th>";\n' +
+'  html+="</tr></thead><tbody>";\n' +
+'  users.forEach(function(u){\n' +
+'    var uid=u._id;\n' +
+'    var field=role==="customer"?"customerUid":role==="provider"?"providerUid":"driverUid";\n' +
+'    var uOrders=allOrders.filter(function(o){return o[field]===uid;});\n' +
+'    var deliveredCount=uOrders.filter(function(o){return o.status==="delivered";}).length;\n' +
+'    var canceledCount=uOrders.filter(function(o){return o.status==="cancelled"||o.status==="rejected";}).length;\n' +
+'    html+="<tr><td>"+esc(u.displayName||t("noName"))+"</td><td>"+esc(u.email||"")+"</td><td>"+esc(u.phone||"")+"</td>";\n' +
+'    html+="<td>"+uOrders.length+"</td><td>"+deliveredCount+"</td><td>"+canceledCount+"</td>";\n' +
+'    if(isProvider||isDriver){\n' +
+'      var avg=u.ratingAverage||u.ratingAvg||0;\n' +
+'      var cnt=u.ratingCount||0;\n' +
+'      html+="<td>"+(typeof avg==="number"?avg.toFixed(1):"0")+" ("+cnt+")</td>";\n' +
+'    }\n' +
+'    if(isProvider){\n' +
+'      var provOffers=allOffers.filter(function(o){return o.providerId===uid||o.providerUid===uid;});\n' +
+'      var imgs=provOffers.filter(function(o){return o.imageUrl;}).map(function(o){return o.imageUrl;});\n' +
+'      if(u.photoUrl)imgs.unshift(u.photoUrl);\n' +
+'      html+="<td>"+imgs.slice(0,3).map(function(url){return \'<img class="img-thumb" src="\'+esc(url)+\'" onclick="window.open(this.src,\\\'_blank\\\')">\'}).join(" ")+"</td>";\n' +
+'    }\n' +
+'    if(isDriver){\n' +
+'      var dimgs=[];\n' +
+'      if(u.vehicleImageUrl)dimgs.push(u.vehicleImageUrl);\n' +
+'      if(u.photoUrl)dimgs.push(u.photoUrl);\n' +
+'      html+="<td>"+dimgs.slice(0,3).map(function(url){return \'<img class="img-thumb" src="\'+esc(url)+\'" onclick="window.open(this.src,\\\'_blank\\\')">\'}).join(" ")+"</td>";\n' +
+'    }\n' +
+'    html+="</tr>";\n' +
+'  });\n' +
+'  html+="</tbody></table></div></div>";\n' +
+'  dd.innerHTML=html;\n' +
+'}\n' +
+'\nasync function renderUsers(c){\n' +
+'  var data=await api("/users");\n' +
+'  if(!data)return;\n' +
+'  allUsers=data.users||[];\n' +
+'  c.innerHTML=\'<h1 class="page-title">\'+t("users")+" ("+allUsers.length+")</h1>"+\n' +
+'    \'<div class="filters">\'+\n' +
+'    \'<select id="f-role" onchange="filterUsers()"><option value="">\'+t("allRoles")+\'</option><option value="customer">\'+t("customer")+\'</option><option value="provider">\'+t("provider")+\'</option><option value="driver">\'+t("driver")+\'</option></select>\'+\n' +
+'    \'<select id="f-status" onchange="filterUsers()"><option value="">\'+t("allStatus")+\'</option><option value="active">\'+t("active")+\'</option><option value="trial">\'+t("trial")+\'</option><option value="suspended">\'+t("suspend")+\'</option><option value="disabled">\'+t("disabled")+\'</option></select>\'+\n' +
+'    \'<select id="f-sub" onchange="filterUsers()"><option value="">\'+t("allSubs")+\'</option><option value="trialing">\'+t("trialing")+\'</option><option value="active">\'+t("active")+\'</option><option value="expired">\'+t("expired")+\'</option><option value="canceled">\'+t("canceledSub")+\'</option><option value="past_due">\'+t("pastDue")+\'</option></select>\'+\n' +
+'    \'<input type="text" id="f-search" placeholder="\'+t("searchPlaceholder")+\'" oninput="filterUsers()">\'+\n' +
+'    \'</div>\'+\n' +
+'    \'<div class="table-wrap"><table><thead><tr><th>\'+t("user")+\'</th><th>\'+t("role")+\'</th><th>\'+t("account")+\'</th><th>\'+t("subscription")+\'</th><th>\'+t("subStatus")+\'</th><th>\'+t("created")+\'</th><th>\'+t("actions")+\'</th></tr></thead><tbody id="users-tbody"></tbody></table></div>\';\n' +
+'  filterUsers();\n' +
+'}\n' +
+'\nfunction filterUsers(){\n' +
+'  var role=document.getElementById("f-role")?document.getElementById("f-role").value:"";\n' +
+'  var status=document.getElementById("f-status")?document.getElementById("f-status").value:"";\n' +
+'  var sub=document.getElementById("f-sub")?document.getElementById("f-sub").value:"";\n' +
+'  var search=(document.getElementById("f-search")?document.getElementById("f-search").value:"").toLowerCase();\n' +
+'  var filtered=allUsers;\n' +
+'  if(role)filtered=filtered.filter(function(u){return u.role===role;});\n' +
+'  if(status)filtered=filtered.filter(function(u){return u.accountStatus===status;});\n' +
+'  if(sub)filtered=filtered.filter(function(u){return u.subscriptionStatus===sub;});\n' +
+'  if(search)filtered=filtered.filter(function(u){\n' +
+'    return(u.displayName||"").toLowerCase().indexOf(search)>=0||(u.email||"").toLowerCase().indexOf(search)>=0||(u.phone||"").indexOf(search)>=0;\n' +
+'  });\n' +
+'  var tbody=document.getElementById("users-tbody");\n' +
+'  if(!tbody)return;\n' +
+'  if(!filtered.length){tbody.innerHTML=\'<tr><td colspan="7" class="empty">\'+t("noUsersFound")+\'</td></tr>\';return;}\n' +
+'  tbody.innerHTML=filtered.map(function(u){\n' +
+'    var created=u.createdAt?new Date(u.createdAt).toLocaleDateString():"N/A";\n' +
+'    return "<tr>"+\n' +
+'      "<td><div class=\\"user-info-row\\"><span class=\\"name\\">"+esc(u.displayName||t("noName"))+"</span></div><div class=\\"user-info-row\\"><span class=\\"email\\">"+esc(u.email||"")+"</span></div></td>"+\n' +
+'      "<td>"+roleBadge(u.role)+"</td>"+\n' +
+'      "<td>"+statusBadge(u.accountStatus)+"</td>"+\n' +
+'      "<td>"+subBadge(u.subscriptionStatus)+"</td>"+\n' +
+'      "<td>"+subStatusLabel(u)+"</td>"+\n' +
+'      "<td style=\\"font-size:12px;color:var(--text2)\\">"+created+"</td>"+\n' +
+'      "<td><button class=\\"btn btn-sm btn-primary\\" onclick=\\"editUser(\'"+u._id+"\')\\">"+t("edit")+"</button></td>"+\n' +
+'    "</tr>";\n' +
+'  }).join("");\n' +
+'}\n' +
+'\nfunction editUser(uid){\n' +
+'  var u=allUsers.find(function(x){return x._id===uid;});\n' +
+'  if(!u)return;\n' +
+'  var trialDate=u.trialEndsAt?(u.trialEndsAt.split("T")[0]):"";\n' +
+'  var subDate=u.subscriptionEndsAt?(u.subscriptionEndsAt.split("T")[0]):"";\n' +
+'  var daysLeft=getSubDaysRemaining(u);\n' +
+'  var daysInfo=daysLeft!==null?("<div style=\\"margin-bottom:12px;padding:8px;border-radius:6px;font-size:13px;"+(daysLeft<=0?"background:#fee2e2;color:#991b1b":daysLeft<=7?"background:#fef3c7;color:#92400e":"background:#d1fae5;color:#065f46")+"\\">"+\n' +
+'    (daysLeft<=0?t("expired")+" ("+Math.abs(daysLeft)+" "+t("days")+")":daysLeft+" "+t("daysRemaining"))+\n' +
+'    "</div>"):"";\n' +
+'  var sel=function(id,val,opts){\n' +
+'    var h=\'<select id="\'+id+\'"><option value="">\'+t("notSet")+"</option>";\n' +
+'    opts.forEach(function(o){h+=\'<option value="\'+o.v+\'"\'+(val===o.v?" selected":"")+">"+o.l+"</option>";});\n' +
+'    return h+"</select>";\n' +
+'  };\n' +
+'  openModal(\n' +
+'    \'<h3>\'+t("editUser")+": "+esc(u.displayName||u.email||uid)+\'</h3>\'+\n' +
+'    \'<div style="margin-bottom:12px;font-size:13px;color:var(--text2)">UID: \'+uid+"<br>"+t("role")+": "+(u.role||"N/A")+" | "+t("email")+": "+esc(u.email||"")+"</div>"+\n' +
+'    daysInfo+\n' +
+'    \'<div class="form-group"><label>\'+t("accountStatus")+"</label>"+sel("eu-accountStatus",u.accountStatus,[{v:"active",l:t("active")},{v:"trial",l:t("trial")},{v:"suspended",l:t("suspend")},{v:"disabled",l:t("disabled")}])+"</div>"+\n' +
+'    \'<div class="form-group"><label>\'+t("subscriptionStatus")+"</label>"+sel("eu-subscriptionStatus",u.subscriptionStatus,[{v:"trialing",l:t("trialing")},{v:"active",l:t("active")},{v:"expired",l:t("expired")},{v:"canceled",l:t("canceledSub")},{v:"past_due",l:t("pastDue")}])+"</div>"+\n' +
+'    \'<div class="form-group"><label>\'+t("subscriptionPlan")+\'</label><input id="eu-subscriptionPlan" value="\'+esc(u.subscriptionPlan||"")+\'"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("trialEndsAt")+\'</label><input type="date" id="eu-trialEndsAt" value="\'+trialDate+\'"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("subscriptionEndsAt")+\'</label><input type="date" id="eu-subscriptionEndsAt" value="\'+subDate+\'"></div>\'+\n' +
+'    \'<div class="form-group"><label class="toggle"><input type="checkbox" id="eu-activatedByAdmin"\'+(u.activatedByAdmin?" checked":"")+\'> \'+t("activatedByAdmin")+\'</label></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("disabledReason")+\'</label><textarea id="eu-disabledReason" rows="2">\'+esc(u.disabledReason||"")+\'</textarea></div>\'+\n' +
+'    \'<hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">\'+\n' +
+'    \'<h3 style="font-size:15px;margin-bottom:12px">\'+t("addSubscription")+\'</h3>\'+\n' +
+'    \'<div class="grid-2">\'+\n' +
+'    \'<div class="form-group"><label>\'+t("amount")+\' (SAR)</label><input type="number" id="eu-subAmount" value="300"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("planName")+\'</label><input id="eu-subPlan" value="\'+esc(u.subscriptionPlan||"basic")+\'"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("startDate")+\'</label><input type="date" id="eu-subStart" value="\'+new Date().toISOString().split("T")[0]+\'"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("endDate")+\'</label><input type="date" id="eu-subEnd" value=""></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("paymentMethod")+\'</label><select id="eu-subPayment"><option value="bank_transfer">Bank Transfer</option><option value="cash">Cash</option><option value="stc_pay">STC Pay</option></select></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("notes")+\'</label><input id="eu-subNotes" value=""></div>\'+\n' +
+'    \'</div>\'+\n' +
+'    \'<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">\'+\n' +
+'    \'<button class="btn btn-sm btn-orange" onclick="generateInvoice(\\\'\'+uid+\'\\\')">\'+t("generateInvoice")+\'</button>\'+\n' +
+'    (u.role!=="customer"?\'<button class="btn btn-sm btn-warning" onclick="sendSubReminder(\\\'\'+uid+\'\\\')">\'+t("sendReminder")+\'</button>\':"")+\n' +
+'    \'</div>\'+\n' +
+'    \'<div class="modal-actions">\'+\n' +
+'    \'<button class="btn btn-secondary" onclick="closeModal()">\'+t("cancel")+\'</button>\'+\n' +
+'    \'<button class="btn btn-success" onclick="quickAction(\\\'\'+uid+\'\\\',\\\'activate\\\')">\'+t("activate")+\'</button>\'+\n' +
+'    \'<button class="btn btn-warning" onclick="quickAction(\\\'\'+uid+\'\\\',\\\'suspend\\\')">\'+t("suspend")+\'</button>\'+\n' +
+'    \'<button class="btn btn-primary" onclick="saveUser(\\\'\'+uid+\'\\\')">\'+t("save")+\'</button>\'+\n' +
+'    \'</div>\'\n' +
+'  );\n' +
+'}\n' +
+'\nasync function quickAction(uid,action){\n' +
+'  var fields={};\n' +
+'  if(action==="activate")fields={accountStatus:"active",subscriptionStatus:"active",activatedByAdmin:true,disabledReason:""};\n' +
+'  else if(action==="suspend")fields={accountStatus:"suspended"};\n' +
+'  var data=await api("/users/"+uid+"/update",{method:"POST",body:JSON.stringify(fields)});\n' +
+'  if(data&&data.success){toast(t("userUpdated"));closeModal();renderPage();}else{toast(data&&data.error||t("failedUpdate"),"error");}\n' +
+'}\n' +
+'\nasync function saveUser(uid){\n' +
+'  var fields={};\n' +
+'  var accountStatus=document.getElementById("eu-accountStatus").value;\n' +
+'  var subscriptionStatus=document.getElementById("eu-subscriptionStatus").value;\n' +
+'  var subscriptionPlan=document.getElementById("eu-subscriptionPlan").value;\n' +
+'  var trialEndsAt=document.getElementById("eu-trialEndsAt").value;\n' +
+'  var subscriptionEndsAt=document.getElementById("eu-subscriptionEndsAt").value;\n' +
+'  var activatedByAdmin=document.getElementById("eu-activatedByAdmin").checked;\n' +
+'  var disabledReason=document.getElementById("eu-disabledReason").value;\n' +
+'  if(accountStatus)fields.accountStatus=accountStatus;\n' +
+'  if(subscriptionStatus)fields.subscriptionStatus=subscriptionStatus;\n' +
+'  if(subscriptionPlan)fields.subscriptionPlan=subscriptionPlan;\n' +
+'  if(trialEndsAt)fields.trialEndsAt=new Date(trialEndsAt).toISOString();\n' +
+'  if(subscriptionEndsAt)fields.subscriptionEndsAt=new Date(subscriptionEndsAt).toISOString();\n' +
+'  fields.activatedByAdmin=activatedByAdmin;\n' +
+'  fields.disabledReason=disabledReason||"";\n' +
+'  var subAmount=document.getElementById("eu-subAmount").value;\n' +
+'  var subStart=document.getElementById("eu-subStart").value;\n' +
+'  var subEnd=document.getElementById("eu-subEnd").value;\n' +
+'  var subPayment=document.getElementById("eu-subPayment").value;\n' +
+'  var subPlan=document.getElementById("eu-subPlan").value;\n' +
+'  var subNotes=document.getElementById("eu-subNotes").value;\n' +
+'  if(subEnd&&subStart){\n' +
+'    fields.subscriptionEndsAt=new Date(subEnd).toISOString();\n' +
+'    if(subPlan)fields.subscriptionPlan=subPlan;\n' +
+'    fields.subscriptionMeta={amount:parseFloat(subAmount)||0,startDate:subStart,endDate:subEnd,paymentMethod:subPayment,notes:subNotes,updatedAt:new Date().toISOString()};\n' +
+'  }\n' +
+'  if(Object.keys(fields).length===0){toast(t("noChanges"),"error");return;}\n' +
+'  var data=await api("/users/"+uid+"/update",{method:"POST",body:JSON.stringify(fields)});\n' +
+'  if(data&&data.success){toast(t("userUpdated"));closeModal();renderPage();}else{toast(data&&data.error||t("failedUpdate"),"error");}\n' +
+'}\n' +
+'\nasync function generateInvoice(uid){\n' +
+'  var u=allUsers.find(function(x){return x._id===uid;});\n' +
+'  if(!u)return;\n' +
+'  var amount=document.getElementById("eu-subAmount")?document.getElementById("eu-subAmount").value:"300";\n' +
+'  var subStart=document.getElementById("eu-subStart")?document.getElementById("eu-subStart").value:"";\n' +
+'  var subEnd=document.getElementById("eu-subEnd")?document.getElementById("eu-subEnd").value:"";\n' +
+'  var subPlan=document.getElementById("eu-subPlan")?document.getElementById("eu-subPlan").value:"basic";\n' +
+'  var subPayment=document.getElementById("eu-subPayment")?document.getElementById("eu-subPayment").value:"";\n' +
+'  var subNotes=document.getElementById("eu-subNotes")?document.getElementById("eu-subNotes").value:"";\n' +
+'  var invoice={userName:u.displayName||"",userEmail:u.email||"",userPhone:u.phone||"",subscriptionPlan:subPlan,amount:parseFloat(amount)||0,currency:"SAR",startDate:subStart,endDate:subEnd,paymentMethod:subPayment,notes:subNotes,invoiceNumber:"INV-"+new Date().getFullYear()+"-"+Date.now().toString().slice(-6),createdAt:new Date().toISOString(),userId:uid};\n' +
+'  try{\n' +
+'    var data=await api("/invoices",{method:"POST",body:JSON.stringify(invoice)});\n' +
+'    if(data&&data.success){\n' +
+'      toast(t("invoiceSaved"));\n' +
+'      window.open("/admin/api/invoice-html/"+data.invoiceId+"?lang="+lang,"_blank");\n' +
+'    }else{toast(data&&data.error||"Failed","error");}\n' +
+'  }catch(e){toast(e.message,"error");}\n' +
+'}\n' +
+'\nasync function sendSubReminder(uid){\n' +
+'  try{\n' +
+'    var data=await api("/send-reminder",{method:"POST",body:JSON.stringify({uid:uid})});\n' +
+'    if(data&&data.success)toast(t("reminderSent"));\n' +
+'    else toast(data&&data.error||"Failed","error");\n' +
+'  }catch(e){toast(e.message,"error");}\n' +
+'}\n' +
+'\nasync function renderSettings(c){\n' +
+'  var data=await api("/settings");\n' +
+'  if(!data)return;\n' +
+'  appSettings=data.settings||{};\n' +
+'  var bannerUrl=appSettings.bannerImageUrl||"";\n' +
+'  var bannerEnabled=appSettings.bannerEnabled!==false;\n' +
+'  c.innerHTML=\'<h1 class="page-title">\'+t("appSettings")+\'</h1>\'+\n' +
+'    \'<div class="settings-section"><h3>\'+t("language")+\'</h3>\'+\n' +
+'    \'<div class="lang-switch"><button class="\'+(lang==="ar"?"active":"")+\'" onclick="setLang(\\\'ar\\\')">\'+t("arabic")+\'</button><button class="\'+(lang==="en"?"active":"")+\'" onclick="setLang(\\\'en\\\')">\'+t("english")+\'</button></div>\'+\n' +
+'    \'</div>\'+\n' +
+'    \'<div class="settings-section"><h3>\'+t("homeBanner")+\'</h3>\'+\n' +
+'    (bannerUrl?\'<img class="banner-preview" src="\'+esc(bannerUrl)+\'" alt="Banner">\':\n' +
+'    \'<div class="banner-preview" style="display:flex;align-items:center;justify-content:center;color:var(--text3)">\'+t("noBanner")+\'</div>\')+\n' +
+'    \'<div class="upload-row"><input type="file" id="banner-file" accept="image/*" class="file-input"><button class="btn btn-sm btn-primary" id="upload-btn" onclick="uploadBanner()">\'+t("upload")+\'</button></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("bannerUrl")+\'</label><input id="s-bannerImageUrl" value="\'+esc(bannerUrl)+\'" placeholder="https://..."></div>\'+\n' +
+'    \'<div class="form-group"><label class="toggle"><input type="checkbox" id="s-bannerEnabled"\'+(bannerEnabled?" checked":"")+\'> \'+t("bannerEnabled")+\'</label></div>\'+\n' +
+'    \'</div>\'+\n' +
+'    \'<div class="settings-section"><h3>\'+t("supportContact")+\'</h3>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("supportEmail")+\'</label><input id="s-supportEmail" value="\'+esc(appSettings.supportEmail||"")+\'"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("supportWhatsapp")+\'</label><input id="s-supportWhatsapp" value="\'+esc(appSettings.supportWhatsapp||"")+\'"></div>\'+\n' +
+'    \'</div>\'+\n' +
+'    \'<div class="settings-section"><h3>\'+t("deliveryPricing")+\'</h3>\'+\n' +
+'    \'<div class="grid-2">\'+\n' +
+'    \'<div class="form-group"><label>\'+t("baseFee")+\'</label><input type="number" id="s-baseFee" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.baseFee||15)+\'"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("perKmCity")+\'</label><input type="number" step="0.5" id="s-perKmCity" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.perKmInsideCity||2)+\'"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("perKmOut")+\'</label><input type="number" step="0.5" id="s-perKmOut" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.perKmOutsideCity||3)+\'"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("maxFee")+\'</label><input type="number" id="s-maxFee" value="\'+(appSettings.deliveryPricing&&appSettings.deliveryPricing.maxFee||50)+\'"></div>\'+\n' +
+'    \'</div></div>\'+\n' +
+'    \'<div class="settings-section"><h3>\'+t("subWarning")+\'</h3>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("warningDays")+\'</label><input type="number" id="s-warningDays" value="\'+(appSettings.subscriptionWarningDays||7)+\'"></div>\'+\n' +
+'    \'</div>\'+\n' +
+'    \'<div class="settings-section"><h3>\'+t("adminNotifications")+\'</h3>\'+\n' +
+'    \'<div class="form-group"><label class="toggle"><input type="checkbox" id="s-notifyNewUser"\'+(appSettings.notifyOnNewUser?" checked":"")+\'> \'+t("notifyNewUser")+\'</label></div>\'+\n' +
+'    \'<div class="form-group"><label class="toggle"><input type="checkbox" id="s-notifyNewProvider"\'+(appSettings.notifyOnNewProvider?" checked":"")+\'> \'+t("notifyNewProvider")+\'</label></div>\'+\n' +
+'    \'<div class="form-group"><label class="toggle"><input type="checkbox" id="s-notifyNewDriver"\'+(appSettings.notifyOnNewDriver?" checked":"")+\'> \'+t("notifyNewDriver")+\'</label></div>\'+\n' +
+'    \'</div>\'+\n' +
+'    \'<div class="settings-section"><h3>\'+t("changePassword")+\'</h3>\'+\n' +
+'    \'<div id="pw-msg" class="success-msg"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("currentPassword")+\'</label><input type="password" id="s-curPw"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("newPassword")+\'</label><input type="password" id="s-newPw"></div>\'+\n' +
+'    \'<div class="form-group"><label>\'+t("confirmNewPassword")+\'</label><input type="password" id="s-confirmPw"></div>\'+\n' +
+'    \'<button class="btn btn-sm btn-warning" onclick="changePassword()">\'+t("changePasswordBtn")+\'</button>\'+\n' +
+'    \'</div>\'+\n' +
+'    \'<button class="btn btn-primary" onclick="saveSettings()">\'+t("saveSettings")+\'</button>\';\n' +
+'}\n' +
+'\nasync function uploadBanner(){\n' +
+'  var fileInput=document.getElementById("banner-file");\n' +
+'  if(!fileInput.files.length){toast(t("selectFile"),"error");return;}\n' +
+'  var file=fileInput.files[0];\n' +
+'  var btn=document.getElementById("upload-btn");\n' +
+'  btn.disabled=true;btn.textContent=t("uploading");\n' +
+'  try{\n' +
+'    var reader=new FileReader();\n' +
+'    reader.onload=async function(){\n' +
+'      try{\n' +
+'        var base64=reader.result;\n' +
+'        var res=await fetch("/admin/api/upload-banner",{\n' +
+'          method:"POST",\n' +
+'          headers:{"Content-Type":"application/json","Authorization":"Bearer "+TOKEN},\n' +
+'          body:JSON.stringify({image:base64})\n' +
+'        });\n' +
+'        var data=await res.json();\n' +
+'        if(data.success&&data.url){\n' +
+'          document.getElementById("s-bannerImageUrl").value=data.url;\n' +
+'          toast(t("uploadSuccess"));\n' +
+'          await saveSettings();\n' +
+'          renderPage();\n' +
+'        }else{\n' +
+'          toast(t("uploadFailed")+": "+(data.error||"Unknown"),"error");\n' +
+'        }\n' +
+'      }catch(e){toast(t("uploadFailed")+": "+e.message,"error");}\n' +
+'      finally{btn.disabled=false;btn.textContent=t("upload");}\n' +
+'    };\n' +
+'    reader.readAsDataURL(file);\n' +
+'  }catch(e){toast(t("uploadFailed")+": "+e.message,"error");btn.disabled=false;btn.textContent=t("upload");}\n' +
+'}\n' +
+'\nasync function saveSettings(){\n' +
+'  var fields={\n' +
+'    bannerImageUrl:document.getElementById("s-bannerImageUrl")?document.getElementById("s-bannerImageUrl").value:"",\n' +
+'    bannerEnabled:document.getElementById("s-bannerEnabled")?document.getElementById("s-bannerEnabled").checked:true,\n' +
+'    supportEmail:document.getElementById("s-supportEmail")?document.getElementById("s-supportEmail").value:"",\n' +
+'    supportWhatsapp:document.getElementById("s-supportWhatsapp")?document.getElementById("s-supportWhatsapp").value:"",\n' +
+'    deliveryPricing:{\n' +
+'      currency:"SAR",\n' +
+'      baseFee:parseFloat(document.getElementById("s-baseFee")?document.getElementById("s-baseFee").value:"15")||15,\n' +
+'      perKmInsideCity:parseFloat(document.getElementById("s-perKmCity")?document.getElementById("s-perKmCity").value:"2")||2,\n' +
+'      perKmOutsideCity:parseFloat(document.getElementById("s-perKmOut")?document.getElementById("s-perKmOut").value:"3")||3,\n' +
+'      maxFee:parseFloat(document.getElementById("s-maxFee")?document.getElementById("s-maxFee").value:"50")||50\n' +
+'    },\n' +
+'    defaultLanguage:lang,\n' +
+'    subscriptionWarningDays:parseInt(document.getElementById("s-warningDays")?document.getElementById("s-warningDays").value:"7")||7,\n' +
+'    notifyOnNewUser:document.getElementById("s-notifyNewUser")?document.getElementById("s-notifyNewUser").checked:false,\n' +
+'    notifyOnNewProvider:document.getElementById("s-notifyNewProvider")?document.getElementById("s-notifyNewProvider").checked:false,\n' +
+'    notifyOnNewDriver:document.getElementById("s-notifyNewDriver")?document.getElementById("s-notifyNewDriver").checked:false\n' +
+'  };\n' +
+'  var data=await api("/settings",{method:"POST",body:JSON.stringify(fields)});\n' +
+'  if(data&&data.success)toast(t("settingsSaved"));\n' +
+'  else toast(data&&data.error||t("failedSave"),"error");\n' +
+'}\n' +
+'\nasync function changePassword(){\n' +
+'  var cur=document.getElementById("s-curPw").value;\n' +
+'  var newPw=document.getElementById("s-newPw").value;\n' +
+'  var confirm=document.getElementById("s-confirmPw").value;\n' +
+'  var msgEl=document.getElementById("pw-msg");\n' +
+'  if(!cur||!newPw){msgEl.textContent=t("enterPassword");msgEl.className="err-msg";msgEl.style.display="block";return;}\n' +
+'  if(newPw!==confirm){msgEl.textContent=t("passwordMismatch");msgEl.className="err-msg";msgEl.style.display="block";return;}\n' +
+'  try{\n' +
+'    var data=await api("/change-password",{method:"POST",body:JSON.stringify({currentPassword:cur,newPassword:newPw})});\n' +
+'    if(data&&data.success){\n' +
+'      msgEl.textContent=t("passwordChanged");msgEl.className="success-msg";msgEl.style.display="block";\n' +
+'      document.getElementById("s-curPw").value="";document.getElementById("s-newPw").value="";document.getElementById("s-confirmPw").value="";\n' +
+'    }else{msgEl.textContent=data&&data.error||t("passwordFailed");msgEl.className="err-msg";msgEl.style.display="block";}\n' +
+'  }catch(e){msgEl.textContent=e.message;msgEl.className="err-msg";msgEl.style.display="block";}\n' +
+'}\n' +
+'\nif(lang==="ar"){document.documentElement.dir="rtl";document.documentElement.lang="ar";}\n' +
+'else{document.documentElement.dir="ltr";document.documentElement.lang="en";}\n' +
+'updateStaticLabels();\n' +
+'if(TOKEN){\n' +
+'  api("/stats").then(function(d){if(d)showMain();else showLogin();}).catch(function(){showLogin();});\n' +
+'}else{showLogin();}\n' +
+'</script>\n</body>\n</html>';
 }
 
 // ============================================================
@@ -1049,7 +1651,6 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         headers: {
@@ -1060,7 +1661,6 @@ export default {
       });
     }
 
-    // ---- Health check ----
     if (path === '/' && request.method === 'GET') {
       return Response.json({ status: 'ok', service: 'tabbakheen-api', admin: true });
     }
@@ -1069,18 +1669,21 @@ export default {
     // ADMIN ROUTES
     // ============================================================
 
-    // Serve admin dashboard HTML
     if (path === '/admin' || path === '/admin/') {
       return new Response(getAdminHTML(), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' }
       });
     }
 
-    // Admin login
     if (path === '/admin/api/login' && request.method === 'POST') {
       try {
         const body = await request.json();
-        if (!body.password || body.password !== env.ADMIN_PASSWORD) {
+        if (!body.password) {
+          return jsonResponse({ error: 'Password required' }, 401);
+        }
+        const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
+        const valid = await verifyAdminPassword(body.password, env, accessToken);
+        if (!valid) {
           return jsonResponse({ error: 'Invalid password' }, 401);
         }
         const token = await createAdminToken(env);
@@ -1088,11 +1691,10 @@ export default {
         return jsonResponse({ success: true, token });
       } catch (e) {
         console.error('[Admin] Login error:', e);
-        return jsonResponse({ error: 'Login failed' }, 500);
+        return jsonResponse({ error: 'Login failed: ' + e.message }, 500);
       }
     }
 
-    // All other admin API routes require auth
     if (path.startsWith('/admin/api/')) {
       const token = getTokenFromRequest(request);
       const valid = await verifyAdminToken(token, env);
@@ -1103,9 +1705,13 @@ export default {
       try {
         const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
 
-        // Stats
+        // Stats (enhanced with users/orders/offers for dashboard drill-down)
         if (path === '/admin/api/stats' && request.method === 'GET') {
-          const users = await listAllUsers(accessToken);
+          const [users, orders, offers] = await Promise.all([
+            listAllUsers(accessToken),
+            listAllOrders(accessToken),
+            listAllOffers(accessToken)
+          ]);
           const stats = {
             totalUsers: users.length,
             customers: users.filter(u => u.role === 'customer').length,
@@ -1117,7 +1723,7 @@ export default {
             activeSubscriptions: users.filter(u => u.subscriptionStatus === 'active').length,
           };
           console.log('[Admin] Stats:', JSON.stringify(stats));
-          return jsonResponse({ success: true, stats });
+          return jsonResponse({ success: true, stats, users, orders, offers });
         }
 
         // List users
@@ -1135,7 +1741,8 @@ export default {
           const allowed = [
             'accountStatus', 'subscriptionStatus', 'subscriptionPlan',
             'trialEndsAt', 'subscriptionEndsAt', 'activatedByAdmin',
-            'disabledReason', 'approvedByAdmin', 'isApproved', 'disabledAt'
+            'disabledReason', 'approvedByAdmin', 'isApproved', 'disabledAt',
+            'subscriptionMeta'
           ];
           const fields = {};
           for (const key of allowed) {
@@ -1161,7 +1768,9 @@ export default {
         if (path === '/admin/api/settings' && request.method === 'POST') {
           const body = await request.json();
           const allowedSettings = [
-            'bannerImageUrl', 'bannerEnabled', 'supportEmail', 'supportWhatsapp', 'deliveryPricing'
+            'bannerImageUrl', 'bannerEnabled', 'supportEmail', 'supportWhatsapp',
+            'deliveryPricing', 'defaultLanguage', 'subscriptionWarningDays',
+            'notifyOnNewUser', 'notifyOnNewProvider', 'notifyOnNewDriver'
           ];
           const fields = {};
           for (const key of allowedSettings) {
@@ -1174,6 +1783,163 @@ export default {
           await updateFirestoreDocument('app_settings', 'main', fields, accessToken);
           console.log('[Admin] Settings updated');
           return jsonResponse({ success: true, updated: Object.keys(fields) });
+        }
+
+        // Upload banner (signed Cloudinary upload through Worker)
+        if (path === '/admin/api/upload-banner' && request.method === 'POST') {
+          try {
+            const body = await request.json();
+            if (!body.image) {
+              return jsonResponse({ error: 'No image data provided' }, 400);
+            }
+            console.log('[Admin] Uploading banner to Cloudinary...');
+            const result = await uploadToCloudinary(body.image, 'tabbakheen/banners', env);
+            await updateFirestoreDocument('app_settings', 'main', {
+              bannerImageUrl: result.secure_url
+            }, accessToken);
+            console.log('[Admin] Banner uploaded and saved:', result.secure_url);
+            return jsonResponse({ success: true, url: result.secure_url });
+          } catch (e) {
+            console.error('[Admin] Banner upload error:', e);
+            return jsonResponse({ error: e.message || 'Upload failed' }, 500);
+          }
+        }
+
+        // Change password
+        if (path === '/admin/api/change-password' && request.method === 'POST') {
+          try {
+            const body = await request.json();
+            if (!body.currentPassword || !body.newPassword) {
+              return jsonResponse({ error: 'Current and new password required' }, 400);
+            }
+            const validPw = await verifyAdminPassword(body.currentPassword, env, accessToken);
+            if (!validPw) {
+              return jsonResponse({ error: 'Current password is incorrect' }, 401);
+            }
+            const newHash = await hashPassword(body.newPassword);
+            await updateFirestoreDocument('app_config', 'admin', {
+              passwordHash: newHash,
+              updatedAt: new Date().toISOString()
+            }, accessToken);
+            console.log('[Admin] Password changed successfully');
+            return jsonResponse({ success: true });
+          } catch (e) {
+            console.error('[Admin] Password change error:', e);
+            return jsonResponse({ error: e.message || 'Failed' }, 500);
+          }
+        }
+
+        // Create invoice
+        if (path === '/admin/api/invoices' && request.method === 'POST') {
+          try {
+            const invoice = await request.json();
+            const invoiceId = 'inv_' + Date.now();
+            invoice.status = 'issued';
+            await createFirestoreDocument('invoices', invoiceId, invoice, accessToken);
+            console.log('[Admin] Invoice created:', invoiceId);
+            return jsonResponse({ success: true, invoiceId });
+          } catch (e) {
+            console.error('[Admin] Invoice creation error:', e);
+            return jsonResponse({ error: e.message }, 500);
+          }
+        }
+
+        // Get invoice HTML
+        const invoiceMatch = path.match(/^\/admin\/api\/invoice-html\/([^/]+)$/);
+        if (invoiceMatch && request.method === 'GET') {
+          const invoiceId = invoiceMatch[1];
+          const invoice = await getFirestoreDoc('invoices', invoiceId, accessToken);
+          if (!invoice) {
+            return new Response('Invoice not found', { status: 404 });
+          }
+          const invoiceLang = url.searchParams.get('lang') || 'ar';
+          const html = generateInvoiceHTML(invoice, invoiceLang);
+          return new Response(html, {
+            headers: { 'Content-Type': 'text/html;charset=UTF-8' }
+          });
+        }
+
+        // Send subscription reminder
+        if (path === '/admin/api/send-reminder' && request.method === 'POST') {
+          try {
+            const body = await request.json();
+            const uid = body.uid;
+            if (!uid) return jsonResponse({ error: 'Missing uid' }, 400);
+            const user = await getFirestoreDoc('users', uid, accessToken);
+            if (!user) return jsonResponse({ error: 'User not found' }, 404);
+            const endDate = user.subscriptionEndsAt || user.trialEndsAt;
+            const daysLeft = endDate ? Math.ceil((new Date(endDate) - Date.now()) / (1000 * 60 * 60 * 24)) : 0;
+            const name = user.displayName || '';
+            const pushToken = user.expoPushToken;
+
+            if (pushToken && isExpoPushToken(pushToken)) {
+              await sendExpoPush([{
+                to: pushToken,
+                title: '\u062A\u0646\u0628\u064A\u0647 \u0627\u0646\u062A\u0647\u0627\u0621 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643',
+                body: '\u0647\u0644\u0627 ' + name + '\n\u0627\u0634\u062A\u0631\u0627\u0643\u0643 \u0641\u064A \u062A\u0637\u0628\u064A\u0642 \u0637\u0628\u0627\u062E\u064A\u0646 \u0628\u064A\u0646\u062A\u0647\u064A \u0628\u0639\u062F ' + daysLeft + ' \u0623\u064A\u0627\u0645',
+                data: { type: 'subscription_reminder' },
+                sound: 'default'
+              }]);
+              console.log('[Admin] Push reminder sent to', uid);
+            }
+
+            if (user.email) {
+              const emailHtml = '<div dir="rtl" style="font-family:sans-serif;padding:20px;max-width:500px;margin:0 auto">' +
+                '<h2 style="color:#e8722a">\u062A\u0646\u0628\u064A\u0647 \u0627\u0646\u062A\u0647\u0627\u0621 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643</h2>' +
+                '<p>\u0647\u0644\u0627 ' + name + '</p>' +
+                '<p>\u0627\u0634\u062A\u0631\u0627\u0643\u0643 \u0641\u064A \u062A\u0637\u0628\u064A\u0642 \u0637\u0628\u0627\u062E\u064A\u0646 \u0628\u064A\u0646\u062A\u0647\u064A \u0628\u0639\u062F <strong>' + daysLeft + '</strong> \u0623\u064A\u0627\u0645.</p>' +
+                '<p>\u062C\u062F\u062F \u0627\u0634\u062A\u0631\u0627\u0643\u0643 \u062D\u062A\u0649 \u064A\u0633\u062A\u0645\u0631 \u0638\u0647\u0648\u0631 \u062D\u0633\u0627\u0628\u0643 \u0648\u0627\u0633\u062A\u0642\u0628\u0627\u0644 \u0627\u0644\u0637\u0644\u0628\u0627\u062A / \u0627\u0644\u062A\u0648\u0635\u064A\u0644\u0627\u062A.</p>' +
+                '<p style="margin-top:20px;color:#666">\u0641\u0631\u064A\u0642 \u0637\u0628\u0627\u062E\u064A\u0646</p></div>';
+              await sendEmail(user.email, '\u062A\u0646\u0628\u064A\u0647 \u0627\u0646\u062A\u0647\u0627\u0621 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643', emailHtml, env);
+            }
+
+            return jsonResponse({ success: true, push: !!pushToken, email: !!user.email });
+          } catch (e) {
+            console.error('[Admin] Reminder error:', e);
+            return jsonResponse({ error: e.message }, 500);
+          }
+        }
+
+        // Send order completion email
+        if (path === '/admin/api/send-completion-email' && request.method === 'POST') {
+          try {
+            const body = await request.json();
+            const { orderId } = body;
+            if (!orderId) return jsonResponse({ error: 'Missing orderId' }, 400);
+            const order = await getFirestoreDoc('orders', orderId, accessToken);
+            if (!order) return jsonResponse({ error: 'Order not found' }, 404);
+            const customer = await getFirestoreDoc('users', order.customerUid, accessToken);
+            if (!customer || !customer.email) return jsonResponse({ error: 'Customer email not found' }, 404);
+            const provider = order.providerUid ? await getFirestoreDoc('users', order.providerUid, accessToken) : null;
+            const driver = order.driverUid ? await getFirestoreDoc('users', order.driverUid, accessToken) : null;
+            const customerName = customer.displayName || '';
+            const providerName = provider ? provider.displayName || '' : '';
+            const driverName = driver ? driver.displayName || '' : '';
+
+            let emailBody = '<div dir="rtl" style="font-family:sans-serif;padding:20px;max-width:500px;margin:0 auto;background:#fff">' +
+              '<div style="text-align:center;margin-bottom:20px"><h1 style="color:#e8722a;font-size:24px">\u0637\u0628\u0627\u062E\u064A\u0646</h1></div>' +
+              '<h2 style="color:#333">\u0637\u0644\u0628\u0643 \u0648\u0635\u0644 \u0628\u0627\u0644\u0639\u0627\u0641\u064A\u0629 \uD83D\uDE0B</h2>' +
+              '<p>\u0628\u0627\u0644\u0639\u0627\u0641\u064A\u0629 \u0639\u0644\u064A\u0643 ' + customerName + ' \uD83C\uDF1F</p>' +
+              '<p>\u0637\u0644\u0628\u0643 \u0645\u0646 \u0637\u0628\u0627\u062E\u0646\u0627 \u0627\u0644\u0645\u0645\u064A\u0632<br><strong>' + providerName + '</strong></p>' +
+              '<p>\u062A\u0645 \u062A\u062D\u0636\u064A\u0631\u0647 \u0628\u0643\u0644 \u062D\u0628 \u0648\u0639\u0646\u0627\u064A\u0629.</p>';
+            if (driverName) {
+              emailBody += '<p>\u0648\u0648\u0635\u0644 \u0644\u0643 \u0639\u0646 \u0637\u0631\u064A\u0642 \u0645\u0646\u062F\u0648\u0628\u0646\u0627<br><strong>' + driverName + '</strong></p>';
+            }
+            emailBody += '<p style="margin-top:20px">\u0646\u062A\u0645\u0646\u0649 \u0644\u0643 \u062A\u062C\u0631\u0628\u0629 \u0645\u0645\u064A\u0632\u0629! \u0644\u0627 \u062A\u0646\u0633\u0649 \u062A\u0642\u064A\u064A\u0645 \u0627\u0644\u0637\u0644\u0628 \u0644\u062A\u0633\u0627\u0639\u062F\u0646\u0627 \u0646\u0642\u062F\u0645 \u0644\u0643 \u0627\u0644\u0623\u0641\u0636\u0644 \u062F\u0627\u0626\u0645\u0627\u064B \uD83D\uDE4F</p>' +
+              '<div style="margin-top:30px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:12px">' +
+              '<p>\u0641\u0631\u064A\u0642 \u0637\u0628\u0627\u062E\u064A\u0646</p></div></div>';
+
+            const emailResult = await sendEmail(
+              customer.email,
+              '\u0637\u0644\u0628\u0643 \u0648\u0635\u0644 \u0628\u0627\u0644\u0639\u0627\u0641\u064A\u0629 \uD83D\uDE0B',
+              emailBody,
+              env
+            );
+            return jsonResponse({ success: true, emailSent: emailResult.sent });
+          } catch (e) {
+            console.error('[Admin] Completion email error:', e);
+            return jsonResponse({ error: e.message }, 500);
+          }
         }
 
         return jsonResponse({ error: 'Admin endpoint not found' }, 404);
@@ -1193,7 +1959,6 @@ export default {
       return Response.json({ success: false, error: 'Unauthorized' }, { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
     }
 
-    // Push notification
     if (path === '/notify' && request.method === 'POST') {
       try {
         const body = await request.json();
@@ -1201,7 +1966,7 @@ export default {
         if (!event || !orderId) {
           return Response.json({ success: false, error: 'Missing event or orderId' }, { status: 400 });
         }
-        console.log(`[Worker] Processing event: ${event} for order: ${orderId}`);
+        console.log('[Worker] Processing event: ' + event + ' for order: ' + orderId);
         const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
         const result = await handleEvent(event, orderId, accessToken);
         return Response.json(result, { headers: { 'Access-Control-Allow-Origin': '*' } });
@@ -1214,7 +1979,6 @@ export default {
       }
     }
 
-    // Rating aggregation
     if (path === '/aggregate-rating' && request.method === 'POST') {
       try {
         const body = await request.json();
@@ -1222,12 +1986,12 @@ export default {
         if (!type || !uid || !['provider', 'driver'].includes(type)) {
           return Response.json({ success: false, error: 'Missing or invalid type/uid' }, { status: 400, headers: { 'Access-Control-Allow-Origin': '*' } });
         }
-        console.log(`[Worker] Aggregating ${type} rating for ${uid}`);
+        console.log('[Worker] Aggregating ' + type + ' rating for ' + uid);
         const accessToken = await getAccessToken(env.FIREBASE_CLIENT_EMAIL, env.FIREBASE_PRIVATE_KEY);
         const collectionPath = type === 'provider' ? 'provider_ratings' : 'driver_ratings';
-        const ratingsUrl = `${FIRESTORE_BASE}/${collectionPath}/${uid}/ratings`;
+        const ratingsUrl = FIRESTORE_BASE + '/' + collectionPath + '/' + uid + '/ratings';
         const ratingsResponse = await fetch(ratingsUrl, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
+          headers: { 'Authorization': 'Bearer ' + accessToken }
         });
         let ratings = [];
         if (ratingsResponse.ok) {
@@ -1239,12 +2003,12 @@ export default {
         const count = ratings.length;
         const avg = count > 0 ? ratings.reduce((sum, r) => sum + (r.stars || 0), 0) / count : 0;
         const roundedAvg = Math.round(avg * 10) / 10;
-        console.log(`[Worker] ${type} ${uid}: ${count} ratings, avg ${roundedAvg}`);
-        const updateUrl = `${FIRESTORE_BASE}/users/${uid}?updateMask.fieldPaths=ratingAverage&updateMask.fieldPaths=ratingCount`;
+        console.log('[Worker] ' + type + ' ' + uid + ': ' + count + ' ratings, avg ' + roundedAvg);
+        const updateUrl = FIRESTORE_BASE + '/users/' + uid + '?updateMask.fieldPaths=ratingAverage&updateMask.fieldPaths=ratingCount';
         const updateResponse = await fetch(updateUrl, {
           method: 'PATCH',
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            'Authorization': 'Bearer ' + accessToken,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -1256,10 +2020,10 @@ export default {
         });
         if (!updateResponse.ok) {
           const errText = await updateResponse.text();
-          console.error(`[Worker] Failed to update user rating: ${errText}`);
+          console.error('[Worker] Failed to update user rating: ' + errText);
           return Response.json({ success: false, error: 'Failed to update user rating' }, { status: 500, headers: { 'Access-Control-Allow-Origin': '*' } });
         }
-        console.log(`[Worker] Updated ${type} ${uid} rating: avg=${roundedAvg}, count=${count}`);
+        console.log('[Worker] Updated ' + type + ' ' + uid + ' rating: avg=' + roundedAvg + ', count=' + count);
         return Response.json({ success: true, ratingAverage: roundedAvg, ratingCount: count }, {
           headers: { 'Access-Control-Allow-Origin': '*' }
         });

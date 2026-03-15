@@ -456,6 +456,11 @@ export const MOCK_APP_SETTINGS: AppSettings = {
     perKmOutsideCity: 1.5,
     maxFee: 40,
   },
+  defaultLanguage: 'ar',
+  subscriptionWarningDays: 7,
+  notifyOnNewUser: false,
+  notifyOnNewProvider: true,
+  notifyOnNewDriver: true,
 };
 
 const now = new Date();

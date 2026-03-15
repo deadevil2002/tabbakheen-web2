@@ -207,6 +207,11 @@ export interface AppSettings {
   supportEmail: string;
   supportWhatsapp: string;
   deliveryPricing: DeliveryPricing;
+  defaultLanguage?: string;
+  subscriptionWarningDays?: number;
+  notifyOnNewUser?: boolean;
+  notifyOnNewProvider?: boolean;
+  notifyOnNewDriver?: boolean;
 }
 
 export interface Subscription {
