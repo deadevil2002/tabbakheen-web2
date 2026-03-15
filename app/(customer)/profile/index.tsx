@@ -41,6 +41,13 @@ export default function CustomerProfileScreen() {
 
   const Arrow = isRTL ? ChevronLeft : ChevronRight;
   const [showSupport, setShowSupport] = useState<boolean>(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState<boolean>(false);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [editName, setEditName] = useState<string>(user?.displayName ?? '');
+  const [editPhone, setEditPhone] = useState<string>(user?.phone ?? '');
+  const [editCity, setEditCity] = useState<string>(user?.city ?? '');
+  const [editAddress, setEditAddress] = useState<string>(user?.address ?? '');
+  const [isSaving, setIsSaving] = useState<boolean>(false);
 
   if (!user) {
     return (
@@ -62,13 +69,6 @@ export default function CustomerProfileScreen() {
       </View>
     );
   }
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState<boolean>(false);
-  const [isEditing, setIsEditing] = useState<boolean>(false);
-  const [editName, setEditName] = useState<string>(user?.displayName ?? '');
-  const [editPhone, setEditPhone] = useState<string>(user?.phone ?? '');
-  const [editCity, setEditCity] = useState<string>(user?.city ?? '');
-  const [editAddress, setEditAddress] = useState<string>(user?.address ?? '');
-  const [isSaving, setIsSaving] = useState<boolean>(false);
 
   const handleChangeAvatar = useCallback(async () => {
     const result = await pickImageFromGallery();
@@ -134,7 +134,7 @@ export default function CustomerProfileScreen() {
         },
       ],
     );
-  }, [logout, t, locale]);
+  }, [logout, t, locale, router]);
 
   return (
     <View style={styles.container}>
