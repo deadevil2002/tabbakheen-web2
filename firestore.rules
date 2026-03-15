@@ -54,7 +54,8 @@ service cloud.firestore {
 
       allow read: if
         isCurrentUser(userId)
-        || resource.data.role == "provider";
+        || resource.data.role == "provider"
+        || resource.data.role == "driver";
 
       allow create: if
         isCurrentUser(userId)
@@ -159,7 +160,7 @@ service cloud.firestore {
 
       allow create: if isSignedIn()
         && request.resource.data.customerUid == request.auth.uid
-        && request.resource.data.paymentMethod in ['STC_PAY', 'CASH']
+        && request.resource.data.paymentMethod in ['STC_PAY', 'CASH', 'BANK_TRANSFER']
         && request.resource.data.paymentStatus == 'PENDING'
         && request.resource.data.providerUid is string
         && request.resource.data.providerUid != request.auth.uid;
