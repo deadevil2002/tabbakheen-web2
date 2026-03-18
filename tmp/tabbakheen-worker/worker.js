@@ -1758,7 +1758,7 @@ function getAdminHTML() {
 '  return res.json();\n' +
 '}\n' +
 '\nfunction showLogin(){document.getElementById("login-view").style.display="flex";document.getElementById("main-view").style.display="none";}\n' +
-'function showMain(){document.getElementById("login-view").style.display="none";document.getElementById("main-view").style.display="block";navigate("dashboard");}\n' +
+'function showMain(){document.getElementById("login-view").style.display="none";document.getElementById("main-view").style.display="block";closeSidebar();setTimeout(function(){navigate("dashboard");},0);}\n' +
 '\nasync function doLogin(){\n' +
 '  var pw=document.getElementById("login-password").value;\n' +
 '  var errEl=document.getElementById("login-error");\n' +
@@ -1817,6 +1817,7 @@ function getAdminHTML() {
 '  return \'<span class="sub-active">\'+days+" "+t("daysRemaining")+"</span>";\n' +
 '}\n' +
 '\nasync function renderPage(){\n' +
+'  closeSidebar();\n' +
 '  var c=document.getElementById("page-content");\n' +
 '  c.innerHTML=\'<div class="loading">\'+t("loading")+\'</div>\';\n' +
 '  try{\n' +
@@ -2258,6 +2259,7 @@ function getAdminHTML() {
 '\nif(lang==="ar"){document.documentElement.dir="rtl";document.documentElement.lang="ar";}\n' +
 'else{document.documentElement.dir="ltr";document.documentElement.lang="en";}\n' +
 'updateStaticLabels();\n' +
+'closeSidebar();\n' +
 'if(TOKEN){\n' +
 '  api("/stats").then(function(d){if(d){showMain();updateMobilePageName();}else showLogin();}).catch(function(){showLogin();});\n' +
 '}else{showLogin();}\n' +
