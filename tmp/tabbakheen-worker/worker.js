@@ -1330,11 +1330,51 @@ function getAdminHTML() {
 '.inv-list-item .inv-info .inv-num{font-weight:600;font-size:14px;color:var(--text)}\n' +
 '.inv-list-item .inv-info .inv-detail{font-size:12px;color:var(--text2);margin-top:2px}\n' +
 '.inv-list-item .inv-actions{display:flex;gap:6px;flex-wrap:wrap}\n' +
+'.mobile-header{display:none;position:fixed;top:0;left:0;right:0;height:56px;background:var(--sidebar);z-index:90;align-items:center;padding:0 16px;gap:12px}\n' +
+'.mobile-header .hamburger{background:none;border:none;color:#fff;font-size:26px;cursor:pointer;padding:8px;line-height:1;border-radius:6px;width:42px;height:42px;display:flex;align-items:center;justify-content:center}\n' +
+'.mobile-header .hamburger:hover{background:var(--sidebar-hover)}\n' +
+'.mobile-header .page-name{color:#fff;font-size:16px;font-weight:600;flex:1}\n' +
+'.mobile-header .logo-sm{color:var(--orange);font-size:15px;font-weight:700}\n' +
+'.sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:95;opacity:0;transition:opacity .3s ease}\n' +
+'.sidebar-backdrop.show{display:block;opacity:1}\n' +
+'.sidebar{transition:transform .3s cubic-bezier(.4,0,.2,1)}\n' +
+'@media(max-width:1024px){\n' +
+'  .stats-grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}\n' +
+'  .main{padding:20px 18px}\n' +
+'}\n' +
 '@media(max-width:768px){\n' +
-'  .sidebar{width:60px}.sidebar-logo h2,.sidebar-logo span,.nav-item span{display:none}.nav-item{justify-content:center;padding:12px}\n' +
-'  html[dir="rtl"] .main{margin-right:60px}html[dir="ltr"] .main{margin-left:60px}\n' +
-'  .main{padding:16px}.stats-grid{grid-template-columns:repeat(2,1fr)}.filters{flex-direction:column}.filters select,.filters input{width:100%}\n' +
+'  .mobile-header{display:flex}\n' +
+'  .sidebar{position:fixed;width:270px;transform:translateX(-100%);top:0;bottom:0;z-index:100}\n' +
+'  html[dir="rtl"] .sidebar{transform:translateX(100%);right:0;left:auto}\n' +
+'  .sidebar.open{transform:translateX(0)!important}\n' +
+'  html[dir="rtl"] .main{margin-right:0}html[dir="ltr"] .main{margin-left:0}\n' +
+'  .main{padding:16px;padding-top:72px}\n' +
+'  .stats-grid{grid-template-columns:repeat(2,1fr);gap:10px}\n' +
+'  .filters{flex-direction:column;gap:8px}.filters select,.filters input{width:100%}\n' +
 '  .grid-2{grid-template-columns:1fr}\n' +
+'  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -16px;padding:0 16px}\n' +
+'  .table-wrap table{min-width:640px}\n' +
+'  .page-title{font-size:20px;margin-bottom:16px}\n' +
+'  .modal{width:95vw;padding:20px;max-height:85vh}\n' +
+'  .modal h3{font-size:16px;margin-bottom:14px}\n' +
+'  .modal-actions{flex-direction:column;gap:8px}.modal-actions .btn{width:100%}\n' +
+'  .settings-section{padding:16px;margin-bottom:14px}\n' +
+'  .stat-card .value{font-size:22px}\n' +
+'  .stat-card{padding:16px}\n' +
+'  .drill-section{padding:12px;margin-top:12px}\n' +
+'  .banner-preview{max-width:100%}\n' +
+'  .login-card{width:92vw;padding:28px}\n' +
+'}\n' +
+'@media(max-width:480px){\n' +
+'  .stats-grid{grid-template-columns:1fr;gap:8px}\n' +
+'  .main{padding:10px;padding-top:66px}\n' +
+'  .stat-card .value{font-size:20px}\n' +
+'  .stat-card{padding:14px}\n' +
+'  .page-title{font-size:18px}\n' +
+'  .btn{padding:8px 14px;font-size:13px}\n' +
+'  .modal{padding:16px;border-radius:12px}\n' +
+'  .form-group input,.form-group select,.form-group textarea{padding:9px 12px;font-size:13px}\n' +
+'  .form-group label{font-size:12px}\n' +
 '}\n' +
 '</style>\n</head>\n<body>\n' +
 '\n<div id="login-view">\n' +
@@ -1352,7 +1392,13 @@ function getAdminHTML() {
 '  </div>\n</div>\n' +
 '\n<div id="main-view">\n' +
 '  <div class="layout">\n' +
-'    <div class="sidebar">\n' +
+'    <div class="mobile-header" id="mobile-header">\n' +
+'      <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu">\u2630</button>\n' +
+'      <span class="page-name" id="mobile-page-name"></span>\n' +
+'      <span class="logo-sm">Tabbakheen</span>\n' +
+'    </div>\n' +
+'    <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="closeSidebar()"></div>\n' +
+'    <div class="sidebar" id="sidebar">\n' +
 '      <div class="sidebar-logo">\n' +
 '        <h2>Tabbakheen</h2>\n' +
 '        <span id="sidebar-subtitle"></span>\n' +
@@ -1723,9 +1769,14 @@ function getAdminHTML() {
 '  }catch(e){errEl.textContent=t("connectionError");errEl.style.display="block";}\n' +
 '}\n' +
 '\nfunction doLogout(){TOKEN=null;sessionStorage.removeItem("tbk_admin_token");showLogin();}\n' +
+'\nfunction toggleSidebar(){var sb=document.getElementById("sidebar");var bd=document.getElementById("sidebar-backdrop");if(sb.classList.contains("open")){closeSidebar();}else{sb.classList.add("open");bd.classList.add("show");}}\n' +
+'function closeSidebar(){var sb=document.getElementById("sidebar");var bd=document.getElementById("sidebar-backdrop");if(sb)sb.classList.remove("open");if(bd)bd.classList.remove("show");}\n' +
+'function updateMobilePageName(){var el=document.getElementById("mobile-page-name");if(el)el.textContent=t(currentPage)||"";}\n' +
 '\nfunction navigate(page){\n' +
 '  currentPage=page;\n' +
 '  document.querySelectorAll(".nav-item[data-page]").forEach(function(el){el.classList.toggle("active",el.dataset.page===page);});\n' +
+'  closeSidebar();\n' +
+'  updateMobilePageName();\n' +
 '  renderPage();\n' +
 '}\n' +
 '\nfunction toast(msg,type){type=type||"success";var el=document.getElementById("toast");el.textContent=msg;el.className="toast show "+type;setTimeout(function(){el.className="toast";},3000);}\n' +
@@ -2205,7 +2256,7 @@ function getAdminHTML() {
 'else{document.documentElement.dir="ltr";document.documentElement.lang="en";}\n' +
 'updateStaticLabels();\n' +
 'if(TOKEN){\n' +
-'  api("/stats").then(function(d){if(d)showMain();else showLogin();}).catch(function(){showLogin();});\n' +
+'  api("/stats").then(function(d){if(d){showMain();updateMobilePageName();}else showLogin();}).catch(function(){showLogin();});\n' +
 '}else{showLogin();}\n' +
 '</script>\n</body>\n</html>';
 }
