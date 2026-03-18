@@ -1246,8 +1246,8 @@ function getAdminHTML() {
 '.success-msg{background:#d1fae5;color:#065f46;padding:10px;border-radius:8px;font-size:13px;margin-bottom:12px;display:none}\n' +
 '#main-view{display:none}\n' +
 '.layout{display:flex;min-height:100vh}\n' +
-'.sidebar{width:240px;background:var(--sidebar);padding:20px 0;display:flex;flex-direction:column;position:fixed;top:0;bottom:0;z-index:100}\n' +
-'html[dir="rtl"] .sidebar{right:0}html[dir="ltr"] .sidebar{left:0}\n' +
+'.sidebar{width:240px;background:var(--sidebar);padding:20px 0;display:flex;flex-direction:column;position:fixed;top:0;bottom:0;z-index:100;visibility:visible}\n' +
+'html[dir="rtl"] .sidebar{right:0;left:auto}html[dir="ltr"] .sidebar{left:0;right:auto}\n' +
 '.sidebar-logo{padding:0 20px 24px;border-bottom:1px solid rgba(255,255,255,.08)}\n' +
 '.sidebar-logo h2{color:var(--orange);font-size:18px}\n' +
 '.sidebar-logo span{color:var(--text3);font-size:12px}\n' +
@@ -1335,8 +1335,8 @@ function getAdminHTML() {
 '.mobile-header .hamburger:hover{background:var(--sidebar-hover)}\n' +
 '.mobile-header .page-name{color:#fff;font-size:16px;font-weight:600;flex:1}\n' +
 '.mobile-header .logo-sm{color:var(--orange);font-size:15px;font-weight:700}\n' +
-'.sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:95;opacity:0;transition:opacity .3s ease}\n' +
-'.sidebar-backdrop.show{display:block;opacity:1}\n' +
+'.sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:95;opacity:0;transition:opacity .3s ease;pointer-events:none}\n' +
+'.sidebar-backdrop.show{display:block;opacity:1;pointer-events:auto}\n' +
 '.sidebar{transition:transform .3s cubic-bezier(.4,0,.2,1)}\n' +
 '@media(max-width:1024px){\n' +
 '  .stats-grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}\n' +
@@ -1344,11 +1344,12 @@ function getAdminHTML() {
 '}\n' +
 '@media(max-width:768px){\n' +
 '  .mobile-header{display:flex}\n' +
-'  .sidebar{position:fixed;width:270px;transform:translateX(-100%);top:0;bottom:0;z-index:100}\n' +
+'  .sidebar{position:fixed;width:270px;top:0;bottom:0;z-index:100;visibility:hidden;transform:translateX(-100%)}\n' +
 '  html[dir="rtl"] .sidebar{transform:translateX(100%);right:0;left:auto}\n' +
-'  .sidebar.open{transform:translateX(0)!important}\n' +
+'  html[dir="ltr"] .sidebar{transform:translateX(-100%);left:0;right:auto}\n' +
+'  .sidebar.open{transform:translateX(0)!important;visibility:visible}\n' +
 '  html[dir="rtl"] .main{margin-right:0}html[dir="ltr"] .main{margin-left:0}\n' +
-'  .main{padding:16px;padding-top:72px}\n' +
+'  .main{padding:16px;padding-top:72px;width:100%}\n' +
 '  .stats-grid{grid-template-columns:repeat(2,1fr);gap:10px}\n' +
 '  .filters{flex-direction:column;gap:8px}.filters select,.filters input{width:100%}\n' +
 '  .grid-2{grid-template-columns:1fr}\n' +
@@ -1769,8 +1770,8 @@ function getAdminHTML() {
 '  }catch(e){errEl.textContent=t("connectionError");errEl.style.display="block";}\n' +
 '}\n' +
 '\nfunction doLogout(){TOKEN=null;sessionStorage.removeItem("tbk_admin_token");showLogin();}\n' +
-'\nfunction toggleSidebar(){var sb=document.getElementById("sidebar");var bd=document.getElementById("sidebar-backdrop");if(sb.classList.contains("open")){closeSidebar();}else{sb.classList.add("open");bd.classList.add("show");}}\n' +
-'function closeSidebar(){var sb=document.getElementById("sidebar");var bd=document.getElementById("sidebar-backdrop");if(sb)sb.classList.remove("open");if(bd)bd.classList.remove("show");}\n' +
+'\nfunction toggleSidebar(){var sb=document.getElementById("sidebar");var bd=document.getElementById("sidebar-backdrop");if(sb.classList.contains("open")){closeSidebar();}else{sb.classList.add("open");bd.classList.add("show");document.body.style.overflow="hidden";}}\n' +
+'function closeSidebar(){var sb=document.getElementById("sidebar");var bd=document.getElementById("sidebar-backdrop");if(sb)sb.classList.remove("open");if(bd)bd.classList.remove("show");document.body.style.overflow="";}\n' +
 'function updateMobilePageName(){var el=document.getElementById("mobile-page-name");if(el)el.textContent=t(currentPage)||"";}\n' +
 '\nfunction navigate(page){\n' +
 '  currentPage=page;\n' +
