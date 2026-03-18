@@ -1246,9 +1246,10 @@ function getAdminHTML() {
 '.success-msg{background:#d1fae5;color:#065f46;padding:10px;border-radius:8px;font-size:13px;margin-bottom:12px;display:none}\n' +
 '#main-view{display:none}\n' +
 '.layout{display:flex;min-height:100vh}\n' +
-'.sidebar{width:240px;background:var(--sidebar);padding:20px 0;display:flex;flex-direction:column;position:fixed;top:0;bottom:0;z-index:100;visibility:hidden;transform:translateX(-100%)}\n' +
-'html[dir="rtl"] .sidebar{transform:translateX(100%)}\n' +
+'.sidebar{width:240px;background:var(--sidebar);padding:20px 0;display:flex;flex-direction:column;position:fixed;top:0;bottom:0;z-index:100;visibility:hidden;transform:translateX(-100%);transition:none}\n' +
+'html[dir="rtl"] .sidebar:not(.open){transform:translateX(100%)}\n' +
 'html[dir="rtl"] .sidebar{right:0;left:auto}html[dir="ltr"] .sidebar{left:0;right:auto}\n' +
+'.sidebar.animated{transition:transform .3s cubic-bezier(.4,0,.2,1),visibility .3s}\n' +
 '.sidebar-logo{padding:0 20px 24px;border-bottom:1px solid rgba(255,255,255,.08)}\n' +
 '.sidebar-logo h2{color:var(--orange);font-size:18px}\n' +
 '.sidebar-logo span{color:var(--text3);font-size:12px}\n' +
@@ -1341,7 +1342,7 @@ function getAdminHTML() {
 '@media(min-width:769px){\n' +
 '  .sidebar{visibility:visible!important;transform:translateX(0)!important}\n' +
 '}\n' +
-'.sidebar{transition:transform .3s cubic-bezier(.4,0,.2,1)}\n' +
+
 '@media(max-width:1024px){\n' +
 '  .stats-grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}\n' +
 '  .main{padding:20px 18px}\n' +
@@ -1772,8 +1773,9 @@ function getAdminHTML() {
 '  }catch(e){errEl.textContent=t("connectionError");errEl.style.display="block";}\n' +
 '}\n' +
 '\nfunction doLogout(){TOKEN=null;sessionStorage.removeItem("tbk_admin_token");showLogin();}\n' +
-'\nfunction toggleSidebar(){var sb=document.getElementById("sidebar");var bd=document.getElementById("sidebar-backdrop");if(sb.classList.contains("open")){closeSidebar();}else{sb.classList.add("open");bd.classList.add("show");document.body.style.overflow="hidden";}}\n' +
-'function closeSidebar(){var sb=document.getElementById("sidebar");var bd=document.getElementById("sidebar-backdrop");if(sb)sb.classList.remove("open");if(bd)bd.classList.remove("show");document.body.style.overflow="";}\n' +
+'\nfunction toggleSidebar(){var sb=document.getElementById("sidebar");var bd=document.getElementById("sidebar-backdrop");if(!sb||!bd)return;if(sb.classList.contains("open")){closeSidebar();}else{sb.classList.add("open");bd.classList.add("show");document.body.style.overflow="hidden";}}\n' +
+'function closeSidebar(){var sb=document.getElementById("sidebar");var bd=document.getElementById("sidebar-backdrop");if(sb){sb.classList.remove("open");}if(bd){bd.classList.remove("show");}document.body.style.overflow="";}\n' +
+'function initSidebar(){var sb=document.getElementById("sidebar");if(!sb)return;sb.classList.remove("open");var bd=document.getElementById("sidebar-backdrop");if(bd)bd.classList.remove("show");document.body.style.overflow="";requestAnimationFrame(function(){requestAnimationFrame(function(){sb.classList.add("animated");});});}\n' +
 'function updateMobilePageName(){var el=document.getElementById("mobile-page-name");if(el)el.textContent=t(currentPage)||"";}\n' +
 '\nfunction navigate(page){\n' +
 '  currentPage=page;\n' +
@@ -2259,10 +2261,11 @@ function getAdminHTML() {
 '\nif(lang==="ar"){document.documentElement.dir="rtl";document.documentElement.lang="ar";}\n' +
 'else{document.documentElement.dir="ltr";document.documentElement.lang="en";}\n' +
 'updateStaticLabels();\n' +
-'closeSidebar();\n' +
+'initSidebar();\n' +
 'if(TOKEN){\n' +
 '  api("/stats").then(function(d){if(d){showMain();updateMobilePageName();}else showLogin();}).catch(function(){showLogin();});\n' +
 '}else{showLogin();}\n' +
+'window.addEventListener("resize",function(){if(window.innerWidth>768){closeSidebar();}});\n' +
 '</script>\n</body>\n</html>';
 }
 
