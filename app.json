@@ -2,7 +2,11 @@
   "expo": {
     "name": "Tabbakheen Food Market",
     "slug": "tabbakheen-food-market",
+<<<<<<< HEAD
     "version": "1.0.0",
+=======
+    "version": "1.0.1",
+>>>>>>> 02a78bb (snapshot)
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "rork-app",
@@ -15,14 +19,24 @@
     },
     "ios": {
       "supportsTablet": false,
+<<<<<<< HEAD
       "bundleIdentifier": "app.rork.tabbakheen-food-market"
+=======
+      "bundleIdentifier": "app.rork.tabbakheen-food-market",
+      "buildNumber": "2"
+>>>>>>> 02a78bb (snapshot)
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+<<<<<<< HEAD
       "package": "app.rork.tabbakheen_food_market"
+=======
+      "package": "app.rork.tabbakheen_food_market",
+      "versionCode": 2
+>>>>>>> 02a78bb (snapshot)
     },
     "notification": {
       "icon": "./assets/images/icon.png",
