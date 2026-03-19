@@ -5,7 +5,7 @@
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "rork-app",
+    "scheme": "tabbakheen",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.tabbakheen-food-market",
+      "bundleIdentifier": "com.tabbakheen.app",
       "buildNumber": "2"
     },
     "android": {
@@ -23,7 +23,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "app.rork.tabbakheen_food_market",
+      "package": "com.tabbakheen.app",
       "versionCode": 2
     },
     "notification": {
