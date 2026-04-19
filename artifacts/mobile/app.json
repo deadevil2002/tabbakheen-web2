@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Tabbakheen Food Market",
-    "slug": "mobile",
+    "slug": "tabbakheen",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -18,9 +18,11 @@
       "color": "#E8722A"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.tabbakheen.app"
     },
     "android": {
+      "package": "com.tabbakheen.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -38,6 +40,7 @@
       ],
       "expo-font",
       "expo-web-browser",
+      "expo-dev-client",
       [
         "expo-notifications",
         {
@@ -49,6 +52,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
     }
   }
 }

@@ -1,0 +1,62 @@
+We are no longer using Expo Go for this project.
+
+This is a production-oriented Expo app and it uses native functionality such as expo-notifications, so I want you to convert the workflow to a proper development-build and store-build setup.
+
+Repository is already cloned and running in Replit.
+
+Your tasks:
+
+1) Audit the current Expo / EAS setup
+- Inspect app.json / app.config / eas.json / package.json
+- Confirm SDK version
+- Confirm expo-notifications integration
+- Confirm package IDs / bundle identifiers
+
+2) Prepare the project for professional native testing
+- Add and configure expo-dev-client if missing
+- Ensure the project is correctly set up for development builds
+- Keep expo-notifications fully enabled
+- Do NOT add any Expo Go-only workaround or disable notifications
+
+3) Prepare EAS profiles
+Make sure eas.json contains clean profiles for:
+- development (dev client)
+- preview (internal testing)
+- production (store-ready)
+
+4) Android readiness
+- Verify Android package name is final
+- Verify google-services / Firebase setup if required
+- Ensure Android can build as:
+  - development client APK for device testing
+  - production AAB for Play Store
+
+5) iOS readiness
+- Verify iOS bundle identifier is final
+- Ensure iOS is prepared for:
+  - development build
+  - production submission
+- Do NOT attempt App Store submission yet if Apple Developer is still pending
+
+6) Remove Expo Go dependency from testing flow
+- Make sure the correct commands and workflow are ready for dev build testing
+- Explain clearly how the Android test device should run the dev client instead of Expo Go
+
+7) Keep changes minimal and professional
+- Do NOT refactor business logic
+- Do NOT change UI
+- Only make build/config/native workflow changes required for a proper professional setup
+
+8) Git
+- Commit and push changes only if you had to modify files
+
+Return ONLY:
+- files changed
+- what was added/updated for development builds
+- exact commands to create:
+  1. Android dev build
+  2. Android production AAB
+  3. iOS dev build
+  4. iOS production build
+- whether Expo Go is no longer required
+- any blockers still remaining
