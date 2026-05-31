@@ -63,7 +63,8 @@
         {
           "photosPermission": "Tabbakheen needs access to your photos so you can upload profile, offer, and payment proof images. يحتاج طبّاخين إلى الوصول إلى صورك لرفع صور الملف الشخصي والعروض وإثبات الدفع."
         }
-      ]
+      ],
+      "@maplibre/maplibre-react-native"
     ],
     "experiments": {
       "typedRoutes": true,

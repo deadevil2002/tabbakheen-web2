@@ -13,16 +13,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { X, Crosshair, MapPin, Check } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
+import { MAPTILER_STYLE_URL, deltaToZoom } from '@/constants/maptiler';
 
-let MapView: any = null;
-let Marker: any = null;
+let MapLibreMap: any = null;
+let MapLibreCamera: any = null;
+let MapLibreUserLocation: any = null;
 
 try {
-  const maps = require('react-native-maps');
-  MapView = maps.default;
-  Marker = maps.Marker;
+  const ml = require('@maplibre/maplibre-react-native');
+  MapLibreMap = ml.Map;
+  MapLibreCamera = ml.Camera;
+  MapLibreUserLocation = ml.UserLocation;
 } catch {
-  console.log('[MapLocationPicker] react-native-maps not available');
+  console.log('[MapLocationPicker] @maplibre/maplibre-react-native not available');
 }
 
 let ExpoLocation: any = null;
@@ -49,7 +52,7 @@ export default function MapLocationPicker({
   initialLocation,
 }: MapLocationPickerProps) {
   const { t, isRTL } = useLocale();
-  const mapRef = useRef<any>(null);
+  const cameraRef = useRef<any>(null);
 
   const fallback = { lat: RIYADH_LAT, lng: RIYADH_LNG };
   const startCoords = initialLocation ?? fallback;
@@ -68,16 +71,12 @@ export default function MapLocationPicker({
   }, [visible, initialLocation]);
 
   const animateToCoords = useCallback((lat: number, lng: number) => {
-    if (mapRef.current) {
-      mapRef.current.animateToRegion(
-        {
-          latitude: lat,
-          longitude: lng,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        },
-        400,
-      );
+    if (cameraRef.current) {
+      cameraRef.current.easeTo({
+        center: [lng, lat],
+        zoom: deltaToZoom(0.01),
+        duration: 400,
+      });
     }
   }, []);
 
@@ -145,17 +144,18 @@ export default function MapLocationPicker({
     }
   }, [pinCoords, onSave, onClose, t]);
 
-  const handleMarkerDragEnd = useCallback((e: any) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
-    setPinCoords({ lat: latitude, lng: longitude });
-    console.log('[MapLocationPicker] Pin dragged to:', latitude, longitude);
+  const handleRegionDidChange = useCallback((e: any) => {
+    const center = e?.nativeEvent?.center;
+    if (Array.isArray(center) && center.length >= 2) {
+      setPinCoords({ lat: center[1], lng: center[0] });
+    }
   }, []);
 
   const handleMapReady = useCallback(() => {
     setMapReady(true);
   }, []);
 
-  const isNativeMap = MapView && Platform.OS !== 'web';
+  const isNativeMap = MapLibreMap && Platform.OS !== 'web' && !!MAPTILER_STYLE_URL;
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
@@ -178,37 +178,33 @@ export default function MapLocationPicker({
         <View style={s.mapWrap}>
           {isNativeMap ? (
             <>
-              <MapView
-                ref={mapRef}
+              <MapLibreMap
                 style={s.map}
-                initialRegion={{
-                  latitude: startCoords.lat,
-                  longitude: startCoords.lng,
-                  latitudeDelta: 0.01,
-                  longitudeDelta: 0.01,
-                }}
-                onMapReady={handleMapReady}
-                showsUserLocation
-                showsMyLocationButton={false}
+                mapStyle={MAPTILER_STYLE_URL}
+                compass={false}
+                onDidFinishLoadingMap={handleMapReady}
+                onRegionDidChange={handleRegionDidChange}
               >
-                {mapReady && Marker && (
-                  <Marker
-                    coordinate={{
-                      latitude: pinCoords.lat,
-                      longitude: pinCoords.lng,
-                    }}
-                    draggable
-                    onDragEnd={handleMarkerDragEnd}
-                  >
-                    <View style={s.pinOuter}>
-                      <View style={s.pinInner}>
-                        <MapPin size={20} color={Colors.white} />
-                      </View>
-                      <View style={s.pinTail} />
+                <MapLibreCamera
+                  ref={cameraRef}
+                  initialViewState={{
+                    center: [startCoords.lng, startCoords.lat],
+                    zoom: deltaToZoom(0.01),
+                  }}
+                />
+                <MapLibreUserLocation />
+              </MapLibreMap>
+
+              {mapReady && (
+                <View style={s.centerPin}>
+                  <View style={s.pinOuter}>
+                    <View style={s.pinInner}>
+                      <MapPin size={20} color={Colors.white} />
                     </View>
-                  </Marker>
-                )}
-              </MapView>
+                    <View style={s.pinTail} />
+                  </View>
+                </View>
+              )}
 
               <Pressable
                 style={({ pressed }) => [s.gpsBtn, pressed && s.gpsBtnPressed]}
@@ -337,6 +333,17 @@ const s = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  centerPin: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    pointerEvents: 'none',
+    transform: [{ translateY: -24 }],
   },
   pinOuter: {
     alignItems: 'center',

@@ -1,21 +1,31 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform, Dimensions } from 'react-native';
 import { MapPin, Navigation } from 'lucide-react-native';
 
-let MapView: any = null;
-let Marker: any = null;
-let Polyline: any = null;
+let MapLibreMap: any = null;
+let MapLibreCamera: any = null;
+let MapLibreMarker: any = null;
+let MapLibreGeoJSONSource: any = null;
+let MapLibreLayer: any = null;
 
 try {
-  const maps = require('react-native-maps');
-  MapView = maps.default;
-  Marker = maps.Marker;
-  Polyline = maps.Polyline;
+  const ml = require('@maplibre/maplibre-react-native');
+  MapLibreMap = ml.Map;
+  MapLibreCamera = ml.Camera;
+  MapLibreMarker = ml.Marker;
+  MapLibreGeoJSONSource = ml.GeoJSONSource;
+  MapLibreLayer = ml.Layer;
 } catch {
-  console.log('[DeliveryRouteMap] react-native-maps not available');
+  console.log('[DeliveryRouteMap] @maplibre/maplibre-react-native not available');
 }
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
+import { MAPTILER_STYLE_URL, fitZoom } from '@/constants/maptiler';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// Visible map area: container marginHorizontal (20*2) + wrapper margin (14*2).
+const ROUTE_MAP_WIDTH = SCREEN_WIDTH - 68;
+const ROUTE_MAP_HEIGHT = 200;
 
 interface Props {
   originLat: number | null;
@@ -66,7 +76,7 @@ function DeliveryRouteMapInner({
     );
   }
 
-  const isNativeMap = MapView && Platform.OS !== 'web';
+  const isNativeMap = MapLibreMap && Platform.OS !== 'web' && !!MAPTILER_STYLE_URL;
 
   const phaseLabel = phase === 'to_provider' ? t('goingToProvider') : t('goingToCustomer');
 
@@ -78,40 +88,64 @@ function DeliveryRouteMapInner({
       </View>
       <View style={styles.mapWrapper}>
         {isNativeMap ? (
-          <MapView
+          <MapLibreMap
             style={styles.map}
-            initialRegion={region}
-            scrollEnabled={true}
-            zoomEnabled={true}
-            pitchEnabled={false}
-            rotateEnabled={false}
+            mapStyle={MAPTILER_STYLE_URL}
+            compass={false}
+            dragPan={true}
+            touchZoom={true}
+            touchPitch={false}
+            touchRotate={false}
           >
-            {hasOrigin && Marker && (
-              <Marker
-                coordinate={{ latitude: originLat!, longitude: originLng! }}
-                title={originLabel}
-                pinColor={Colors.primary}
-              />
+            <MapLibreCamera
+              initialViewState={{
+                center: [region.longitude, region.latitude],
+                zoom: fitZoom(
+                  region.latitudeDelta,
+                  region.longitudeDelta,
+                  ROUTE_MAP_WIDTH,
+                  ROUTE_MAP_HEIGHT,
+                ),
+              }}
+            />
+            {hasOrigin && MapLibreMarker && (
+              <MapLibreMarker lngLat={[originLng!, originLat!]}>
+                <View style={[styles.routeDot, { backgroundColor: Colors.primary }]} />
+              </MapLibreMarker>
             )}
-            {hasDest && Marker && (
-              <Marker
-                coordinate={{ latitude: destLat!, longitude: destLng! }}
-                title={destLabel}
-                pinColor={Colors.success}
-              />
+            {hasDest && MapLibreMarker && (
+              <MapLibreMarker lngLat={[destLng!, destLat!]}>
+                <View style={[styles.routeDot, { backgroundColor: Colors.success }]} />
+              </MapLibreMarker>
             )}
-            {hasOrigin && hasDest && Polyline && (
-              <Polyline
-                coordinates={[
-                  { latitude: originLat!, longitude: originLng! },
-                  { latitude: destLat!, longitude: destLng! },
-                ]}
-                strokeColor={Colors.primary}
-                strokeWidth={3}
-                lineDashPattern={[6, 4]}
-              />
+            {hasOrigin && hasDest && MapLibreGeoJSONSource && MapLibreLayer && (
+              <MapLibreGeoJSONSource
+                id="delivery-route"
+                data={{
+                  type: 'Feature',
+                  properties: {},
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                      [originLng!, originLat!],
+                      [destLng!, destLat!],
+                    ],
+                  },
+                }}
+              >
+                <MapLibreLayer
+                  id="delivery-route-line"
+                  type="line"
+                  layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                  paint={{
+                    'line-color': Colors.primary,
+                    'line-width': 3,
+                    'line-dasharray': [6, 4],
+                  }}
+                />
+              </MapLibreGeoJSONSource>
             )}
-          </MapView>
+          </MapLibreMap>
         ) : (
           <View style={styles.webMapFallback}>
             <Navigation size={32} color={Colors.primary} />
@@ -177,6 +211,18 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  routeDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: Colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 3,
   },
   legendRow: {
     flexDirection: 'row',

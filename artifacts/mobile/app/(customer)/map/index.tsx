@@ -20,16 +20,21 @@ import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { calculateDistance, formatDistance } from '@/utils/helpers';
 import { User } from '@/types';
+import { MAPTILER_STYLE_URL, deltaToZoom } from '@/constants/maptiler';
 
-let MapView: any = null;
-let Marker: any = null;
+let MapLibreMap: any = null;
+let MapLibreCamera: any = null;
+let MapLibreMarker: any = null;
+let MapLibreUserLocation: any = null;
 
 try {
-  const maps = require('react-native-maps');
-  MapView = maps.default;
-  Marker = maps.Marker;
+  const ml = require('@maplibre/maplibre-react-native');
+  MapLibreMap = ml.Map;
+  MapLibreCamera = ml.Camera;
+  MapLibreMarker = ml.Marker;
+  MapLibreUserLocation = ml.UserLocation;
 } catch {
-  console.log('react-native-maps not available');
+  console.log('@maplibre/maplibre-react-native not available');
 }
 
 let Location: any = null;
@@ -53,7 +58,7 @@ export default function CustomerMapScreen() {
   const [selectedProvider, setSelectedProvider] = useState<User | null>(null);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState<boolean>(false);
-  const mapRef = useRef<any>(null);
+  const cameraRef = useRef<any>(null);
 
   const currentLocation = userCoords ?? user?.location ?? { lat: RIYADH_LAT, lng: RIYADH_LNG };
 
@@ -74,13 +79,12 @@ export default function CustomerMapScreen() {
 
   const handleProviderPress = useCallback((provider: User) => {
     setSelectedProvider(provider);
-    if (mapRef.current && provider.location) {
-      mapRef.current.animateToRegion({
-        latitude: provider.location.lat,
-        longitude: provider.location.lng,
-        latitudeDelta: 0.02,
-        longitudeDelta: 0.02,
-      }, 500);
+    if (cameraRef.current && provider.location) {
+      cameraRef.current.easeTo({
+        center: [provider.location.lng, provider.location.lat],
+        zoom: deltaToZoom(0.02),
+        duration: 500,
+      });
     }
   }, []);
 
@@ -102,13 +106,12 @@ export default function CustomerMapScreen() {
                 lng: position.coords.longitude,
               };
               setUserCoords(coords);
-              if (mapRef.current) {
-                mapRef.current.animateToRegion({
-                  latitude: coords.lat,
-                  longitude: coords.lng,
-                  latitudeDelta: 0.04,
-                  longitudeDelta: 0.04,
-                }, 500);
+              if (cameraRef.current) {
+                cameraRef.current.easeTo({
+                  center: [coords.lng, coords.lat],
+                  zoom: deltaToZoom(0.04),
+                  duration: 500,
+                });
               }
               console.log('[Map] Web geolocation:', coords);
             },
@@ -142,13 +145,12 @@ export default function CustomerMapScreen() {
       setUserCoords(coords);
       console.log('[Map] Device location:', coords);
 
-      if (mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude: coords.lat,
-          longitude: coords.lng,
-          latitudeDelta: 0.04,
-          longitudeDelta: 0.04,
-        }, 500);
+      if (cameraRef.current) {
+        cameraRef.current.easeTo({
+          center: [coords.lng, coords.lat],
+          zoom: deltaToZoom(0.04),
+          duration: 500,
+        });
       }
     } catch (e) {
       console.log('[Map] Location error:', e);
@@ -158,12 +160,7 @@ export default function CustomerMapScreen() {
     }
   }, [t]);
 
-  const initialRegion = {
-    latitude: currentLocation.lat,
-    longitude: currentLocation.lng,
-    latitudeDelta: 0.08,
-    longitudeDelta: 0.08,
-  };
+  const isNativeMap = MapLibreMap && Platform.OS !== 'web' && !!MAPTILER_STYLE_URL;
 
   return (
     <View style={styles.container}>
@@ -172,24 +169,26 @@ export default function CustomerMapScreen() {
       </SafeAreaView>
 
       <View style={styles.mapContainer}>
-        {MapView && Platform.OS !== 'web' ? (
+        {isNativeMap ? (
           <>
-            <MapView
-              ref={mapRef}
+            <MapLibreMap
               style={styles.map}
-              initialRegion={initialRegion}
-              showsUserLocation
-              showsMyLocationButton={false}
+              mapStyle={MAPTILER_STYLE_URL}
+              compass={false}
             >
+              <MapLibreCamera
+                ref={cameraRef}
+                initialViewState={{
+                  center: [currentLocation.lng, currentLocation.lat],
+                  zoom: deltaToZoom(0.08),
+                }}
+              />
+              <MapLibreUserLocation />
               {sortedProviders.map((provider) =>
                 provider.location ? (
-                  <Marker
+                  <MapLibreMarker
                     key={provider.uid}
-                    coordinate={{
-                      latitude: provider.location.lat,
-                      longitude: provider.location.lng,
-                    }}
-                    title={provider.displayName}
+                    lngLat={[provider.location.lng, provider.location.lat]}
                     onPress={() => handleProviderPress(provider)}
                   >
                     <View style={[
@@ -206,10 +205,10 @@ export default function CustomerMapScreen() {
                         <ChefHat size={18} color={Colors.white} />
                       )}
                     </View>
-                  </Marker>
+                  </MapLibreMarker>
                 ) : null,
               )}
-            </MapView>
+            </MapLibreMap>
             <Pressable
               style={({ pressed }) => [styles.locateBtn, pressed && styles.locateBtnPressed]}
               onPress={locateMe}
