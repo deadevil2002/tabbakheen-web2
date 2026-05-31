@@ -19,7 +19,11 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.tabbakheen.app"
+      "bundleIdentifier": "com.tabbakheen.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Tabbakheen uses your location to show nearby food providers and calculate delivery distance. يستخدم طبّاخين موقعك لعرض مزوّدي الطعام القريبين وحساب مسافة التوصيل.",
+        "NSPhotoLibraryUsageDescription": "Tabbakheen needs access to your photos so you can upload profile, offer, and payment proof images. يحتاج طبّاخين إلى الوصول إلى صورك لرفع صور الملف الشخصي والعروض وإثبات الدفع."
+      }
     },
     "android": {
       "package": "com.tabbakheen.app",
@@ -46,6 +50,18 @@
         {
           "icon": "./assets/images/icon.png",
           "color": "#E8722A"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Tabbakheen uses your location to show nearby food providers and calculate delivery distance. يستخدم طبّاخين موقعك لعرض مزوّدي الطعام القريبين وحساب مسافة التوصيل."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Tabbakheen needs access to your photos so you can upload profile, offer, and payment proof images. يحتاج طبّاخين إلى الوصول إلى صورك لرفع صور الملف الشخصي والعروض وإثبات الدفع."
         }
       ]
     ],
