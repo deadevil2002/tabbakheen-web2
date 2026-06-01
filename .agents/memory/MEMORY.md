@@ -1,4 +1,5 @@
 - [MapLibre maps (mobile)](maplibre-maps.md) — Tabbakheen mobile uses MapLibre v11 + MapTiler (no Google Maps); coords are [lng,lat], picker is a center-pin.
+- [Mobile typecheck baseline](typecheck-baseline.md) — `@workspace/mobile` typecheck always fails on scaffold `hooks/useColors.ts` (colors.light/radius); filter it out, don't fix.
 - [Admin Worker editing](admin-worker-editing.md) — `.local/worker-src/worker.js` is CRLF + one big getAdminHTML template literal; strip/restore CR to edit, escape nested onclick quotes as `\\'`.
 - [Wathq CR verification (mobile)](wathq-verification.md) — optional provider verification; public users-doc holds only status fields, sensitive CR data goes in verifications/{uid}; Worker-only Wathq via apiKey header + Firebase ID token.
 - [Expo-router tab back-nav](expo-router-tab-back-nav.md) — to keep Back inside a tab, give the tab its own detail route re-exporting a shared screen component.

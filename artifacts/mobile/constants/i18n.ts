@@ -147,6 +147,11 @@ const ar = {
   certImageRequired: 'يرجى رفع صورة الوثيقة',
   submitForReview: 'إرسال للمراجعة',
   freelanceSubmittedMsg: 'تم إرسال وثيقة العمل الحر للمراجعة.',
+  freelanceUnderReview: 'وثيقة العمل الحر قيد المراجعة',
+  freelanceApproved: 'تم توثيق وثيقة العمل الحر بنجاح',
+  freelanceRejected: 'تم رفض وثيقة العمل الحر',
+  freelanceRejectionReason: 'سبب الرفض',
+  freelanceResubmitNote: 'يمكنك إرسال وثيقة جديدة للمراجعة.',
 
   sar: 'ر.س',
   language: 'اللغة',
@@ -641,6 +646,11 @@ const en: typeof ar = {
   certImageRequired: 'Please upload the certificate image',
   submitForReview: 'Submit for review',
   freelanceSubmittedMsg: 'Your freelance certificate has been submitted for review.',
+  freelanceUnderReview: 'Freelance certificate is under review',
+  freelanceApproved: 'Freelance certificate verified successfully',
+  freelanceRejected: 'Freelance certificate was rejected',
+  freelanceRejectionReason: 'Rejection reason',
+  freelanceResubmitNote: 'You can submit a new certificate for review.',
 
   sar: 'SAR',
   language: 'Language',

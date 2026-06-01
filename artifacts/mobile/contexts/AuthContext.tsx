@@ -15,7 +15,9 @@ import {
   fsUserExistsByEmail,
   fsCreateUser,
   fsUpdateUser,
+  fsSubscribeToUser,
 } from '@/services/firestoreUsers';
+import type { Unsubscribe } from 'firebase/firestore';
 import { MOCK_CUSTOMER, MOCK_PROVIDERS, MOCK_DRIVERS } from '@/mocks/data';
 import { generateId } from '@/utils/helpers';
 
@@ -35,30 +37,38 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
     console.log('[Auth] Setting up Firebase auth listener');
     const auth = getFirebaseAuth();
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+    let unsubUser: Unsubscribe | null = null;
+    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+      // Tear down any previous user-doc subscription on auth change.
+      if (unsubUser) {
+        unsubUser();
+        unsubUser = null;
+      }
       if (firebaseUser) {
         console.log('[Auth] Firebase user detected:', firebaseUser.uid);
-        try {
-          const userDoc = await fsGetUser(firebaseUser.uid);
+        // Live-subscribe to the user doc so server-managed fields (e.g.
+        // verificationStatus) reflect in the app without requiring re-login.
+        unsubUser = fsSubscribeToUser(firebaseUser.uid, (userDoc) => {
           if (userDoc) {
             setUser(userDoc);
-            console.log('[Auth] User doc loaded, role:', userDoc.role);
+            console.log('[Auth] User doc updated, role:', userDoc.role);
           } else {
             console.log('[Auth] No Firestore user doc for:', firebaseUser.uid);
             setUser(null);
           }
-        } catch (e) {
-          console.log('[Auth] Error loading user doc:', e);
-          setUser(null);
-        }
+          setIsLoading(false);
+        });
       } else {
         console.log('[Auth] No Firebase user');
         setUser(null);
+        setIsLoading(false);
       }
-      setIsLoading(false);
     });
 
-    return () => unsub();
+    return () => {
+      if (unsubUser) unsubUser();
+      unsub();
+    };
   }, [fb]);
 
   const loadMockSession = async () => {

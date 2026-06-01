@@ -1,0 +1,84 @@
+Fix Freelance Certificate approval/rejection live feedback in the provider app.
+
+Current status:
+- Freelance certificate submission works.
+- Request appears in admin.
+- Admin can reject/approve.
+- But after rejection, the provider app does not clearly show the rejection result or the rejection note.
+- Approval/rejection should reflect live in the provider Settings verification card.
+
+Required:
+
+1. Provider app must read the private verification document:
+verifications/{uid}.freelanceCertificate
+
+Only for the signed-in provider.
+
+2. In the provider Settings verification card, show status live:
+
+If reviewStatus === "pending":
+Arabic: وثيقة العمل الحر قيد المراجعة
+English: Freelance certificate is under review
+
+If reviewStatus === "approved":
+Arabic: تم توثيق وثيقة العمل الحر بنجاح
+English: Freelance certificate verified successfully
+
+If reviewStatus === "rejected":
+Arabic: تم رفض وثيقة العمل الحر
+English: Freelance certificate was rejected
+
+And if internalReviewNote exists, show it as:
+Arabic: سبب الرفض: {note}
+English: Rejection reason: {note}
+
+3. After rejection:
+- Show the rejection reason.
+- Allow provider to submit a new certificate again.
+- Keep badge hidden unless users/{uid}.verificationStatus === verified.
+- Do not show public failed status to customers.
+- The rejection reason is visible only to the same provider in their own settings.
+
+4. After approval:
+- Show verified state immediately.
+- Disable the freelance upload form unless provider chooses to change/resubmit.
+- Badge should appear because users/{uid}.verificationStatus === verified.
+
+5. Live behavior:
+Use the existing Firestore listener or add one for:
+users/{uid}
+verifications/{uid}
+
+The app should update without requiring logout/login.
+If realtime listener is not practical, refresh the verification state after screen focus and after submit.
+
+6. Admin side:
+Confirm approve/reject writes:
+verifications/{uid}.freelanceCertificate.reviewStatus
+verifications/{uid}.freelanceCertificate.internalReviewNote
+users/{uid}.verificationStatus
+users/{uid}.verificationSource
+users/{uid}.verifiedAt
+
+7. Keep security:
+- Provider reads only own verifications/{uid}
+- Do not hydrate certificate data into public provider/customer objects
+- Do not change Wathq logic
+- Do not change signup/login/orders/offers
+
+Return:
+1. Files changed
+2. What changed in provider Settings UI
+3. What changed in data fetching/listener
+4. Test steps:
+   - submit freelance cert
+   - admin reject with note
+   - provider sees rejection + note
+   - provider resubmits
+   - admin approves
+   - provider sees verified live
+5. Typecheck result
+
+Do not deploy.
+Do not rebuild.
+Do not push unless I approve.

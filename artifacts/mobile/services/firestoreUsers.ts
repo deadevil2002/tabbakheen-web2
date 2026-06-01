@@ -111,6 +111,39 @@ export async function fsGetVerificationCrNumber(
   }
 }
 
+export interface FreelanceCertReview {
+  certificateNumber?: string;
+  fileUrl?: string;
+  submittedAt?: string;
+  reviewStatus?: 'pending' | 'approved' | 'rejected';
+  internalReviewNote?: string;
+  reviewedAt?: string;
+}
+
+/**
+ * Subscribe to the freelance certificate review state stored under
+ * `verifications/{uid}.freelanceCertificate` for the CURRENT owner only
+ * (Firestore rules restrict reads of this doc to its owner). This sensitive
+ * review data is never mapped into the broadly-readable `users/{uid}` object.
+ */
+export function fsSubscribeToFreelanceCertificate(
+  uid: string,
+  cb: (fc: FreelanceCertReview | null) => void,
+): Unsubscribe {
+  const db = getFirebaseFirestore();
+  return onSnapshot(
+    doc(db, 'verifications', uid),
+    (snap) => {
+      const fc = snap.exists() ? snap.data()?.freelanceCertificate : null;
+      cb(fc && typeof fc === 'object' ? (fc as FreelanceCertReview) : null);
+    },
+    (err) => {
+      console.log('[fsUsers] freelanceCert subscribe error:', err);
+      cb(null);
+    },
+  );
+}
+
 export async function fsUserExistsByEmail(
   email: string,
 ): Promise<boolean | null> {

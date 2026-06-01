@@ -19,7 +19,8 @@ import { SUBSCRIPTION_PRICE } from '@/mocks/data';
 import { pickImageFromGallery, pickImageFreeAspect } from '@/utils/imagePicker';
 import { uploadProviderAvatar, uploadFreelanceCertificate } from '@/services/cloudinary';
 import { verifyCommercialRegistration, submitFreelanceCertificate } from '@/services/pushApi';
-import { fsGetVerificationCrNumber } from '@/services/firestoreUsers';
+import { fsGetVerificationCrNumber, fsSubscribeToFreelanceCertificate } from '@/services/firestoreUsers';
+import type { FreelanceCertReview } from '@/services/firestoreUsers';
 import { VERIFIED_BLUE } from '@/components/VerifiedBadge';
 
 export default function ProviderSettingsScreen() {
@@ -52,7 +53,9 @@ export default function ProviderSettingsScreen() {
   const [certNumber, setCertNumber] = useState<string>('');
   const [certImageUri, setCertImageUri] = useState<string | null>(null);
   const [isSubmittingCert, setIsSubmittingCert] = useState<boolean>(false);
+  const [freelanceCert, setFreelanceCert] = useState<FreelanceCertReview | null>(null);
   const verificationStatus = user?.verificationStatus;
+  const flReviewStatus = freelanceCert?.reviewStatus;
 
   useEffect(() => {
     let active = true;
@@ -63,6 +66,20 @@ export default function ProviderSettingsScreen() {
     }
     return () => { active = false; };
   }, [user?.uid, verificationStatus]);
+
+  // Live-subscribe to the provider's own freelance certificate review state so
+  // approve/reject decisions reflect immediately without logout/login.
+  useEffect(() => {
+    if (!user?.uid) { setFreelanceCert(null); return; }
+    const unsub = fsSubscribeToFreelanceCertificate(user.uid, setFreelanceCert);
+    return () => unsub();
+  }, [user?.uid]);
+
+  // After a rejection, default the form to the freelance tab so the provider can
+  // resubmit a new certificate right away.
+  useEffect(() => {
+    if (flReviewStatus === 'rejected') setVerifyType('freelance');
+  }, [flReviewStatus]);
 
   const handleChangeAvatar = useCallback(async () => {
     const result = await pickImageFromGallery();
@@ -240,6 +257,25 @@ export default function ProviderSettingsScreen() {
               </View>
             )}
           </View>
+          {flReviewStatus === 'pending' && (
+            <View style={[s.flBanner, s.flBannerPending]}>
+              <Text style={[s.flBannerText, r && cs.rtlText]}>{t('freelanceUnderReview')}</Text>
+            </View>
+          )}
+          {flReviewStatus === 'approved' && (
+            <View style={[s.flBanner, s.flBannerApproved]}>
+              <Text style={[s.flBannerText, r && cs.rtlText]}>{t('freelanceApproved')}</Text>
+            </View>
+          )}
+          {flReviewStatus === 'rejected' && (
+            <View style={[s.flBanner, s.flBannerRejected]}>
+              <Text style={[s.flBannerTitle, r && cs.rtlText]}>{t('freelanceRejected')}</Text>
+              {freelanceCert?.internalReviewNote ? (
+                <Text style={[s.flBannerText, r && cs.rtlText, { marginTop: 4 }]}>{t('freelanceRejectionReason')}: {freelanceCert.internalReviewNote}</Text>
+              ) : null}
+              <Text style={[s.flBannerText, r && cs.rtlText, { marginTop: 4 }]}>{t('freelanceResubmitNote')}</Text>
+            </View>
+          )}
           {verificationStatus === 'verified' && !showVerifyForm ? (
             <>
               <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verificationSuccessMsg')}</Text>
@@ -256,9 +292,11 @@ export default function ProviderSettingsScreen() {
                 <Text style={[s.changeNumberText, r && cs.rtlText]}>{t('changeNumber')}</Text>
               </Pressable>
             </>
-          ) : verificationStatus === 'pending_review' && !showVerifyForm ? (
+          ) : verificationStatus === 'pending_review' && !showVerifyForm && flReviewStatus !== 'rejected' ? (
             <>
-              <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verificationPendingDesc')}</Text>
+              {flReviewStatus !== 'pending' && (
+                <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verificationPendingDesc')}</Text>
+              )}
               <Pressable
                 style={({ pressed }) => [s.changeNumberBtn, r && cs.rowRTL, pressed && { opacity: 0.6 }]}
                 onPress={() => { setCrNumber(''); setShowVerifyForm(true); }}
@@ -455,6 +493,12 @@ const s = StyleSheet.create({
   renewText: { fontSize: 13, color: Colors.warning, lineHeight: 18 },
   freeNote: { fontSize: 12, color: Colors.textTertiary, marginTop: 12, textAlign: 'center' },
   verifyNote: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
+  flBanner: { borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1 },
+  flBannerPending: { backgroundColor: 'rgba(234, 88, 12, 0.08)', borderColor: 'rgba(234, 88, 12, 0.35)' },
+  flBannerApproved: { backgroundColor: 'rgba(22, 163, 74, 0.08)', borderColor: 'rgba(22, 163, 74, 0.35)' },
+  flBannerRejected: { backgroundColor: 'rgba(220, 38, 38, 0.08)', borderColor: 'rgba(220, 38, 38, 0.35)' },
+  flBannerTitle: { fontSize: 14, fontWeight: '700' as const, color: Colors.error },
+  flBannerText: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
   verifyCrBox: { marginTop: 12, backgroundColor: Colors.primaryFaded, borderRadius: 12, padding: 12 },
   verifyCrLabel: { fontSize: 12, color: Colors.textSecondary, marginBottom: 4 },
   verifyCrValue: { fontSize: 16, fontWeight: '700' as const, color: Colors.text, letterSpacing: 1 },
