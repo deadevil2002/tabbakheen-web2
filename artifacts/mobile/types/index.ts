@@ -93,6 +93,13 @@ export interface User {
   disabledReason?: string;
   expoPushToken?: string;
   pushNotificationsEnabled?: boolean;
+  // Optional commercial-registration verification — PUBLIC fields only.
+  // Written ONLY by the Worker/Admin SDK. No public "failed" state by design.
+  // Sensitive data (CR number, legal name, internal error/timestamps) lives in a
+  // separate owner/admin-only doc (`verifications/{uid}`) and is NEVER hydrated here.
+  verificationStatus?: 'verified' | 'pending_review' | 'unverified';
+  verificationSource?: 'wathq' | 'freelance_certificate' | 'freelance_certificate_pending';
+  verifiedAt?: string;
 }
 
 export interface Driver {

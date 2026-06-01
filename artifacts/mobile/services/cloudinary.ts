@@ -64,3 +64,18 @@ export async function uploadPaymentProof(fileUri: string): Promise<string> {
   const result = await uploadImageToCloudinary(fileUri, 'tabbakheen/payment_proofs');
   return result.secure_url;
 }
+
+export interface UploadedAsset {
+  url: string;
+  publicId: string;
+}
+
+// Returns both url and publicId so the (private) freelance-certificate record can
+// store publicId for future delete/replace support. Sensitive: the URL/publicId
+// are only ever written to the owner-only `verifications/{uid}` doc, never public.
+export async function uploadFreelanceCertificate(
+  fileUri: string,
+): Promise<UploadedAsset> {
+  const result = await uploadImageToCloudinary(fileUri, 'tabbakheen/freelance_certificates');
+  return { url: result.secure_url, publicId: result.public_id };
+}
