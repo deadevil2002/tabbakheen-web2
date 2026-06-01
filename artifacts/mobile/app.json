@@ -2,6 +2,7 @@
   "expo": {
     "name": "Tabbakheen Food Market",
     "slug": "tabbakheen",
+    "owner": "isaudi.ai",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -72,7 +73,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": ""
+        "projectId": "1dc85298-cb9b-4f4c-8c0a-8bde6c46cd3a"
       }
     }
   }
