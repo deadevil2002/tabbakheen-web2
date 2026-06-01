@@ -2,3 +2,5 @@
 - [Expo-router tab back-nav](expo-router-tab-back-nav.md) — to keep Back inside a tab, give the tab its own detail route re-exporting a shared screen component.
 - [Expo dev-client on Replit](expo-dev-client-replit.md) — connect physical-phone dev build via `$REPLIT_EXPO_DEV_DOMAIN` (no ngrok `--tunnel`); add `--dev-client` to dev script.
 - [Themed dialogs (mobile)](themed-dialogs.md) — Tabbakheen mobile uses AppAlert.alert (not RN Alert) + single AppDialogHost; new dialogs must go through it for orange/cream theming.
+- [Login error mapping (mobile)](login-error-mapping.md) — Firebase Email Enumeration Protection returns auth/invalid-credential for BOTH wrong password and unknown email; disambiguate via Firestore email lookup.
+- [Safe-area insets (mobile)](safe-area-insets.md) — root had NO SafeAreaProvider; Expo SDK 54 is edge-to-edge so tab bars need inset-based paddingBottom.

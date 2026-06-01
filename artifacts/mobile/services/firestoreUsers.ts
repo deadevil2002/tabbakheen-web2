@@ -1,6 +1,7 @@
 import {
   doc,
   getDoc,
+  getDocs,
   setDoc,
   updateDoc,
   onSnapshot,
@@ -70,6 +71,23 @@ export async function fsGetUser(uid: string): Promise<User | null> {
     return toUser(snap.id, snap.data());
   } catch (e) {
     console.log('[fsUsers] getUser error:', e);
+    return null;
+  }
+}
+
+export async function fsUserExistsByEmail(
+  email: string,
+): Promise<boolean | null> {
+  try {
+    const db = getFirebaseFirestore();
+    const q = query(
+      collection(db, COLLECTION),
+      where('email', '==', email),
+    );
+    const snap = await getDocs(q);
+    return !snap.empty;
+  } catch (e) {
+    console.log('[fsUsers] userExistsByEmail error:', e);
     return null;
   }
 }

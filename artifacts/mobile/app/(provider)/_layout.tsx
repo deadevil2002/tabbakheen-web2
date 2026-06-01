@@ -6,10 +6,12 @@ import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { checkAccountAccess } from '@/utils/accountGating';
 import AccountGateScreen from '@/components/AccountGateScreen';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ProviderLayout() {
   const { t } = useLocale();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   if (user) {
     const gateResult = checkAccountAccess(user);
@@ -28,6 +30,9 @@ export default function ProviderLayout() {
           backgroundColor: Colors.surface,
           borderTopColor: Colors.borderLight,
           borderTopWidth: 1,
+          height: 60 + insets.bottom,
+          paddingBottom: Math.max(insets.bottom, 8),
+          paddingTop: 8,
         },
         tabBarLabelStyle: {
           fontSize: 11,

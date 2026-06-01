@@ -11,6 +11,7 @@ import {
 } from 'firebase/auth';
 import {
   fsGetUser,
+  fsUserExistsByEmail,
   fsCreateUser,
   fsUpdateUser,
 } from '@/services/firestoreUsers';
@@ -102,37 +103,27 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         return found;
       }
 
-      console.log('[LOGIN DEBUG] email submitted:', email);
       try {
         const auth = getFirebaseAuth();
         const credential = await signInWithEmailAndPassword(auth, email, password);
-        console.log('[LOGIN DEBUG] Firebase Auth succeeded: true | uid:', credential.user.uid);
         console.log('[Auth] Firebase login success:', credential.user.uid);
         const userDoc = await fsGetUser(credential.user.uid);
-        console.log(
-          '[LOGIN DEBUG] Firestore user doc exists:', !!userDoc,
-          '| role:', userDoc?.role,
-          '| accountStatus:', userDoc?.accountStatus,
-          '| activatedByAdmin:', userDoc?.activatedByAdmin,
-        );
         if (!userDoc) throw new Error('USER_NOT_FOUND');
         setUser(userDoc);
         return userDoc;
       } catch (error: any) {
-        console.log(
-          '[LOGIN DEBUG] login caught error | error.code:', error?.code,
-          '| error.message:', error?.message,
-          '| (no error.code + message USER_NOT_FOUND => Auth OK but Firestore doc missing)',
-        );
         console.log('[Auth] Login error:', error.code, error.message);
-        if (
-          error.code === 'auth/user-not-found' ||
-          error.code === 'auth/invalid-credential'
-        ) {
+        if (error.code === 'auth/user-not-found') {
           throw new Error('USER_NOT_FOUND');
         }
         if (error.code === 'auth/wrong-password') {
           throw new Error('WRONG_PASSWORD');
+        }
+        if (error.code === 'auth/invalid-credential') {
+          const exists = await fsUserExistsByEmail(email);
+          if (exists === true) throw new Error('WRONG_PASSWORD');
+          if (exists === false) throw new Error('USER_NOT_FOUND');
+          throw new Error('INVALID_CREDENTIALS');
         }
         if (error.code === 'auth/invalid-email') {
           throw new Error('INVALID_EMAIL');

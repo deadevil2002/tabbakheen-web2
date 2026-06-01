@@ -46,9 +46,26 @@ export default function LoginScreen() {
         router.replace('/(provider)/dashboard' as any);
       }
     } catch (e: any) {
-      const msg = e?.message === 'USER_NOT_FOUND'
-        ? (locale === 'ar' ? 'لم يتم العثور على حساب بهذا البريد' : 'No account found with this email')
-        : t('error');
+      let msg: string;
+      switch (e?.message) {
+        case 'USER_NOT_FOUND':
+          msg = t('userNotFound');
+          break;
+        case 'WRONG_PASSWORD':
+          msg = t('wrongPassword');
+          break;
+        case 'INVALID_CREDENTIALS':
+          msg = t('loginInvalidCredentials');
+          break;
+        case 'INVALID_EMAIL':
+          msg = t('invalidEmail');
+          break;
+        case 'TOO_MANY_REQUESTS':
+          msg = t('tooManyRequests');
+          break;
+        default:
+          msg = t('error');
+      }
       AppAlert.alert(t('error'), msg);
     } finally {
       setIsSubmitting(false);

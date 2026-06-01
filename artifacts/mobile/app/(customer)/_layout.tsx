@@ -3,9 +3,11 @@ import { Tabs } from 'expo-router';
 import { Home, Map, ClipboardList, UserCircle } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function CustomerLayout() {
   const { t } = useLocale();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
@@ -17,6 +19,9 @@ export default function CustomerLayout() {
           backgroundColor: Colors.surface,
           borderTopColor: Colors.borderLight,
           borderTopWidth: 1,
+          height: 60 + insets.bottom,
+          paddingBottom: Math.max(insets.bottom, 8),
+          paddingTop: 8,
         },
         tabBarLabelStyle: {
           fontSize: 11,
