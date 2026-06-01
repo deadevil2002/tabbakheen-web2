@@ -1,0 +1,64 @@
+Small UX fix only for provider Business Verification card.
+
+Current status:
+Wathq verification now works successfully.
+users/{uid}.verificationStatus = "verified"
+verificationSource = "wathq"
+verifiedAt exists.
+Badge appears correctly.
+
+Issue:
+In provider Settings, the Business Verification card still shows an open input and Verify button even after the provider is verified. This is wrong UX.
+
+Required behavior:
+1. If current user verificationStatus === "verified":
+   - Show verified state only.
+   - Disable/hide the input field.
+   - Disable/hide the Verify button.
+   - Show the verified CR national number from verifications/{uid}.crNumber if available.
+   - Show text:
+     Arabic: تم توثيق نشاطك التجاري بنجاح.
+     Arabic CR label: الرقم الوطني الموحد للسجل التجاري
+     English: Your business has been verified successfully.
+     English CR label: Commercial Registration National Number
+
+2. Add a small secondary action:
+   Arabic: تعديل الرقم
+   English: Change number
+
+3. When user taps Change number:
+   - Show confirmation modal:
+     Arabic title: تعديل رقم التوثيق
+     Arabic message: عند تعديل الرقم، سيتم إرسال طلب توثيق جديد وقد تعود حالة التوثيق إلى المراجعة.
+     Confirm: متابعة
+     Cancel: إلغاء
+   - English equivalent.
+   - If confirmed, reveal the input field and Verify button again.
+   - Submitting a new number should call the existing /verify-cr flow.
+   - Do not create a new flow.
+
+4. If status is pending_review:
+   - Keep current pending message.
+   - Allow changing/resubmitting the number.
+
+5. If unverified or missing:
+   - Keep current input flow.
+
+Important:
+- Do not change Wathq Worker.
+- Do not change Firestore rules.
+- Do not change signup/login/order flows.
+- Do not add admin UI.
+- Do not expose sensitive fields publicly.
+- Read verifications/{uid}.crNumber only for the current owner.
+- Keep verification optional and non-blocking.
+
+Return:
+1. Exact files changed.
+2. Behavior before/after.
+3. Typecheck result.
+
+Do not commit.
+Do not push.
+Do not rebuild.
+Do not deploy.

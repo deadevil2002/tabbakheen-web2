@@ -131,6 +131,11 @@ const ar = {
   verificationPendingMsg: 'تم استلام طلبك وجارٍ المراجعة. ستظهر علامة التوثيق عند اكتمالها.',
   verificationPendingDesc: 'طلب التوثيق قيد المراجعة حالياً.',
   verificationVerifiedDesc: 'نشاطك التجاري موثّق.',
+  verifiedCrLabel: 'الرقم الوطني الموحد للسجل التجاري',
+  changeNumber: 'تعديل الرقم',
+  changeVerificationTitle: 'تعديل رقم التوثيق',
+  changeVerificationMsg: 'عند تعديل الرقم، سيتم إرسال طلب توثيق جديد وقد تعود حالة التوثيق إلى المراجعة.',
+  continueAction: 'متابعة',
 
   sar: 'ر.س',
   language: 'اللغة',
@@ -609,6 +614,11 @@ const en: typeof ar = {
   verificationPendingMsg: 'Your request was received and is under review. The verified badge will appear once complete.',
   verificationPendingDesc: 'Your verification request is currently under review.',
   verificationVerifiedDesc: 'Your business is verified.',
+  verifiedCrLabel: 'Commercial Registration National Number',
+  changeNumber: 'Change number',
+  changeVerificationTitle: 'Change Verification Number',
+  changeVerificationMsg: 'Changing the number will submit a new verification request and your status may return to review.',
+  continueAction: 'Continue',
 
   sar: 'SAR',
   language: 'Language',

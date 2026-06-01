@@ -1,5 +1,5 @@
 import { AppAlert } from '@/components/AppDialog';
-import React, { useCallback, useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, TextInput, Switch, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -19,6 +19,7 @@ import { SUBSCRIPTION_PRICE } from '@/mocks/data';
 import { pickImageFromGallery } from '@/utils/imagePicker';
 import { uploadProviderAvatar } from '@/services/cloudinary';
 import { verifyCommercialRegistration } from '@/services/pushApi';
+import { fsGetVerificationCrNumber } from '@/services/firestoreUsers';
 import { VERIFIED_BLUE } from '@/components/VerifiedBadge';
 
 export default function ProviderSettingsScreen() {
@@ -45,7 +46,19 @@ export default function ProviderSettingsScreen() {
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
   const [crNumber, setCrNumber] = useState<string>('');
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const [showVerifyForm, setShowVerifyForm] = useState<boolean>(false);
+  const [verifiedCr, setVerifiedCr] = useState<string | null>(null);
   const verificationStatus = user?.verificationStatus;
+
+  useEffect(() => {
+    let active = true;
+    if (user?.uid && verificationStatus === 'verified') {
+      fsGetVerificationCrNumber(user.uid).then((cr) => { if (active) setVerifiedCr(cr); });
+    } else {
+      setVerifiedCr(null);
+    }
+    return () => { active = false; };
+  }, [user?.uid, verificationStatus]);
 
   const handleChangeAvatar = useCallback(async () => {
     const result = await pickImageFromGallery();
@@ -96,12 +109,22 @@ export default function ProviderSettingsScreen() {
         AppAlert.alert(t('verifyBusiness'), t('verificationPendingMsg'));
       }
       setCrNumber('');
+      setShowVerifyForm(false);
     } catch {
       AppAlert.alert(t('verifyBusiness'), t('verificationPendingMsg'));
+      setCrNumber('');
+      setShowVerifyForm(false);
     } finally {
       setIsVerifying(false);
     }
   }, [user, crNumber, t]);
+
+  const handleChangeNumber = useCallback(() => {
+    AppAlert.alert(t('changeVerificationTitle'), t('changeVerificationMsg'), [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('continueAction'), style: 'default', onPress: () => { setCrNumber(''); setShowVerifyForm(true); } },
+    ]);
+  }, [t]);
 
   const handleLogout = useCallback(() => {
     AppAlert.alert(t('logout'), locale === 'ar' ? 'هل أنت متأكد من تسجيل الخروج؟' : 'Are you sure you want to logout?', [
@@ -170,13 +193,37 @@ export default function ProviderSettingsScreen() {
               </View>
             )}
           </View>
-          {verificationStatus === 'verified' ? (
-            <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verificationVerifiedDesc')}</Text>
-          ) : verificationStatus === 'pending_review' ? (
-            <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verificationPendingDesc')}</Text>
+          {verificationStatus === 'verified' && !showVerifyForm ? (
+            <>
+              <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verificationSuccessMsg')}</Text>
+              {verifiedCr ? (
+                <View style={s.verifyCrBox}>
+                  <Text style={[s.verifyCrLabel, r && cs.rtlText]}>{t('verifiedCrLabel')}</Text>
+                  <Text style={[s.verifyCrValue, r && cs.rtlText]}>{verifiedCr}</Text>
+                </View>
+              ) : null}
+              <Pressable
+                style={({ pressed }) => [s.changeNumberBtn, r && cs.rowRTL, pressed && { opacity: 0.6 }]}
+                onPress={handleChangeNumber}
+              >
+                <Text style={[s.changeNumberText, r && cs.rtlText]}>{t('changeNumber')}</Text>
+              </Pressable>
+            </>
+          ) : verificationStatus === 'pending_review' && !showVerifyForm ? (
+            <>
+              <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verificationPendingDesc')}</Text>
+              <Pressable
+                style={({ pressed }) => [s.changeNumberBtn, r && cs.rowRTL, pressed && { opacity: 0.6 }]}
+                onPress={() => { setCrNumber(''); setShowVerifyForm(true); }}
+              >
+                <Text style={[s.changeNumberText, r && cs.rtlText]}>{t('changeNumber')}</Text>
+              </Pressable>
+            </>
           ) : (
             <>
-              <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verifyOptionalNote')}</Text>
+              {verificationStatus !== 'verified' && verificationStatus !== 'pending_review' && (
+                <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verifyOptionalNote')}</Text>
+              )}
               <TextInput
                 style={[cs.formInput, r && cs.inputRTL, { marginTop: 12 }]}
                 placeholder={t('crNumberHint')}
@@ -309,6 +356,11 @@ const s = StyleSheet.create({
   renewText: { fontSize: 13, color: Colors.warning, lineHeight: 18 },
   freeNote: { fontSize: 12, color: Colors.textTertiary, marginTop: 12, textAlign: 'center' },
   verifyNote: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
+  verifyCrBox: { marginTop: 12, backgroundColor: Colors.primaryFaded, borderRadius: 12, padding: 12 },
+  verifyCrLabel: { fontSize: 12, color: Colors.textSecondary, marginBottom: 4 },
+  verifyCrValue: { fontSize: 16, fontWeight: '700' as const, color: Colors.text, letterSpacing: 1 },
+  changeNumberBtn: { marginTop: 12, alignSelf: 'flex-start' as const, paddingVertical: 6 },
+  changeNumberText: { fontSize: 14, fontWeight: '700' as const, color: Colors.primary },
   paySettingsBtn: { backgroundColor: Colors.surface, borderRadius: 16, marginHorizontal: 20, padding: 16, marginBottom: 4 },
   paySettingsHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   paySettingsTitle: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, marginBottom: 2 },

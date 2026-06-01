@@ -90,6 +90,27 @@ export async function fsGetUser(uid: string): Promise<User | null> {
   }
 }
 
+/**
+ * Read the verified CR national number from `verifications/{uid}` for the CURRENT
+ * owner only (this is only ever called with the signed-in user's own uid; Firestore
+ * rules restrict reads of this doc to its owner). Sensitive CR data lives here and is
+ * never mapped into the public `users/{uid}` object.
+ */
+export async function fsGetVerificationCrNumber(
+  uid: string,
+): Promise<string | null> {
+  try {
+    const db = getFirebaseFirestore();
+    const snap = await getDoc(doc(db, 'verifications', uid));
+    if (!snap.exists()) return null;
+    const cr = snap.data()?.crNumber;
+    return typeof cr === 'string' && cr.length > 0 ? cr : null;
+  } catch (e: any) {
+    console.log('[fsUsers] getVerificationCrNumber error:', e?.code);
+    return null;
+  }
+}
+
 export async function fsUserExistsByEmail(
   email: string,
 ): Promise<boolean | null> {
