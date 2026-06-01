@@ -158,6 +158,57 @@ export async function verifyCommercialRegistration(
   }
 }
 
+export interface FreelanceCertificatePayload {
+  certificateNumber: string;
+  fileUrl: string;
+  publicId?: string;
+  mimeType: 'image/jpeg' | 'image/png';
+  filename?: string;
+}
+
+/**
+ * Submit a Freelance Certificate for OPTIONAL manual (admin) verification.
+ * The certificate image is uploaded to Cloudinary client-side first; this call
+ * sends only the resulting metadata to the Worker, which (Admin SDK) writes the
+ * sensitive record to `verifications/{uid}.freelanceCertificate` and sets the
+ * public `users/{uid}.verificationStatus = pending_review`. The client never
+ * writes public verification fields directly. We deliberately do NOT log the
+ * certificate number, file URL, or uid. Any error resolves to 'pending_review'
+ * (no public "failed").
+ */
+export async function submitFreelanceCertificate(
+  uid: string,
+  payload: FreelanceCertificatePayload,
+): Promise<CrVerificationResult> {
+  try {
+    const currentUser = getFirebaseAuth().currentUser;
+    if (!currentUser) {
+      return { success: false, verificationStatus: 'pending_review' };
+    }
+    const idToken = await currentUser.getIdToken();
+    const response = await fetch(`${PUSH_API_URL}/submit-freelance-cert`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': PUSH_API_KEY,
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ uid, ...payload }),
+    });
+    const data = await response.json();
+    const raw = data?.verificationStatus;
+    const verificationStatus: CrVerificationStatus =
+      raw === 'verified' || raw === 'pending_review' || raw === 'unverified'
+        ? raw
+        : 'pending_review';
+    console.log('[PushAPI] Freelance certificate submit status:', verificationStatus);
+    return { success: !!data?.success, verificationStatus };
+  } catch {
+    console.log('[PushAPI] Freelance certificate submit failed (network)');
+    return { success: false, verificationStatus: 'pending_review' };
+  }
+}
+
 export async function aggregateRatingViaWorker(
   type: 'provider' | 'driver',
   uid: string,

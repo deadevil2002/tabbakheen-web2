@@ -1,0 +1,126 @@
+Start Freelance Certificate manual verification implementation.
+
+Important:
+Commercial Registration / Wathq verification is complete and working.
+Do not change Wathq Worker logic.
+Do not change signup/login/orders/offers.
+Do not break existing provider verification.
+Do not deploy.
+Do not rebuild.
+Do not commit.
+Do not push.
+
+Goal:
+Add a second optional verification type:
+1. Commercial Registration — existing Wathq auto verification
+2. Freelance Certificate — manual admin review
+
+Based on the upload audit:
+- Current uploads use Cloudinary.
+- Existing upload flow supports images only.
+- PDF is not supported yet.
+- For this phase, support image upload only for Freelance Certificate.
+- Do not add PDF support now.
+
+Provider app requirements:
+1. In provider Settings verification card, allow selecting verification type:
+   - Commercial Registration
+   - Freelance Certificate
+
+2. Commercial Registration:
+   - Keep existing Wathq flow unchanged.
+
+3. Freelance Certificate:
+   - Ask for Freelance Certificate number.
+   - Allow uploading certificate image only.
+   - Reuse existing Cloudinary image upload system if safe.
+   - Use a new Cloudinary folder:
+     tabbakheen/freelance_certificates
+   - Store data only under:
+     verifications/{uid}.freelanceCertificate
+   - Do not store certificate number or file URL in users/{uid}.
+   - Set users/{uid}.verificationStatus = pending_review
+   - Set users/{uid}.verificationSource = freelance_certificate_pending or freelance_certificate if needed for display.
+   - Badge must NOT appear until admin approves and users/{uid}.verificationStatus becomes verified.
+   - Show neutral message:
+     Arabic: تم إرسال وثيقة العمل الحر للمراجعة.
+     English: Your freelance certificate has been submitted for review.
+
+Private Firestore structure:
+verifications/{uid}.freelanceCertificate = {
+  certificateNumber: string,
+  fileUrl: string,
+  publicId?: string,
+  mimeType: "image/jpeg" | "image/png",
+  filename?: string,
+  storage: "cloudinary",
+  submittedAt: ISO string,
+  reviewStatus: "pending_review"
+}
+
+users/{uid} public fields only:
+verificationStatus
+verificationSource
+verifiedAt
+
+Admin web requirements:
+The Cloudflare Worker admin web page is live here:
+https://tabbakheen-api.tabbakheen.workers.dev/admin
+
+Update the existing admin web UI to support reviewing Freelance Certificate verification requests.
+
+Admin must be able to:
+1. See a list/section of pending Freelance Certificate verification requests.
+2. For each request show:
+   - provider name
+   - provider email/phone if available
+   - certificate number
+   - submitted date
+   - certificate image link/preview
+   - current reviewStatus
+3. Approve request:
+   - update users/{uid}.verificationStatus = verified
+   - update users/{uid}.verificationSource = freelance_certificate
+   - update users/{uid}.verifiedAt = current ISO timestamp
+   - update verifications/{uid}.freelanceCertificate.reviewStatus = approved
+   - update reviewedAt
+4. Reject request:
+   - do NOT set public failed status
+   - keep users/{uid}.verificationStatus = pending_review or unverified based on safest current logic
+   - update verifications/{uid}.freelanceCertificate.reviewStatus = rejected
+   - allow admin to add internalReviewNote
+   - do not expose rejection publicly as failed
+5. Keep badge logic unchanged:
+   badge appears only when users/{uid}.verificationStatus === verified.
+
+Security and privacy:
+1. Do not expose certificate data in public provider objects.
+2. Do not hydrate certificate number or image URL into customer-facing screens.
+3. Admin page can read the private verification data because it already uses the Worker/admin access.
+4. Provider can only read their own verifications/{uid}.
+5. Do not log certificate number, file URL, uid, or raw private verification data unnecessarily.
+6. Do not add public failed status.
+7. Verification remains optional and non-blocking.
+
+Firestore rules:
+Review whether current rules allow the provider to create/update only their own verifications/{uid}.freelanceCertificate safely.
+If rules need changes, return the exact full Firestore rules update separately.
+Do not deploy rules.
+
+Cloudinary note:
+If the current Cloudinary helper only returns secure_url, that is acceptable for this phase, but if possible store publicId too for future delete/replace support.
+Do not break existing image uploads.
+
+Return:
+1. Exact files changed.
+2. Exact admin Worker changes.
+3. Exact Firestore rules changes if required.
+4. How provider submission works.
+5. How admin approval/rejection works.
+6. Privacy check result.
+7. Typecheck result.
+
+Do not commit.
+Do not push.
+Do not rebuild.
+Do not deploy.

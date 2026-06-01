@@ -98,7 +98,7 @@ export interface User {
   // Sensitive data (CR number, legal name, internal error/timestamps) lives in a
   // separate owner/admin-only doc (`verifications/{uid}`) and is NEVER hydrated here.
   verificationStatus?: 'verified' | 'pending_review' | 'unverified';
-  verificationSource?: 'wathq';
+  verificationSource?: 'wathq' | 'freelance_certificate' | 'freelance_certificate_pending';
   verifiedAt?: string;
 }
 
