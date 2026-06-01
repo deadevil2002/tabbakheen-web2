@@ -41,3 +41,21 @@ blue "verified" badge only; never gates signup/login/publishing/orders/customer/
 ## Manual review
 - This phase: anything not auto-verified stays `pending_review`; an admin flips status in the
   Firebase Console. No admin endpoint in-app.
+
+## Freelance certificate live-review (verified end-to-end)
+- Separate from CR: freelance review lives at `verifications/{uid}.freelanceCertificate.reviewStatus`
+  (`pending|approved|rejected`, with `internalReviewNote` for rejections). Settings card renders a
+  banner per status; on `approved` the admin/Worker also flips `users/{uid}.verificationStatus` to
+  `verified`, which shows the "موثّق" badge and hides the verify form.
+- **Live updates work with NO reload / NO re-login** — two realtime onSnapshot listeners
+  (users/{uid} + verifications/{uid}) push reject→reason→resubmit-form and approve→badge in place.
+  Confirmed via a live test session (June 2026) on a throwaway provider.
+- **Testing gotcha:** a provider that is already `verified` HIDES the verify form, so you cannot put
+  it back into freelance-pending from the app UI. To test the reject/approve flow you need a FRESH
+  UNVERIFIED provider that has submitted a freelance cert (status pending). The freelance image
+  upload uses a native picker the web test harness can't drive — have a human submit/resubmit on
+  device; the web client still observes the live status changes.
+- **Capturing liveness with the testing harness:** sessions are ephemeral, so do a "reply 'go' then
+  immediately act" handshake — start one runTest that logs in, confirms pending, then polls the
+  on-screen text (~every 8-10s, up to ~150s, no reload) while the human performs the admin
+  reject/approve inside that window.
