@@ -1,0 +1,163 @@
+Continue current task only.
+
+Do not change business logic.
+Do not touch auth logic except existing guest gating already implemented.
+Do not touch maps logic or MapLibre provider.
+Do not touch Wathq.
+Do not commit.
+Do not push.
+Do not deploy.
+
+Current app behavior must remain stable.
+
+New tasks:
+
+# Task 1 — Dialog / Alert Theme Unification
+
+Issue:
+Dialog boxes and alerts are inconsistent and do not match the Tabbakheen visual identity.
+
+Requirements:
+
+1. Audit ALL dialog / alert / modal UI across the app:
+
+* Alert.alert
+* confirmation dialogs
+* error dialogs
+* success dialogs
+* warning dialogs
+* custom modals
+* popup confirmations
+* any reusable dialog component
+
+2. Replace inconsistent or system-looking dialogs with a unified Tabbakheen dialog style.
+
+Required theme:
+
+* Primary colors:
+
+  * white / cream background
+  * Tabbakheen orange accent
+* Rounded corners only
+* No sharp rectangular edges
+* Modern premium feel
+* Consistent spacing
+* Consistent typography
+* Consistent button styling
+* Same visual language app-wide
+
+3. The dialog style must feel native to the Tabbakheen brand and match the existing orange/cream theme.
+
+4. Review every dialog usage and ensure visual consistency everywhere.
+
+Important:
+Do not change workflows or logic of dialogs.
+Visual/UI consistency only.
+
+Example issue attached:
+The WhatsApp error popup currently looks dark/system-like and does not match the app theme.
+
+Return:
+
+* dialog components audited
+* files changed
+* confirmation that all dialogs now share one consistent theme
+
+---
+
+# Task 2 — Advertising Banner WhatsApp Fix
+
+Issue:
+Tapping the advertising banner currently throws an error.
+
+Expected behavior:
+It should open WhatsApp customer service for advertising inquiries.
+
+Customer service advertising number:
+
+00966570758881
+
+Required behavior:
+
+1. Fix the banner tap action.
+
+2. Clicking the advertising banner must open WhatsApp using Linking/openURL correctly.
+
+3. If the user has both WhatsApp and WhatsApp Business installed, let Android/iOS show the normal app chooser automatically (do not force a package).
+
+4. Use this exact prefilled message:
+
+السلام عليكم حبيت استفسر عن المساحة الاعلانية في تطبيق طباخين
+
+Purpose:
+Advertising inquiries must be separated from normal support conversations.
+
+5. Verify:
+
+* WhatsApp opens correctly
+* no error dialog appears
+* Arabic text is URL encoded properly
+* works on Android and iOS
+* preserves existing banner UI
+
+Important context:
+This feature previously worked correctly in the older Rork environment. After migration to GitHub + Replit it appears broken. Investigate the actual cause and fix it properly.
+
+Return:
+
+* root cause
+* files changed
+* verification results
+
+---
+
+# Task 3 — App Branding Assets Fix Only
+
+Fix app branding assets only.
+
+Do not change UI.
+Do not change business logic.
+Do not touch auth.
+Do not touch maps.
+Do not touch Wathq.
+Do not commit.
+Do not push.
+
+Issue:
+The app splash / icon still shows a default Expo-style logo.
+It must use the real Tabbakheen app logo consistently.
+
+Tasks:
+
+1. Inspect app.json assets:
+
+* icon
+* splash.image
+* android.adaptiveIcon.foregroundImage
+* android.adaptiveIcon.backgroundColor
+* ios.icon if configured
+
+2. Inspect assets folder and identify the correct Tabbakheen logo file.
+
+3. Replace ONLY wrong/default Expo assets with the correct Tabbakheen logo.
+
+4. Keep orange / cream theme colors consistent.
+
+5. Verify:
+
+* splash screen uses Tabbakheen logo
+* Android app icon uses Tabbakheen logo
+* iOS icon config uses Tabbakheen logo
+* no default Expo branding remains
+
+Return:
+
+* files changed
+* exact asset paths used
+* whether rebuild is required for icon/splash changes
+
+Important:
+Do not rebuild automatically.
+Do not commit.
+Do not push.
+Wait for approval after reporting findings and changes.

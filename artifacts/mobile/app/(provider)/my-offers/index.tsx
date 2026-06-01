@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useMemo, useCallback, useState } from 'react';
 import {
   View,
@@ -65,7 +66,7 @@ export default function ProviderOffersScreen() {
 
   const handleDelete = useCallback(
     (offer: Offer) => {
-      Alert.alert(
+      AppAlert.alert(
         t('deleteOffer'),
         locale === 'ar' ? 'هل أنت متأكد من حذف هذا العرض؟' : 'Are you sure you want to delete this offer?',
         [
@@ -91,7 +92,7 @@ export default function ProviderOffersScreen() {
       console.log('[Offers] Image uploaded:', url);
     } catch (e) {
       console.log('[Offers] Image upload error:', e);
-      Alert.alert(t('error'), t('uploadError'));
+      AppAlert.alert(t('error'), t('uploadError'));
     } finally {
       setIsUploadingImage(false);
     }
@@ -99,12 +100,12 @@ export default function ProviderOffersScreen() {
 
   const handleCreate = useCallback(async () => {
     if (!newTitle.trim() || !newPrice.trim() || !user) {
-      Alert.alert(t('error'), locale === 'ar' ? 'يرجى ملء الحقول المطلوبة' : 'Please fill required fields');
+      AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى ملء الحقول المطلوبة' : 'Please fill required fields');
       return;
     }
     const price = parseFloat(newPrice);
     if (isNaN(price) || price <= 0) {
-      Alert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال سعر صحيح' : 'Please enter a valid price');
+      AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال سعر صحيح' : 'Please enter a valid price');
       return;
     }
 
@@ -127,7 +128,7 @@ export default function ProviderOffersScreen() {
       setShowCreate(false);
     } catch (e) {
       console.log('[Offers] Create offer error:', e);
-      Alert.alert(t('error'), t('offerCreateError'));
+      AppAlert.alert(t('error'), t('offerCreateError'));
     }
   }, [newTitle, newDescription, newPrice, newImageUrl, user, createOffer, t, locale]);
 

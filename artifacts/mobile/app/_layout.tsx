@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { LocaleProvider } from "@/contexts/LocaleContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { DataProvider } from "@/contexts/DataContext";
+import { AppDialogHost } from "@/components/AppDialog";
 import {
   requestNotificationPermissions,
   getAndStorePushToken,
@@ -87,6 +88,7 @@ export default function RootLayout() {
           <AuthProvider>
             <DataProvider>
               <RootLayoutNav />
+              <AppDialogHost />
             </DataProvider>
           </AuthProvider>
         </LocaleProvider>

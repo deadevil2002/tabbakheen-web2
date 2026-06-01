@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
@@ -8,7 +9,7 @@ import {
   Pressable,
   RefreshControl,
   Linking,
-  Alert,
+  Platform,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -39,7 +40,9 @@ import { formatPrice, calculateDistance, formatDistance } from '@/utils/helpers'
 const FALLBACK_BANNER_URL =
   'https://res.cloudinary.com/dv6n9vnly/image/upload/v1769698754/67e13686-c891-4d70-96da-f11ac94351ca_zlsh8x.png';
 const WHATSAPP_NUMBER = '966570758881';
-const WHATSAPP_MESSAGE = encodeURIComponent('أبغى استفسر عن الاعلان');
+const WHATSAPP_MESSAGE = encodeURIComponent(
+  'السلام عليكم حبيت استفسر عن المساحة الاعلانية في تطبيق طباخين',
+);
 
 type CategoryFilter = 'all' | OfferCategory;
 
@@ -145,15 +148,14 @@ export default function CustomerHomeScreen() {
   const handleAdBannerPress = useCallback(async () => {
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${WHATSAPP_MESSAGE}`;
     try {
-      const supported = await Linking.canOpenURL(url);
-      if (supported) {
-        await Linking.openURL(url);
-      } else {
-        Alert.alert(t('error'), t('adBannerWhatsappError'));
+      if (Platform.OS === 'web') {
+        window.open(url, '_blank');
+        return;
       }
+      await Linking.openURL(url);
     } catch (e) {
       console.log('[Home] WhatsApp open error:', e);
-      Alert.alert(t('error'), t('adBannerWhatsappError'));
+      AppAlert.alert(t('error'), t('adBannerWhatsappError'));
     }
   }, [t]);
 

@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
@@ -96,7 +97,7 @@ export default function MapLocationPicker({
             console.log('[MapLocationPicker] Web GPS:', coords);
           },
           () => {
-            Alert.alert(t('error'), t('locationError'));
+            AppAlert.alert(t('error'), t('locationError'));
             setLocating(false);
           },
         );
@@ -104,14 +105,14 @@ export default function MapLocationPicker({
       }
 
       if (!ExpoLocation) {
-        Alert.alert(t('error'), t('locationError'));
+        AppAlert.alert(t('error'), t('locationError'));
         setLocating(false);
         return;
       }
 
       const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(t('error'), t('locationPermissionDenied'));
+        AppAlert.alert(t('error'), t('locationPermissionDenied'));
         setLocating(false);
         return;
       }
@@ -125,7 +126,7 @@ export default function MapLocationPicker({
       console.log('[MapLocationPicker] Device GPS:', coords);
     } catch (e) {
       console.log('[MapLocationPicker] GPS error:', e);
-      Alert.alert(t('error'), t('locationError'));
+      AppAlert.alert(t('error'), t('locationError'));
     } finally {
       setLocating(false);
     }
@@ -138,7 +139,7 @@ export default function MapLocationPicker({
       onClose();
     } catch (e) {
       console.log('[MapLocationPicker] Save error:', e);
-      Alert.alert(t('error'), t('locationError'));
+      AppAlert.alert(t('error'), t('locationError'));
     } finally {
       setSaving(false);
     }

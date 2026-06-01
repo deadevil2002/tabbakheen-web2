@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useMemo, useCallback } from 'react';
 import {
   View,
@@ -39,7 +40,7 @@ export default function AvailableDeliveriesScreen() {
   const handleAcceptDelivery = useCallback(
     async (order: Order) => {
       if (!user) return;
-      Alert.alert(
+      AppAlert.alert(
         t('acceptDelivery'),
         locale === 'ar'
           ? 'هل تريد قبول هذه التوصيلة؟'
@@ -56,10 +57,10 @@ export default function AvailableDeliveriesScreen() {
                   t('deliveryAccepted'),
                   t('deliveryAcceptedBody'),
                 );
-                Alert.alert(t('success'), locale === 'ar' ? 'تم قبول التوصيلة' : 'Delivery accepted');
+                AppAlert.alert(t('success'), locale === 'ar' ? 'تم قبول التوصيلة' : 'Delivery accepted');
               } catch (err: any) {
                 console.log('[AvailableDeliveries] Accept error:', err?.message || err);
-                Alert.alert(t('error'), t('error'));
+                AppAlert.alert(t('error'), t('error'));
               }
             },
           },

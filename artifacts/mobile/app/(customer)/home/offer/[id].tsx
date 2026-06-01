@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
@@ -57,7 +58,7 @@ export default function OfferDetailsScreen() {
     if (!offer) return;
     if (!requireAuth(user, router, locale)) return;
 
-    Alert.alert(t('confirmOrder'), t('orderConfirmMsg'), [
+    AppAlert.alert(t('confirmOrder'), t('orderConfirmMsg'), [
       { text: t('cancel'), style: 'cancel' },
       {
         text: t('confirm'),
@@ -74,13 +75,13 @@ export default function OfferDetailsScreen() {
               paymentMethod,
             });
 
-            Alert.alert(t('success'), t('orderPlaced'), [
+            AppAlert.alert(t('success'), t('orderPlaced'), [
               { text: t('close'), onPress: () => router.back() },
             ]);
           } catch (err: any) {
             const errMsg = err?.message || err?.code || String(err);
             console.log('[OfferDetails] Order creation error:', errMsg, err);
-            Alert.alert(t('error'), t('orderCreateError'));
+            AppAlert.alert(t('error'), t('orderCreateError'));
           } finally {
             setIsOrdering(false);
           }

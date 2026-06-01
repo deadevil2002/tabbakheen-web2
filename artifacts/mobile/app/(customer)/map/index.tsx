@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import {
   View,
@@ -160,11 +161,11 @@ export default function CustomerMapScreen() {
               console.log('[Map] Web geolocation:', coords);
             },
             () => {
-              Alert.alert(t('error'), t('locationError'));
+              AppAlert.alert(t('error'), t('locationError'));
             },
           );
         } catch {
-          Alert.alert(t('error'), t('locationError'));
+          AppAlert.alert(t('error'), t('locationError'));
         }
       }
       return;
@@ -174,7 +175,7 @@ export default function CustomerMapScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(t('error'), t('locationPermissionDenied'));
+        AppAlert.alert(t('error'), t('locationPermissionDenied'));
         setLocating(false);
         return;
       }
@@ -198,7 +199,7 @@ export default function CustomerMapScreen() {
       }
     } catch (e) {
       console.log('[Map] Location error:', e);
-      Alert.alert(t('error'), t('locationError'));
+      AppAlert.alert(t('error'), t('locationError'));
     } finally {
       setLocating(false);
     }

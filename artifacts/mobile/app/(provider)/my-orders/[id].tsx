@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -33,44 +34,44 @@ export default function ProviderOrderDetailScreen() {
 
   const handleAccept = useCallback(async () => {
     if (!order) return;
-    if (!isSubValid) { Alert.alert(t('error'), t('subscriptionRequired')); return; }
+    if (!isSubValid) { AppAlert.alert(t('error'), t('subscriptionRequired')); return; }
     await updateOrderStatus(order.id, 'accepted');
-    Alert.alert(t('success'), locale === 'ar' ? 'تم قبول الطلب' : 'Order accepted');
+    AppAlert.alert(t('success'), locale === 'ar' ? 'تم قبول الطلب' : 'Order accepted');
   }, [order, updateOrderStatus, isSubValid, t, locale]);
 
   const handleReject = useCallback(async () => {
     if (!order) return;
-    if (!rejectComment.trim()) { Alert.alert(t('error'), locale === 'ar' ? 'يرجى كتابة سبب الرفض' : 'Please write rejection reason'); return; }
+    if (!rejectComment.trim()) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى كتابة سبب الرفض' : 'Please write rejection reason'); return; }
     await updateOrderStatus(order.id, 'rejected', rejectComment.trim(), rejectComment.trim());
     setShowRejectInput(false);
-    Alert.alert(t('success'), locale === 'ar' ? 'تم رفض الطلب' : 'Order rejected');
+    AppAlert.alert(t('success'), locale === 'ar' ? 'تم رفض الطلب' : 'Order rejected');
   }, [order, rejectComment, updateOrderStatus, t, locale]);
 
   const handleConfirmPayment = useCallback(async () => {
     if (!order) return;
-    Alert.alert(t('confirmPayment'), t('confirmPaymentMsg'), [
+    AppAlert.alert(t('confirmPayment'), t('confirmPaymentMsg'), [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('confirm'), onPress: async () => { await confirmPayment(order.id); Alert.alert(t('success'), t('paymentConfirmed')); } },
+      { text: t('confirm'), onPress: async () => { await confirmPayment(order.id); AppAlert.alert(t('success'), t('paymentConfirmed')); } },
     ]);
   }, [order, confirmPayment, t]);
 
   const handleRejectPayment = useCallback(async () => {
     if (!order) return;
-    Alert.alert(t('rejectPaymentAction'), t('rejectPaymentMsg'), [
+    AppAlert.alert(t('rejectPaymentAction'), t('rejectPaymentMsg'), [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('confirm'), style: 'destructive', onPress: async () => { await rejectPayment(order.id); Alert.alert(t('success'), t('paymentRejectedMsg')); } },
+      { text: t('confirm'), style: 'destructive', onPress: async () => { await rejectPayment(order.id); AppAlert.alert(t('success'), t('paymentRejectedMsg')); } },
     ]);
   }, [order, rejectPayment, t]);
 
   const handleStartPreparing = useCallback(async () => {
     if (!order) return;
     await updateOrderStatus(order.id, 'preparing');
-    Alert.alert(t('success'), locale === 'ar' ? 'تم بدء التحضير' : 'Preparation started');
+    AppAlert.alert(t('success'), locale === 'ar' ? 'تم بدء التحضير' : 'Preparation started');
   }, [order, updateOrderStatus, t, locale]);
 
   const handleMarkOrderReady = useCallback(async () => {
     if (!order) return;
-    Alert.alert(t('markOrderReady'), t('markOrderReadyConfirm'), [
+    AppAlert.alert(t('markOrderReady'), t('markOrderReadyConfirm'), [
       { text: t('cancel'), style: 'cancel' },
       {
         text: t('confirm'),
@@ -82,10 +83,10 @@ export default function ProviderOrderDetailScreen() {
               t('orderMarkedReadyBody'),
             );
             console.log('[ProviderOrder] Order marked ready:', order.id);
-            Alert.alert(t('success'), t('orderMarkedReadyBody'));
+            AppAlert.alert(t('success'), t('orderMarkedReadyBody'));
           } catch (e: any) {
             console.log('[ProviderOrder] markOrderReady error:', e?.message || e);
-            Alert.alert(t('error'), t('orderUpdateError'));
+            AppAlert.alert(t('error'), t('orderUpdateError'));
           }
         },
       },
@@ -94,7 +95,7 @@ export default function ProviderOrderDetailScreen() {
 
   const handleMarkDelivered = useCallback(async () => {
     if (!order) return;
-    Alert.alert(t('confirmDelivered'), t('confirmDeliveredMsg'), [
+    AppAlert.alert(t('confirmDelivered'), t('confirmDeliveredMsg'), [
       { text: t('cancel'), style: 'cancel' },
       {
         text: t('confirm'),
@@ -106,10 +107,10 @@ export default function ProviderOrderDetailScreen() {
               t('orderDeliveredBody'),
             );
             console.log('[ProviderOrder] Order marked delivered:', order.id);
-            Alert.alert(t('success'), locale === 'ar' ? 'تم تأكيد التسليم' : 'Delivery confirmed');
+            AppAlert.alert(t('success'), locale === 'ar' ? 'تم تأكيد التسليم' : 'Delivery confirmed');
           } catch (e: any) {
             console.log('[ProviderOrder] markDelivered error:', e?.message || e);
-            Alert.alert(t('error'), t('orderUpdateError'));
+            AppAlert.alert(t('error'), t('orderUpdateError'));
           }
         },
       },

@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useState, useCallback } from 'react';
 import {
   View,
@@ -34,7 +35,7 @@ export default function RegisterScreen() {
 
   const handleRegister = useCallback(async () => {
     if (!displayName.trim() || !email.trim() || !password.trim()) {
-      Alert.alert(
+      AppAlert.alert(
         t('error'),
         locale === 'ar' ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill in all required fields',
       );
@@ -60,7 +61,7 @@ export default function RegisterScreen() {
       const msg = e?.message === 'EMAIL_EXISTS'
         ? (locale === 'ar' ? 'البريد الإلكتروني مسجل مسبقاً' : 'Email already exists')
         : t('error');
-      Alert.alert(t('error'), msg);
+      AppAlert.alert(t('error'), msg);
     } finally {
       setIsSubmitting(false);
     }

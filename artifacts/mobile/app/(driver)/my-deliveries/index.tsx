@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useMemo, useCallback, useState } from 'react';
 import {
   View,
@@ -55,7 +56,7 @@ export default function MyDeliveriesScreen() {
 
   const handlePickedUp = useCallback(
     async (order: Order) => {
-      Alert.alert(
+      AppAlert.alert(
         t('pickedUpBtn'),
         locale === 'ar' ? 'هل تم استلام الطلب من الطباخ؟' : 'Have you picked up the order from the provider?',
         [
@@ -70,10 +71,10 @@ export default function MyDeliveriesScreen() {
                   t('pickedUpFromProviderBody'),
                 );
                 console.log('[MyDeliveries] Order picked up:', order.id);
-                Alert.alert(t('success'), locale === 'ar' ? 'تم تأكيد الاستلام' : 'Pickup confirmed');
+                AppAlert.alert(t('success'), locale === 'ar' ? 'تم تأكيد الاستلام' : 'Pickup confirmed');
               } catch (e: any) {
                 console.log('[MyDeliveries] pickup error:', e?.message || e);
-                Alert.alert(t('error'), t('orderUpdateError'));
+                AppAlert.alert(t('error'), t('orderUpdateError'));
               }
             },
           },
@@ -85,7 +86,7 @@ export default function MyDeliveriesScreen() {
 
   const handleArrived = useCallback(
     async (order: Order) => {
-      Alert.alert(
+      AppAlert.alert(
         t('arrivedBtn'),
         locale === 'ar' ? 'هل وصلت لموقع العميل؟' : 'Have you arrived at the customer location?',
         [
@@ -100,10 +101,10 @@ export default function MyDeliveriesScreen() {
                   t('driverArrivedBody'),
                 );
                 console.log('[MyDeliveries] Driver arrived:', order.id);
-                Alert.alert(t('success'), locale === 'ar' ? 'تم تأكيد الوصول' : 'Arrival confirmed');
+                AppAlert.alert(t('success'), locale === 'ar' ? 'تم تأكيد الوصول' : 'Arrival confirmed');
               } catch (e: any) {
                 console.log('[MyDeliveries] arrived error:', e?.message || e);
-                Alert.alert(t('error'), t('orderUpdateError'));
+                AppAlert.alert(t('error'), t('orderUpdateError'));
               }
             },
           },
@@ -115,7 +116,7 @@ export default function MyDeliveriesScreen() {
 
   const handleDelivered = useCallback(
     async (order: Order) => {
-      Alert.alert(
+      AppAlert.alert(
         t('deliveredBtn'),
         locale === 'ar' ? 'هل تم توصيل الطلب للعميل؟' : 'Has the order been delivered to the customer?',
         [
@@ -130,10 +131,10 @@ export default function MyDeliveriesScreen() {
                   t('orderDeliveredBody'),
                 );
                 console.log('[MyDeliveries] Order delivered:', order.id);
-                Alert.alert(t('success'), locale === 'ar' ? 'تم تأكيد التوصيل' : 'Delivery confirmed');
+                AppAlert.alert(t('success'), locale === 'ar' ? 'تم تأكيد التوصيل' : 'Delivery confirmed');
               } catch (e: any) {
                 console.log('[MyDeliveries] deliver error:', e?.message || e);
-                Alert.alert(t('error'), t('orderUpdateError'));
+                AppAlert.alert(t('error'), t('orderUpdateError'));
               }
             },
           },
@@ -145,7 +146,7 @@ export default function MyDeliveriesScreen() {
 
   const handleRejectDelivery = useCallback(
     async (order: Order) => {
-      Alert.alert(
+      AppAlert.alert(
         t('rejectDeliveryAction'),
         t('confirmRejectDelivery'),
         [
@@ -156,10 +157,10 @@ export default function MyDeliveriesScreen() {
             onPress: async () => {
               try {
                 await updateDeliveryStatusAsDriver(order.id, 'driver_rejected');
-                Alert.alert(t('success'), t('deliveryRejectedMsg'));
+                AppAlert.alert(t('success'), t('deliveryRejectedMsg'));
               } catch (e: any) {
                 console.log('[MyDeliveries] reject delivery error:', e?.message || e);
-                Alert.alert(t('error'), t('orderUpdateError'));
+                AppAlert.alert(t('error'), t('orderUpdateError'));
               }
             },
           },

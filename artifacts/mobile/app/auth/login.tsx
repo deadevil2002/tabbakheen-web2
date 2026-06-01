@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useState, useCallback } from 'react';
 import {
   View,
@@ -31,7 +32,7 @@ export default function LoginScreen() {
 
   const handleLogin = useCallback(async () => {
     if (!email.trim()) {
-      Alert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال البريد الإلكتروني' : 'Please enter your email');
+      AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال البريد الإلكتروني' : 'Please enter your email');
       return;
     }
     setIsSubmitting(true);
@@ -48,7 +49,7 @@ export default function LoginScreen() {
       const msg = e?.message === 'USER_NOT_FOUND'
         ? (locale === 'ar' ? 'لم يتم العثور على حساب بهذا البريد' : 'No account found with this email')
         : t('error');
-      Alert.alert(t('error'), msg);
+      AppAlert.alert(t('error'), msg);
     } finally {
       setIsSubmitting(false);
     }

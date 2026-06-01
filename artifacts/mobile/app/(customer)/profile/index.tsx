@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useCallback, useState } from 'react';
 import {
   View,
@@ -56,10 +57,10 @@ export default function CustomerProfileScreen() {
     try {
       const url = await uploadProviderAvatar(result.uri);
       await updateUser({ photoUrl: url });
-      Alert.alert(t('success'), t('profilePictureUpdated'));
+      AppAlert.alert(t('success'), t('profilePictureUpdated'));
     } catch (e) {
       console.log('[Profile] Avatar upload error:', e);
-      Alert.alert(t('error'), t('uploadError'));
+      AppAlert.alert(t('error'), t('uploadError'));
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -87,18 +88,18 @@ export default function CustomerProfileScreen() {
       }
       console.log('[CustomerProfile] Saving profile updates:', JSON.stringify(updates));
       await updateUser(updates);
-      Alert.alert(t('success'), t('profileUpdated'));
+      AppAlert.alert(t('success'), t('profileUpdated'));
       setIsEditing(false);
     } catch (e) {
       console.log('[CustomerProfile] Save profile error:', e);
-      Alert.alert(t('error'), t('profileUpdateError'));
+      AppAlert.alert(t('error'), t('profileUpdateError'));
     } finally {
       setIsSaving(false);
     }
   }, [editName, editPhone, editCity, editAddress, user, updateUser, t]);
 
   const handleLogout = useCallback(() => {
-    Alert.alert(
+    AppAlert.alert(
       t('logout'),
       locale === 'ar' ? 'هل أنت متأكد من تسجيل الخروج؟' : 'Are you sure you want to logout?',
       [

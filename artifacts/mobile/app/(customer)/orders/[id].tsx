@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -65,7 +66,7 @@ export default function CustomerOrderDetailScreen() {
   const handleCopy = useCallback(async (text: string) => {
     try {
       if (Platform.OS === 'web') { await navigator.clipboard.writeText(text); } else { await Clipboard.setStringAsync(text); }
-      Alert.alert(t('success'), t('copied'));
+      AppAlert.alert(t('success'), t('copied'));
     } catch { console.log('Copy failed'); }
   }, [t]);
 
@@ -76,10 +77,10 @@ export default function CustomerOrderDetailScreen() {
     try {
       await setDeliveryMethod(order.id, 'self_pickup');
       console.log('[OrderDetail] Self pickup finalized successfully');
-      Alert.alert(t('success'), t('selfPickupInfo'));
+      AppAlert.alert(t('success'), t('selfPickupInfo'));
     } catch (err: any) {
       console.log('[OrderDetail] Self pickup error:', err?.message || err);
-      Alert.alert(t('error'), t('orderUpdateError'));
+      AppAlert.alert(t('error'), t('orderUpdateError'));
     } finally {
       setIsFinalizingDelivery(false);
     }
@@ -96,7 +97,7 @@ export default function CustomerOrderDetailScreen() {
       setShowDeliveryConfirm(true);
     } catch (err: any) {
       console.log('[OrderDetail] Quote error:', err?.message || err);
-      Alert.alert(t('error'), locale === 'ar' ? 'تعذر حساب رسوم التوصيل' : 'Could not calculate delivery fee');
+      AppAlert.alert(t('error'), locale === 'ar' ? 'تعذر حساب رسوم التوصيل' : 'Could not calculate delivery fee');
     } finally {
       setIsLoadingQuote(false);
     }
@@ -111,10 +112,10 @@ export default function CustomerOrderDetailScreen() {
       console.log('[OrderDetail] Driver delivery finalized successfully');
       setShowDeliveryConfirm(false);
       setDeliveryQuote(null);
-      Alert.alert(t('success'), t('driverDeliveryRequested'));
+      AppAlert.alert(t('success'), t('driverDeliveryRequested'));
     } catch (err: any) {
       console.log('[OrderDetail] Driver delivery error:', err?.message || err);
-      Alert.alert(t('error'), t('orderUpdateError'));
+      AppAlert.alert(t('error'), t('orderUpdateError'));
     } finally {
       setIsFinalizingDelivery(false);
     }
@@ -130,7 +131,7 @@ export default function CustomerOrderDetailScreen() {
       console.log('[OrderDetail] Proof image uploaded:', url);
     } catch (e) {
       console.log('[OrderDetail] Proof image upload error:', e);
-      Alert.alert(t('error'), t('uploadError'));
+      AppAlert.alert(t('error'), t('uploadError'));
     } finally {
       setIsUploadingProof(false);
     }
@@ -138,10 +139,10 @@ export default function CustomerOrderDetailScreen() {
 
   const handleSubmitPaymentProof = useCallback(async () => {
     if (!order) return;
-    if (!proofImageUrl.trim() && !proofNote.trim()) { Alert.alert(t('error'), locale === 'ar' ? 'يرجى إضافة صورة الإثبات أو ملاحظة' : 'Please add proof image or a note'); return; }
+    if (!proofImageUrl.trim() && !proofNote.trim()) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إضافة صورة الإثبات أو ملاحظة' : 'Please add proof image or a note'); return; }
     setIsSubmitting(true);
-    try { await submitPaymentProof(order.id, proofImageUrl.trim(), proofNote.trim(), paymentRef.trim()); Alert.alert(t('success'), t('proofSent')); setShowPaymentProof(false); setProofImageUrl(''); setProofNote(''); setPaymentRef(''); }
-    catch { Alert.alert(t('error'), t('error')); }
+    try { await submitPaymentProof(order.id, proofImageUrl.trim(), proofNote.trim(), paymentRef.trim()); AppAlert.alert(t('success'), t('proofSent')); setShowPaymentProof(false); setProofImageUrl(''); setProofNote(''); setPaymentRef(''); }
+    catch { AppAlert.alert(t('error'), t('error')); }
     finally { setIsSubmitting(false); }
   }, [order, proofImageUrl, proofNote, paymentRef, submitPaymentProof, t, locale]);
 
@@ -163,7 +164,7 @@ export default function CustomerOrderDetailScreen() {
     const driverPhone = formatSaudiPhoneForWhatsApp(driver.phone || '');
     console.log('[OrderDetail] Contact driver WhatsApp - raw:', driver.phone, 'formatted:', driverPhone);
     if (!driverPhone) {
-      Alert.alert(t('error'), t('whatsappNotAvailable'));
+      AppAlert.alert(t('error'), t('whatsappNotAvailable'));
       return;
     }
     let message = locale === 'ar'
@@ -178,17 +179,17 @@ export default function CustomerOrderDetailScreen() {
       if (supported) {
         await Linking.openURL(url);
       } else {
-        Alert.alert(t('error'), t('whatsappNotAvailable'));
+        AppAlert.alert(t('error'), t('whatsappNotAvailable'));
       }
     } catch (e) {
       console.log('[OrderDetail] WhatsApp error:', e);
-      Alert.alert(t('error'), t('whatsappNotAvailable'));
+      AppAlert.alert(t('error'), t('whatsappNotAvailable'));
     }
   }, [order, driver, t, locale]);
 
   const handleShareLocationWithDriver = useCallback(() => {
     if (!driver) return;
-    Alert.alert(
+    AppAlert.alert(
       t('shareLocationTitle'),
       '',
       [
@@ -205,7 +206,7 @@ export default function CustomerOrderDetailScreen() {
                     });
                   },
                   () => {
-                    Alert.alert(t('error'), t('locationPermissionDenied'));
+                    AppAlert.alert(t('error'), t('locationPermissionDenied'));
                   },
                 );
                 return;
@@ -218,14 +219,14 @@ export default function CustomerOrderDetailScreen() {
               }
               const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
               if (status !== 'granted') {
-                Alert.alert(t('error'), t('locationPermissionDenied'));
+                AppAlert.alert(t('error'), t('locationPermissionDenied'));
                 return;
               }
               const loc = await ExpoLocation.getCurrentPositionAsync({ accuracy: ExpoLocation.Accuracy.Balanced });
               void handleContactDriverWhatsApp({ lat: loc.coords.latitude, lng: loc.coords.longitude });
             } catch (e) {
               console.log('[OrderDetail] GPS error:', e);
-              Alert.alert(t('error'), t('locationError'));
+              AppAlert.alert(t('error'), t('locationError'));
             }
           },
         },
@@ -245,18 +246,18 @@ export default function CustomerOrderDetailScreen() {
 
 
   const handleSubmitProviderRating = useCallback(async () => {
-    if (!order || !user || providerStars === 0) { Alert.alert(t('error'), locale === 'ar' ? 'يرجى اختيار عدد النجوم' : 'Please select a rating'); return; }
+    if (!order || !user || providerStars === 0) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى اختيار عدد النجوم' : 'Please select a rating'); return; }
     setIsSubmitting(true);
-    try { await submitRating({ providerUid: order.providerUid, customerUid: user.uid, orderId: order.id, stars: providerStars, comment: providerComment.trim() }); Alert.alert(t('success'), t('ratingSubmitted')); }
-    catch { Alert.alert(t('error'), t('error')); }
+    try { await submitRating({ providerUid: order.providerUid, customerUid: user.uid, orderId: order.id, stars: providerStars, comment: providerComment.trim() }); AppAlert.alert(t('success'), t('ratingSubmitted')); }
+    catch { AppAlert.alert(t('error'), t('error')); }
     finally { setIsSubmitting(false); }
   }, [order, user, providerStars, providerComment, submitRating, t, locale]);
 
   const handleSubmitDriverRating = useCallback(async () => {
-    if (!order || !user || !order.driverUid || driverStars === 0) { Alert.alert(t('error'), locale === 'ar' ? 'يرجى اختيار عدد النجوم' : 'Please select a rating'); return; }
+    if (!order || !user || !order.driverUid || driverStars === 0) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى اختيار عدد النجوم' : 'Please select a rating'); return; }
     setIsSubmitting(true);
-    try { await submitDriverRating({ driverUid: order.driverUid, customerUid: user.uid, orderId: order.id, stars: driverStars, comment: driverComment.trim() }); Alert.alert(t('success'), t('ratingSubmitted')); }
-    catch { Alert.alert(t('error'), t('error')); }
+    try { await submitDriverRating({ driverUid: order.driverUid, customerUid: user.uid, orderId: order.id, stars: driverStars, comment: driverComment.trim() }); AppAlert.alert(t('success'), t('ratingSubmitted')); }
+    catch { AppAlert.alert(t('error'), t('error')); }
     finally { setIsSubmitting(false); }
   }, [order, user, driverStars, driverComment, submitDriverRating, t, locale]);
 

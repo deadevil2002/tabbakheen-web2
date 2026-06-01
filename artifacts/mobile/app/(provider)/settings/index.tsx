@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useCallback, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, TextInput, Switch, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -48,10 +49,10 @@ export default function ProviderSettingsScreen() {
     try {
       const url = await uploadProviderAvatar(result.uri);
       await updateUser({ photoUrl: url });
-      Alert.alert(t('success'), t('profilePictureUpdated'));
+      AppAlert.alert(t('success'), t('profilePictureUpdated'));
     } catch (e) {
       console.log('[ProviderSettings] Avatar upload error:', e);
-      Alert.alert(t('error'), t('uploadError'));
+      AppAlert.alert(t('error'), t('uploadError'));
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -60,22 +61,22 @@ export default function ProviderSettingsScreen() {
   const handleSaveLocation = useCallback(async (coords: { lat: number; lng: number }) => {
     await updateUser({ location: coords });
     console.log('[ProviderSettings] Location saved:', coords);
-    Alert.alert(t('success'), t('locationSaved'));
+    AppAlert.alert(t('success'), t('locationSaved'));
   }, [updateUser, t]);
 
   const handleSavePaymentSettings = useCallback(async () => {
     if (!user) return;
-    if (stcEnabled && !stcPhone.trim()) { Alert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال رقم STC Pay' : 'Please enter STC Pay number'); return; }
-    if (bankEnabled && (!bankIban.trim() || !bankAccountName.trim() || !bankName.trim())) { Alert.alert(t('error'), locale === 'ar' ? 'يرجى إكمال بيانات التحويل البنكي' : 'Please complete bank transfer details'); return; }
+    if (stcEnabled && !stcPhone.trim()) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال رقم STC Pay' : 'Please enter STC Pay number'); return; }
+    if (bankEnabled && (!bankIban.trim() || !bankAccountName.trim() || !bankName.trim())) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إكمال بيانات التحويل البنكي' : 'Please complete bank transfer details'); return; }
     const paymentMethods: ProviderPaymentMethods = { stcPay: { enabled: stcEnabled, phone: stcPhone.trim() }, bankTransfer: { enabled: bankEnabled, iban: bankIban.trim(), accountName: bankAccountName.trim(), bankName } };
     await updateProviderPaymentMethods(user.uid, paymentMethods);
     await updateUser({ paymentMethods });
-    Alert.alert(t('success'), t('paymentSettingsSaved'));
+    AppAlert.alert(t('success'), t('paymentSettingsSaved'));
     setShowPaymentSettings(false);
   }, [user, stcEnabled, stcPhone, bankEnabled, bankIban, bankAccountName, bankName, updateProviderPaymentMethods, updateUser, t, locale]);
 
   const handleLogout = useCallback(() => {
-    Alert.alert(t('logout'), locale === 'ar' ? 'هل أنت متأكد من تسجيل الخروج؟' : 'Are you sure you want to logout?', [
+    AppAlert.alert(t('logout'), locale === 'ar' ? 'هل أنت متأكد من تسجيل الخروج؟' : 'Are you sure you want to logout?', [
       { text: t('cancel'), style: 'cancel' },
       { text: t('logout'), style: 'destructive', onPress: async () => { await logout(); router.replace('/auth/login' as any); } },
     ]);
