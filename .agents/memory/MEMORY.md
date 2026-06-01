@@ -1,1 +1,2 @@
 - [MapLibre maps (mobile)](maplibre-maps.md) — Tabbakheen mobile uses MapLibre v11 + MapTiler (no Google Maps); coords are [lng,lat], picker is a center-pin.
+- [Expo dev-client on Replit](expo-dev-client-replit.md) — connect physical-phone dev build via `$REPLIT_EXPO_DEV_DOMAIN` (no ngrok `--tunnel`); add `--dev-client` to dev script.
