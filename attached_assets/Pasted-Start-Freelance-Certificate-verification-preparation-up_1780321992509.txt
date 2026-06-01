@@ -1,0 +1,77 @@
+Start Freelance Certificate verification preparation + upload audit only.
+
+Do not modify code yet.
+Do not deploy.
+Do not rebuild.
+Do not commit.
+Do not push.
+Do not change Wathq verification.
+Do not change signup/login/order flows.
+Do not add admin UI.
+Audit and planning only.
+
+Goal:
+Prepare an optional manual Freelance Certificate verification path for providers.
+
+Important:
+Commercial Registration via Wathq is already complete and working.
+Do not touch or modify that flow.
+
+Task 1 — Upload system audit
+First, inspect the existing upload system.
+
+I need confirmation whether provider uploads already use Cloudinary.
+
+Audit:
+1. Identify all current upload paths used in the mobile app.
+2. Confirm whether uploads are:
+   - Cloudinary
+   - Firebase Storage
+   - mixed
+   - or another system.
+3. Confirm whether provider-side uploads already exist that can be reused.
+4. Confirm:
+   - image upload
+   - PDF upload
+   - file size handling
+   - delete/update behavior
+5. Confirm whether upload happens:
+   - direct from Expo client
+   - through Cloudflare Worker
+   - or hybrid.
+6. Confirm whether uploaded files already store:
+   - url
+   - publicId
+   - mimeType
+   - filename
+   or similar metadata.
+
+Task 2 — Freelance Certificate verification planning only
+No implementation yet.
+
+Design review only:
+
+We want a second optional provider verification type:
+
+1. Commercial Registration (existing Wathq auto verification)
+2. Freelance Certificate (manual review)
+
+Review feasibility using the current upload system.
+
+Expected Freelance Certificate future flow:
+- Provider selects Freelance Certificate
+- enters certificate number
+- uploads certificate image or PDF
+- data stored privately
+- users/{uid}.verificationStatus = pending_review
+- badge still appears only if verified
+- admin review remains Firebase Console only
+- no public exposure
+
+Return only:
+1. Upload system audit result.
+2. Is Cloudinary already used? YES/NO.
+3. Can existing upload flow be reused for Freelance Certificate? YES/NO.
+4. Recommended private Firestore structure for certificate data.
+5. Risk level.
+6. No code changes.
