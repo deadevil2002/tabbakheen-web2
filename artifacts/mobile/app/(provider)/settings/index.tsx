@@ -16,9 +16,9 @@ import { RatingStars } from '@/components/RatingStars';
 import { ProviderPaymentMethods, SAUDI_BANKS } from '@/types';
 import { formatPrice, formatDateOnly, daysRemaining, getSubscriptionStatusColor } from '@/utils/helpers';
 import { SUBSCRIPTION_PRICE } from '@/mocks/data';
-import { pickImageFromGallery } from '@/utils/imagePicker';
-import { uploadProviderAvatar } from '@/services/cloudinary';
-import { verifyCommercialRegistration } from '@/services/pushApi';
+import { pickImageFromGallery, pickImageFreeAspect } from '@/utils/imagePicker';
+import { uploadProviderAvatar, uploadFreelanceCertificate } from '@/services/cloudinary';
+import { verifyCommercialRegistration, submitFreelanceCertificate } from '@/services/pushApi';
 import { fsGetVerificationCrNumber } from '@/services/firestoreUsers';
 import { VERIFIED_BLUE } from '@/components/VerifiedBadge';
 
@@ -48,6 +48,10 @@ export default function ProviderSettingsScreen() {
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
   const [showVerifyForm, setShowVerifyForm] = useState<boolean>(false);
   const [verifiedCr, setVerifiedCr] = useState<string | null>(null);
+  const [verifyType, setVerifyType] = useState<'cr' | 'freelance'>('cr');
+  const [certNumber, setCertNumber] = useState<string>('');
+  const [certImageUri, setCertImageUri] = useState<string | null>(null);
+  const [isSubmittingCert, setIsSubmittingCert] = useState<boolean>(false);
   const verificationStatus = user?.verificationStatus;
 
   useEffect(() => {
@@ -125,6 +129,49 @@ export default function ProviderSettingsScreen() {
       { text: t('continueAction'), style: 'default', onPress: () => { setCrNumber(''); setShowVerifyForm(true); } },
     ]);
   }, [t]);
+
+  const handlePickCertImage = useCallback(async () => {
+    const result = await pickImageFreeAspect();
+    if (!result) return;
+    setCertImageUri(result.uri);
+  }, []);
+
+  const handleSubmitFreelance = useCallback(async () => {
+    if (!user) return;
+    const num = certNumber.trim();
+    if (num.length === 0) {
+      AppAlert.alert(t('error'), t('freelanceCertNumberInvalid'));
+      return;
+    }
+    if (!certImageUri) {
+      AppAlert.alert(t('error'), t('certImageRequired'));
+      return;
+    }
+    setIsSubmittingCert(true);
+    try {
+      const asset = await uploadFreelanceCertificate(certImageUri);
+      const result = await submitFreelanceCertificate(user.uid, {
+        certificateNumber: num,
+        fileUrl: asset.url,
+        publicId: asset.publicId,
+        mimeType: 'image/jpeg',
+        filename: 'certificate.jpg',
+      });
+      if (!result.success) {
+        AppAlert.alert(t('error'), t('uploadError'));
+        return;
+      }
+      AppAlert.alert(t('verifyBusiness'), t('freelanceSubmittedMsg'));
+      setCertNumber('');
+      setCertImageUri(null);
+      setShowVerifyForm(false);
+    } catch (e) {
+      console.log('[ProviderSettings] Freelance submit error');
+      AppAlert.alert(t('error'), t('uploadError'));
+    } finally {
+      setIsSubmittingCert(false);
+    }
+  }, [user, certNumber, certImageUri, t]);
 
   const handleLogout = useCallback(() => {
     AppAlert.alert(t('logout'), locale === 'ar' ? 'هل أنت متأكد من تسجيل الخروج؟' : 'Are you sure you want to logout?', [
@@ -224,24 +271,76 @@ export default function ProviderSettingsScreen() {
               {verificationStatus !== 'verified' && verificationStatus !== 'pending_review' && (
                 <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verifyOptionalNote')}</Text>
               )}
-              <TextInput
-                style={[cs.formInput, r && cs.inputRTL, { marginTop: 12 }]}
-                placeholder={t('crNumberHint')}
-                placeholderTextColor={Colors.textTertiary}
-                value={crNumber}
-                onChangeText={setCrNumber}
-                keyboardType="number-pad"
-                maxLength={10}
-                textAlign={r ? 'right' : 'left'}
-                editable={!isVerifying}
-              />
-              <Pressable
-                style={({ pressed }) => [cs.primaryBtn, { marginTop: 12 }, pressed && { opacity: 0.9 }, isVerifying && { opacity: 0.7 }]}
-                onPress={handleVerifyCr}
-                disabled={isVerifying}
-              >
-                {isVerifying ? <ActivityIndicator size="small" color={Colors.white} /> : <Text style={cs.primaryBtnText}>{t('verify')}</Text>}
-              </Pressable>
+              <Text style={[s.verifyTypeLabel, r && cs.rtlText]}>{t('verificationTypeLabel')}</Text>
+              <View style={[s.typeSelector, r && cs.rowRTL]}>
+                <Pressable
+                  style={[s.typeBtn, verifyType === 'cr' && s.typeBtnActive]}
+                  onPress={() => setVerifyType('cr')}
+                  disabled={isVerifying || isSubmittingCert}
+                >
+                  <Text style={[s.typeBtnText, verifyType === 'cr' && s.typeBtnTextActive]} numberOfLines={1}>{t('commercialRegistration')}</Text>
+                </Pressable>
+                <Pressable
+                  style={[s.typeBtn, verifyType === 'freelance' && s.typeBtnActive]}
+                  onPress={() => setVerifyType('freelance')}
+                  disabled={isVerifying || isSubmittingCert}
+                >
+                  <Text style={[s.typeBtnText, verifyType === 'freelance' && s.typeBtnTextActive]} numberOfLines={1}>{t('freelanceCertificate')}</Text>
+                </Pressable>
+              </View>
+              {verifyType === 'cr' ? (
+                <>
+                  <TextInput
+                    style={[cs.formInput, r && cs.inputRTL, { marginTop: 12 }]}
+                    placeholder={t('crNumberHint')}
+                    placeholderTextColor={Colors.textTertiary}
+                    value={crNumber}
+                    onChangeText={setCrNumber}
+                    keyboardType="number-pad"
+                    maxLength={10}
+                    textAlign={r ? 'right' : 'left'}
+                    editable={!isVerifying}
+                  />
+                  <Pressable
+                    style={({ pressed }) => [cs.primaryBtn, { marginTop: 12 }, pressed && { opacity: 0.9 }, isVerifying && { opacity: 0.7 }]}
+                    onPress={handleVerifyCr}
+                    disabled={isVerifying}
+                  >
+                    {isVerifying ? <ActivityIndicator size="small" color={Colors.white} /> : <Text style={cs.primaryBtnText}>{t('verify')}</Text>}
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <TextInput
+                    style={[cs.formInput, r && cs.inputRTL, { marginTop: 12 }]}
+                    placeholder={t('freelanceCertNumberHint')}
+                    placeholderTextColor={Colors.textTertiary}
+                    value={certNumber}
+                    onChangeText={setCertNumber}
+                    textAlign={r ? 'right' : 'left'}
+                    editable={!isSubmittingCert}
+                  />
+                  <Pressable
+                    style={({ pressed }) => [s.uploadBtn, r && cs.rowRTL, pressed && { opacity: 0.8 }]}
+                    onPress={handlePickCertImage}
+                    disabled={isSubmittingCert}
+                  >
+                    <Camera size={18} color={Colors.primary} />
+                    <Text style={[s.uploadBtnText, r && cs.rtlText]}>{certImageUri ? t('certImageSelected') : t('uploadCertificate')}</Text>
+                    {certImageUri ? <Check size={18} color={Colors.success} /> : null}
+                  </Pressable>
+                  {certImageUri ? (
+                    <Image source={{ uri: certImageUri }} style={s.certPreview} contentFit="cover" />
+                  ) : null}
+                  <Pressable
+                    style={({ pressed }) => [cs.primaryBtn, { marginTop: 12 }, pressed && { opacity: 0.9 }, isSubmittingCert && { opacity: 0.7 }]}
+                    onPress={handleSubmitFreelance}
+                    disabled={isSubmittingCert}
+                  >
+                    {isSubmittingCert ? <ActivityIndicator size="small" color={Colors.white} /> : <Text style={cs.primaryBtnText}>{t('submitForReview')}</Text>}
+                  </Pressable>
+                </>
+              )}
             </>
           )}
         </View>
@@ -361,6 +460,15 @@ const s = StyleSheet.create({
   verifyCrValue: { fontSize: 16, fontWeight: '700' as const, color: Colors.text, letterSpacing: 1 },
   changeNumberBtn: { marginTop: 12, alignSelf: 'flex-start' as const, paddingVertical: 6 },
   changeNumberText: { fontSize: 14, fontWeight: '700' as const, color: Colors.primary },
+  verifyTypeLabel: { fontSize: 13, fontWeight: '600' as const, color: Colors.textSecondary, marginTop: 12, marginBottom: 8 },
+  typeSelector: { flexDirection: 'row', gap: 8 },
+  typeBtn: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1, borderColor: Colors.borderLight, backgroundColor: Colors.background, alignItems: 'center' as const },
+  typeBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryFaded },
+  typeBtnText: { fontSize: 13, fontWeight: '600' as const, color: Colors.textSecondary },
+  typeBtnTextActive: { color: Colors.primary, fontWeight: '700' as const },
+  uploadBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 12, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed' as const, borderColor: Colors.primary, backgroundColor: Colors.primaryFaded },
+  uploadBtnText: { fontSize: 14, fontWeight: '600' as const, color: Colors.primary },
+  certPreview: { width: '100%', height: 160, borderRadius: 12, marginTop: 12, backgroundColor: Colors.background },
   paySettingsBtn: { backgroundColor: Colors.surface, borderRadius: 16, marginHorizontal: 20, padding: 16, marginBottom: 4 },
   paySettingsHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   paySettingsTitle: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, marginBottom: 2 },
