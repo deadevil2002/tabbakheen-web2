@@ -1,5 +1,5 @@
 import { AppAlert } from '@/components/AppDialog';
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { VerifiedBadge } from '@/components/VerifiedBadge';
 import {
   Search,
@@ -30,6 +31,7 @@ import {
   Wine,
   MoreHorizontal,
   LayoutGrid,
+  List,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -44,6 +46,10 @@ const WHATSAPP_NUMBER = '966570758881';
 const WHATSAPP_MESSAGE = encodeURIComponent(
   'السلام عليكم حبيت استفسر عن المساحة الاعلانية في تطبيق طباخين',
 );
+
+const OFFERS_VIEW_MODE_KEY = 'customer_home_offers_view_mode';
+
+type ViewMode = 'grid' | 'list';
 
 type CategoryFilter = 'all' | OfferCategory;
 
@@ -85,6 +91,22 @@ export default function CustomerHomeScreen() {
   const [search, setSearch] = useState<string>('');
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+
+  useEffect(() => {
+    AsyncStorage.getItem(OFFERS_VIEW_MODE_KEY)
+      .then((stored) => {
+        if (stored === 'grid' || stored === 'list') {
+          setViewMode(stored);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSetViewMode = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    AsyncStorage.setItem(OFFERS_VIEW_MODE_KEY, mode).catch(() => {});
+  }, []);
 
   const numColumns = screenWidth < 380 ? 1 : 2;
   const cardGap = 12;
@@ -93,6 +115,9 @@ export default function CustomerHomeScreen() {
     numColumns === 1
       ? screenWidth - horizontalPadding * 2
       : (screenWidth - horizontalPadding * 2 - cardGap) / 2;
+
+  const isList = viewMode === 'list';
+  const listCardWidth = screenWidth - horizontalPadding * 2;
 
   const getProvider = useCallback(
     (uid: string) => providers.find((p) => p.uid === uid),
@@ -172,14 +197,14 @@ export default function CustomerHomeScreen() {
           key={offer.id}
           style={({ pressed }) => [
             styles.offerCard,
-            { width: cardWidth },
+            { width: isList ? listCardWidth : cardWidth },
             pressed && styles.offerCardPressed,
           ]}
           onPress={() => handleOfferPress(offer)}
           testID={`offer-card-${offer.id}`}
         >
           <View style={styles.offerImageWrap}>
-            <Image source={{ uri: offer.imageUrl }} style={styles.offerImage} contentFit="cover" />
+            <Image source={{ uri: offer.imageUrl }} style={[styles.offerImage, isList && styles.offerImageList]} contentFit="cover" />
             <View style={styles.offerPriceTag}>
               <Text style={styles.offerPriceText}>{formatPrice(offer.price, locale)}</Text>
             </View>
@@ -220,7 +245,7 @@ export default function CustomerHomeScreen() {
         </Pressable>
       );
     },
-    [user, getProvider, getDistanceToProvider, cardWidth, locale, isRTL, t, handleOfferPress],
+    [user, getProvider, getDistanceToProvider, cardWidth, isList, listCardWidth, locale, isRTL, t, handleOfferPress],
   );
 
   return (
@@ -362,10 +387,28 @@ export default function CustomerHomeScreen() {
 
         {/* All Offers */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, isRTL && styles.rtlText, styles.sectionTitlePadded]}>
-            {t('allOffers')}
-          </Text>
-          <View style={styles.offersGrid}>
+          <View style={[styles.sectionHeader, isRTL && styles.sectionHeaderRTL]}>
+            <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>
+              {t('allOffers')}
+            </Text>
+            <View style={[styles.viewToggle, isRTL && styles.rowRTL]}>
+              <Pressable
+                style={[styles.viewToggleBtn, !isList && styles.viewToggleBtnActive]}
+                onPress={() => handleSetViewMode('grid')}
+                testID="offers-view-grid"
+              >
+                <LayoutGrid size={18} color={!isList ? Colors.white : Colors.textSecondary} />
+              </Pressable>
+              <Pressable
+                style={[styles.viewToggleBtn, isList && styles.viewToggleBtnActive]}
+                onPress={() => handleSetViewMode('list')}
+                testID="offers-view-list"
+              >
+                <List size={18} color={isList ? Colors.white : Colors.textSecondary} />
+              </Pressable>
+            </View>
+          </View>
+          <View style={[styles.offersGrid, isList && styles.offersList]}>
             {filteredOffers.map((offer) => renderOfferCard(offer))}
           </View>
           {filteredOffers.length === 0 && (
@@ -520,10 +563,6 @@ const styles = StyleSheet.create({
     fontWeight: '700' as const,
     color: Colors.text,
   },
-  sectionTitlePadded: {
-    paddingHorizontal: 20,
-    marginBottom: 14,
-  },
   seeAllBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -586,6 +625,28 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 12,
   },
+  offersList: {
+    flexDirection: 'column',
+    flexWrap: 'nowrap',
+    gap: 14,
+  },
+  viewToggle: {
+    flexDirection: 'row',
+    backgroundColor: Colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+  },
+  viewToggleBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  viewToggleBtnActive: {
+    backgroundColor: Colors.primary,
+  },
   offerCard: {
     backgroundColor: Colors.surface,
     borderRadius: 14,
@@ -606,6 +667,9 @@ const styles = StyleSheet.create({
   offerImage: {
     width: '100%',
     height: 120,
+  },
+  offerImageList: {
+    height: 200,
   },
   offerPriceTag: {
     position: 'absolute',
