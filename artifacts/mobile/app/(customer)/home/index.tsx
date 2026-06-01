@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
+import { VerifiedBadge } from '@/components/VerifiedBadge';
 import {
   Search,
   Globe,
@@ -197,6 +198,7 @@ export default function CustomerHomeScreen() {
                 <Text style={[styles.offerProviderName, isRTL && styles.rtlText]} numberOfLines={1}>
                   {provider.displayName}
                 </Text>
+                <VerifiedBadge status={provider.verificationStatus} size={12} />
                 <Star size={11} color={Colors.star} fill={Colors.star} />
                 <Text style={styles.offerRatingText}>{provider.ratingAverage.toFixed(1)}</Text>
               </View>
@@ -340,9 +342,12 @@ export default function CustomerHomeScreen() {
                     style={styles.providerChipAvatar}
                     contentFit="cover"
                   />
-                  <Text style={styles.providerChipName} numberOfLines={1}>
-                    {provider.displayName}
-                  </Text>
+                  <View style={[styles.providerChipNameRow, isRTL && styles.rowRTL]}>
+                    <Text style={[styles.providerChipName, { marginBottom: 0, flexShrink: 1 }]} numberOfLines={1}>
+                      {provider.displayName}
+                    </Text>
+                    <VerifiedBadge status={provider.verificationStatus} size={11} />
+                  </View>
                   <View style={styles.providerChipRating}>
                     <Star size={10} color={Colors.star} fill={Colors.star} />
                     <Text style={styles.providerChipRatingText}>
@@ -556,6 +561,13 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
     color: Colors.text,
     textAlign: 'center',
+    marginBottom: 4,
+  },
+  providerChipNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
     marginBottom: 4,
   },
   providerChipRating: {

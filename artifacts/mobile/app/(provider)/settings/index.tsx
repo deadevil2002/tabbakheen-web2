@@ -4,7 +4,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Alert, TextInput, Switch
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { LogOut, Globe, Mail, Phone, MapPin, ChevronLeft, ChevronRight, UserCircle, Shield, Info, CreditCard, Building2, Crown, AlertTriangle, Check, Camera, Navigation } from 'lucide-react-native';
+import { LogOut, Globe, Mail, Phone, MapPin, ChevronLeft, ChevronRight, UserCircle, Shield, Info, CreditCard, Building2, Crown, AlertTriangle, Check, Camera, Navigation, BadgeCheck } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -18,6 +18,8 @@ import { formatPrice, formatDateOnly, daysRemaining, getSubscriptionStatusColor 
 import { SUBSCRIPTION_PRICE } from '@/mocks/data';
 import { pickImageFromGallery } from '@/utils/imagePicker';
 import { uploadProviderAvatar } from '@/services/cloudinary';
+import { verifyCommercialRegistration } from '@/services/pushApi';
+import { VERIFIED_BLUE } from '@/components/VerifiedBadge';
 
 export default function ProviderSettingsScreen() {
   const router = useRouter();
@@ -41,6 +43,9 @@ export default function ProviderSettingsScreen() {
   const [showSupport, setShowSupport] = useState<boolean>(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState<boolean>(false);
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
+  const [crNumber, setCrNumber] = useState<string>('');
+  const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const verificationStatus = user?.verificationStatus;
 
   const handleChangeAvatar = useCallback(async () => {
     const result = await pickImageFromGallery();
@@ -74,6 +79,29 @@ export default function ProviderSettingsScreen() {
     AppAlert.alert(t('success'), t('paymentSettingsSaved'));
     setShowPaymentSettings(false);
   }, [user, stcEnabled, stcPhone, bankEnabled, bankIban, bankAccountName, bankName, updateProviderPaymentMethods, updateUser, t, locale]);
+
+  const handleVerifyCr = useCallback(async () => {
+    if (!user) return;
+    const cr = crNumber.trim();
+    if (!/^\d{10}$/.test(cr)) {
+      AppAlert.alert(t('error'), t('crNumberInvalid'));
+      return;
+    }
+    setIsVerifying(true);
+    try {
+      const result = await verifyCommercialRegistration(user.uid, cr);
+      if (result.verificationStatus === 'verified') {
+        AppAlert.alert(t('verified'), t('verificationSuccessMsg'));
+      } else {
+        AppAlert.alert(t('verifyBusiness'), t('verificationPendingMsg'));
+      }
+      setCrNumber('');
+    } catch {
+      AppAlert.alert(t('verifyBusiness'), t('verificationPendingMsg'));
+    } finally {
+      setIsVerifying(false);
+    }
+  }, [user, crNumber, t]);
 
   const handleLogout = useCallback(() => {
     AppAlert.alert(t('logout'), locale === 'ar' ? 'هل أنت متأكد من تسجيل الخروج؟' : 'Are you sure you want to logout?', [
@@ -130,6 +158,45 @@ export default function ProviderSettingsScreen() {
           <View style={[cs.infoRow, r && cs.rowRTL, { borderBottomWidth: 0, paddingHorizontal: 0, paddingVertical: 0 }]}><Mail size={18} color={Colors.textTertiary} /><Text style={[cs.infoText, r && cs.rtlText]}>{user?.email}</Text></View>
           {user?.phone ? <View style={[cs.infoRow, r && cs.rowRTL, { borderBottomWidth: 0, paddingHorizontal: 0, paddingVertical: 0 }]}><Phone size={18} color={Colors.textTertiary} /><Text style={[cs.infoText, r && cs.rtlText]}>{user.phone}</Text></View> : null}
           {user?.address ? <View style={[cs.infoRow, r && cs.rowRTL, { borderBottomWidth: 0, paddingHorizontal: 0, paddingVertical: 0 }]}><MapPin size={18} color={Colors.textTertiary} /><Text style={[cs.infoText, r && cs.rtlText]}>{user.address}</Text></View> : null}
+        </View>
+
+        <View style={cs.sectionCard}>
+          <View style={[s.subHeader, r && cs.rowRTL]}>
+            <BadgeCheck size={22} color={verificationStatus === 'verified' ? VERIFIED_BLUE : Colors.primary} />
+            <Text style={[s.subTitle, r && cs.rtlText]}>{t('verifyBusiness')}</Text>
+            {verificationStatus === 'verified' && (
+              <View style={[s.subBadge, { backgroundColor: Colors.primaryFaded }]}>
+                <Text style={[s.subBadgeText, { color: VERIFIED_BLUE }]}>{t('verified')}</Text>
+              </View>
+            )}
+          </View>
+          {verificationStatus === 'verified' ? (
+            <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verificationVerifiedDesc')}</Text>
+          ) : verificationStatus === 'pending_review' ? (
+            <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verificationPendingDesc')}</Text>
+          ) : (
+            <>
+              <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verifyOptionalNote')}</Text>
+              <TextInput
+                style={[cs.formInput, r && cs.inputRTL, { marginTop: 12 }]}
+                placeholder={t('crNumberHint')}
+                placeholderTextColor={Colors.textTertiary}
+                value={crNumber}
+                onChangeText={setCrNumber}
+                keyboardType="number-pad"
+                maxLength={10}
+                textAlign={r ? 'right' : 'left'}
+                editable={!isVerifying}
+              />
+              <Pressable
+                style={({ pressed }) => [cs.primaryBtn, { marginTop: 12 }, pressed && { opacity: 0.9 }, isVerifying && { opacity: 0.7 }]}
+                onPress={handleVerifyCr}
+                disabled={isVerifying}
+              >
+                {isVerifying ? <ActivityIndicator size="small" color={Colors.white} /> : <Text style={cs.primaryBtnText}>{t('verify')}</Text>}
+              </Pressable>
+            </>
+          )}
         </View>
 
         <Pressable style={({ pressed }) => [s.paySettingsBtn, pressed && { backgroundColor: Colors.background }]} onPress={() => setShowLocationPicker(true)}>
@@ -241,6 +308,7 @@ const s = StyleSheet.create({
   renewInfo: { marginTop: 12, backgroundColor: Colors.warningLight, borderRadius: 10, padding: 12 },
   renewText: { fontSize: 13, color: Colors.warning, lineHeight: 18 },
   freeNote: { fontSize: 12, color: Colors.textTertiary, marginTop: 12, textAlign: 'center' },
+  verifyNote: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
   paySettingsBtn: { backgroundColor: Colors.surface, borderRadius: 16, marginHorizontal: 20, padding: 16, marginBottom: 4 },
   paySettingsHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   paySettingsTitle: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, marginBottom: 2 },

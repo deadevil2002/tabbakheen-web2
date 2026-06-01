@@ -24,6 +24,7 @@ import { calculateDistance, formatDistance } from '@/utils/helpers';
 import { User } from '@/types';
 import { MAPTILER_STYLE_URL, deltaToZoom } from '@/constants/maptiler';
 import LoginRequired from '@/components/LoginRequired';
+import { VerifiedBadge } from '@/components/VerifiedBadge';
 
 let MapLibreMap: any = null;
 let MapLibreCamera: any = null;
@@ -333,9 +334,12 @@ export default function CustomerMapScreen() {
                     contentFit="cover"
                   />
                   <View style={styles.providerInfo}>
-                    <Text style={[styles.providerName, isRTL && styles.rtlText]} numberOfLines={1}>
-                      {provider.displayName}
-                    </Text>
+                    <View style={[styles.nameRow, isRTL && styles.rowRTL]}>
+                      <Text style={[styles.providerName, { marginBottom: 0, flexShrink: 1 }, isRTL && styles.rtlText]} numberOfLines={1}>
+                        {provider.displayName}
+                      </Text>
+                      <VerifiedBadge status={provider.verificationStatus} size={14} />
+                    </View>
                     <View style={[styles.metaRow, isRTL && styles.rowRTL]}>
                       <Star size={12} color={Colors.star} fill={Colors.star} />
                       <Text style={styles.metaText}>{provider.ratingAverage.toFixed(1)}</Text>
@@ -547,6 +551,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700' as const,
     color: Colors.text,
+    marginBottom: 4,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     marginBottom: 4,
   },
   metaRow: {

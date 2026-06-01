@@ -1,3 +1,5 @@
+import { getFirebaseAuth } from './firebase';
+
 const PUSH_API_URL = 'https://tabbakheen-api.tabbakheen.workers.dev';
 const PUSH_API_KEY = 'tbk_ntfy_Xk9R2mP7vL4nQ8wF3jH6sY1dA5cE0gBzW';
 
@@ -105,6 +107,54 @@ export async function finalizeDeliveryMethod(
   } catch (e: any) {
     console.log(`[PushAPI] Error finalizing delivery:`, e);
     throw e;
+  }
+}
+
+export type CrVerificationStatus = 'verified' | 'pending_review' | 'unverified';
+
+export interface CrVerificationResult {
+  success: boolean;
+  verificationStatus: CrVerificationStatus;
+}
+
+/**
+ * Submit a Commercial Registration number for optional verification.
+ * Wathq is NEVER called from the app — this only hits the Worker, which holds the
+ * Wathq secret. We deliberately do NOT log the CR number, uid, or raw response.
+ * Any unclear/inactive/timeout/error result resolves to 'pending_review' (no public "failed").
+ */
+export async function verifyCommercialRegistration(
+  uid: string,
+  crNumber: string,
+): Promise<CrVerificationResult> {
+  try {
+    // Send a Firebase ID token so the Worker derives the UID from a verified token
+    // instead of trusting the client-supplied uid (prevents verifying other accounts).
+    const currentUser = getFirebaseAuth().currentUser;
+    if (!currentUser) {
+      return { success: false, verificationStatus: 'pending_review' };
+    }
+    const idToken = await currentUser.getIdToken();
+    const response = await fetch(`${PUSH_API_URL}/verify-cr`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': PUSH_API_KEY,
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ uid, crNumber }),
+    });
+    const data = await response.json();
+    const raw = data?.verificationStatus;
+    const verificationStatus: CrVerificationStatus =
+      raw === 'verified' || raw === 'pending_review' || raw === 'unverified'
+        ? raw
+        : 'pending_review';
+    console.log('[PushAPI] CR verification result status:', verificationStatus);
+    return { success: !!data?.success, verificationStatus };
+  } catch {
+    console.log('[PushAPI] CR verification request failed (network)');
+    return { success: false, verificationStatus: 'pending_review' };
   }
 }
 
