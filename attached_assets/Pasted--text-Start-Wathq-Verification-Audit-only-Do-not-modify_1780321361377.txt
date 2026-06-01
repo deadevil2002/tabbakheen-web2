@@ -1,0 +1,52 @@
+أرسل له هذا:
+
+```text
+Start Wathq Verification Audit only.
+
+Do not modify code.
+Do not deploy.
+Do not rebuild.
+Do not commit.
+Do not push.
+Do not change Worker.
+Do not change Firestore rules.
+Do not change UI.
+
+Audit only.
+
+Current confirmed status:
+- Signup works.
+- Firestore users/{uid} is created correctly.
+- Auth-only orphan rollback is handled.
+- Wathq /verify-cr works through Cloudflare Worker.
+- Worker uses /commercial-registration/fullinfo/{crNationalNumber}.
+- Active status is detected from status.id === 1 or status.name نشط/فعال.
+- Verified provider gets verificationStatus = verified.
+- Badge appears correctly.
+- Provider Settings verification card hides input after verified.
+- Change number flow exists with confirmation.
+- Verification remains optional and non-blocking.
+
+Audit requirements:
+1. Confirm verified provider cannot accidentally keep submitting new CR numbers unless they tap Change number and confirm.
+2. Confirm changing number reuses the existing /verify-cr flow.
+3. Confirm changing number can move provider back to pending_review if the new number is unclear.
+4. Confirm badge only appears when verificationStatus === verified.
+5. Confirm badge disappears when status is pending_review or unverified.
+6. Confirm verifications/{uid}.crNumber is read only by the current owner.
+7. Confirm no CR number is hydrated into public provider objects.
+8. Confirm users/{uid} public fields only contain verificationStatus, verificationSource, verifiedAt.
+9. Confirm customers/drivers cannot access another provider’s verification record.
+10. Confirm signup/login/offers/orders are not blocked by verification status.
+11. Confirm there is no failed public status.
+12. Confirm no raw Wathq response, CR number, or UID is logged in client or Worker code.
+13. Confirm no admin UI was added.
+14. Confirm compliance with Apple App Store / Google Play: verification is optional, transparent, and does not block account use.
+
+Return only:
+- Audit result PASS/FAIL
+- Issues found, if any
+- Risk level
+- Recommended fixes, if any
+- No code changes
+```
