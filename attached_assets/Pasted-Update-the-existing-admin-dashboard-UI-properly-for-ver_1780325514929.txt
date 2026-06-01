@@ -1,0 +1,156 @@
+Update the existing admin dashboard UI properly for verification management.
+
+Important:
+Do not create a new admin page.
+Do not create a second admin auth.
+Use the existing /admin dashboard and existing admin authentication.
+Keep current admin layout/sidebar/design.
+Do not remove existing dashboard/users/invoices/settings features.
+Do not touch Wathq verification logic.
+Do not deploy.
+Do not commit.
+Do not push.
+
+Goal:
+The admin must clearly see and manage provider verifications from the existing admin dashboard.
+
+Required admin UI changes:
+
+1. Add a new sidebar item:
+Arabic: التوثيق
+English if needed: Verification
+
+2. Add a Verification page/section inside the existing admin dashboard.
+
+It must show two tabs or sections:
+A) السجل التجاري
+B) وثيقة العمل الحر
+
+3. Commercial Registration section:
+Show providers with:
+- provider name
+- email
+- phone
+- verificationStatus
+- verificationSource
+- verifiedAt
+- CR number if available from verifications/{uid}.crNumber
+- statusToken/internal status if available
+
+Add filters:
+- verified
+- pending_review
+- unverified
+- source: wathq
+
+Purpose:
+Admin can see who is already verified by Wathq and who is pending.
+
+No approve button needed for Wathq verified auto cases unless status is pending_review.
+
+4. Freelance Certificate section:
+Show all freelance certificate requests from:
+verifications/{uid}.freelanceCertificate
+
+Show:
+- provider name
+- email
+- phone
+- certificate number
+- submittedAt
+- reviewStatus
+- certificate image preview/link
+- internalReviewNote if any
+
+Actions:
+- Approve
+- Reject
+
+Approve:
+users/{uid}:
+  verificationStatus = verified
+  verificationSource = freelance_certificate
+  verifiedAt = ISO now
+
+verifications/{uid}.freelanceCertificate:
+  reviewStatus = approved
+  reviewedAt = ISO now
+
+Reject:
+No public failed status.
+users/{uid}:
+  verificationStatus = unverified
+  verificationSource = ""
+
+verifications/{uid}.freelanceCertificate:
+  reviewStatus = rejected
+  reviewedAt = ISO now
+  internalReviewNote = note entered by admin
+
+5. Add direct verification helper link for Freelance Certificate:
+For each freelance request, add a button:
+Arabic: تحقق من الوثيقة
+English: Verify Certificate
+
+When clicked:
+Open this URL in a new tab:
+https://freelance.sa/certificate-validation?step=nafath
+
+Purpose:
+Admin can quickly go to the official Freelance Certificate validation page and enter the certificate information manually.
+
+Do not send national ID automatically.
+Do not store national ID.
+Do not request national ID inside our app.
+Certificate manual review only.
+
+6. Admin notifications:
+The admin dashboard already has notification settings.
+Add support for new notification events:
+
+A) New Freelance Certificate submitted
+Arabic: إشعار عند رفع وثيقة عمل حر جديدة
+
+B) Commercial Registration verified by Wathq
+Arabic: إشعار عند توثيق سجل تجاري بنجاح
+
+C) Commercial Registration pending review
+Arabic: إشعار عند بقاء السجل التجاري تحت المراجعة
+
+If current admin notifications are only UI settings, wire these events into the existing notification system if possible.
+If not possible without larger changes, add the UI toggles and return the exact missing backend requirement.
+
+7. Live data requirement:
+The admin verification page must read live Firestore data:
+- users
+- verifications
+
+It must not be mock data.
+
+8. Security:
+- Reuse existing admin auth only.
+- No ADMIN_KEY.
+- No x-admin-key.
+- No second login.
+- Do not expose certificate data publicly.
+- Do not hydrate certificate data into customer/provider public objects.
+- Admin only.
+
+9. Existing Worker endpoints:
+If /submit-freelance-cert or /admin/freelance/* endpoints are still not implemented in live Worker source, provide the exact Worker patch and mark where to paste it.
+If they are implemented, integrate them into the existing admin UI.
+
+Return:
+1. Exact files/Worker sections changed.
+2. Whether /admin verification page is live.
+3. Whether freelance approve/reject is live.
+4. Whether Wathq verified/pending providers are visible.
+5. Whether notification toggles/events are implemented.
+6. Any missing backend piece.
+7. Test steps.
+
+Do not mention old T001/T002/T003 tasks.
+Do not deploy.
+Do not rebuild.
+Do not commit.
+Do not push.
