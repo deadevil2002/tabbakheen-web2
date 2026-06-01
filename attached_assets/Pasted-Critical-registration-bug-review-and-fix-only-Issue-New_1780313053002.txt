@@ -1,0 +1,65 @@
+Critical registration bug review and fix only.
+
+Issue:
+New signup creates the Firebase Authentication user, but the corresponding Firestore user document is not created in users/{uid}.
+Result:
+The email becomes registered in Firebase Auth, but the app cannot log in properly or continue because no Firestore user profile exists.
+When trying again, the app says "email already registered".
+
+Evidence:
+- Firebase Authentication shows the new email/user exists.
+- Firestore users collection does not contain a matching users/{uid} document for that auth user.
+- This happened while testing provider signup after the Wathq Worker and Firestore rules were deployed.
+
+Scope:
+Review the full signup/register flow only.
+Do not change Wathq verification logic unless it is directly blocking signup.
+Do not change login UI design.
+Do not change existing customer/provider/driver flow.
+Do not rebuild.
+Do not deploy.
+Do not commit or push.
+
+Required investigation:
+1. Inspect the register/signup function.
+2. Confirm whether createUserWithEmailAndPassword succeeds before Firestore profile creation.
+3. Inspect the Firestore write to users/{uid}.
+4. Inspect if the recent Firestore Rules are blocking user document creation.
+5. Inspect if the client is attempting to write any protected fields during signup:
+   - verificationStatus
+   - verificationSource
+   - crNumber
+   - verifiedAt
+   - verificationCrName
+   - verificationError
+   - verificationCheckedAt
+   - accountStatus
+   - subscriptionStatus
+   - subscriptionPlan
+   - activatedByAdmin
+   - approvedByAdmin
+   - isApproved
+6. Inspect whether role/provider/customer/driver fields are valid and allowed by rules.
+7. Add safe cleanup handling:
+   If Firebase Auth user is created but Firestore user document creation fails, delete the newly-created auth user immediately or roll back cleanly, so the user does not get stuck with an auth-only account.
+8. Add better error logging around Firestore user profile creation, without exposing secrets.
+
+Required fix:
+- Ensure users/{uid} document is created successfully after signup.
+- Ensure the app does not write protected verification/admin/subscription fields during signup.
+- If Firestore write fails, do not leave an orphan Firebase Auth account.
+- Keep all existing roles and flows unchanged.
+- Keep Wathq verification optional and post-signup only.
+
+Return:
+1. Root cause.
+2. Exact files changed.
+3. What fields are written on signup now.
+4. Confirmation that Firestore rules allow the signup payload.
+5. Confirmation that orphan auth-only accounts are handled.
+6. Typecheck result.
+
+Do not commit.
+Do not push.
+Do not rebuild.
+Do not deploy.

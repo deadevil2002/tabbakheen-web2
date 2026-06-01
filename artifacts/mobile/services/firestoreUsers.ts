@@ -29,6 +29,12 @@ const FORBIDDEN_FIELDS = [
   'verificationCrName', 'verificationError', 'verificationCheckedAt',
 ];
 
+// Fields a client MAY legitimately set at create time (immutable afterwards).
+// Everything else in FORBIDDEN_FIELDS (ratings, admin, subscription, verification,
+// disabled) must be absent from the create payload or Firestore rules reject the
+// self-create on `users/{uid}`.
+const CREATE_ALLOWED_FIELDS = new Set(['email', 'role', 'createdAt']);
+
 function toUser(id: string, data: Record<string, any>): User {
   return {
     uid: id,
@@ -118,9 +124,20 @@ export function fsSubscribeToUser(
 
 export async function fsCreateUser(user: User): Promise<void> {
   const db = getFirebaseFirestore();
-  const { uid, ...data } = user;
-  await setDoc(doc(db, COLLECTION, uid), data);
-  console.log('[fsUsers] created:', uid);
+  const { uid, ...rest } = user;
+  const data: Record<string, any> = { ...rest };
+  // Never send server-managed fields on create — they would be rejected by rules.
+  for (const f of FORBIDDEN_FIELDS) {
+    if (!CREATE_ALLOWED_FIELDS.has(f)) delete data[f];
+  }
+  try {
+    await setDoc(doc(db, COLLECTION, uid), data);
+    console.log('[fsUsers] created:', uid, 'fields:', Object.keys(data).join(', '));
+  } catch (e: any) {
+    // Surface the real reason (e.g. permission-denied) so the caller can roll back.
+    console.log('[fsUsers] create failed:', uid, e?.code, e?.message);
+    throw e;
+  }
 }
 
 export async function fsUpdateUser(

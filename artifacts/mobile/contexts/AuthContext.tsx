@@ -8,6 +8,7 @@ import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   signOut,
+  deleteUser,
 } from 'firebase/auth';
 import {
   fsGetUser,
@@ -178,39 +179,18 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         return newUser;
       }
 
+      // Step 1: create the Firebase Auth account.
+      const auth = getFirebaseAuth();
+      let credential;
       try {
-        const auth = getFirebaseAuth();
-        const credential = await createUserWithEmailAndPassword(
+        credential = await createUserWithEmailAndPassword(
           auth,
           data.email,
           data.password,
         );
         console.log('[Auth] Firebase register success:', credential.user.uid);
-
-        const now = new Date();
-        const newUser: User = {
-          uid: credential.user.uid,
-          email: data.email,
-          displayName: data.displayName,
-          phone: data.phone,
-          role: data.role,
-          photoUrl: '',
-          socialLink: '',
-          location:
-            data.role !== 'customer' ? { lat: 24.7136, lng: 46.6753 } : null,
-          address: '',
-          ratingAverage: 0,
-          ratingCount: 0,
-          fcmToken: '',
-          createdAt: now.toISOString(),
-        };
-
-        await fsCreateUser(newUser);
-        console.log('[Auth] Firestore user doc created for:', newUser.uid);
-        setUser(newUser);
-        return newUser;
       } catch (error: any) {
-        console.log('[Auth] Register error:', error.code, error.message);
+        console.log('[Auth] Register auth error:', error.code, error.message);
         if (error.code === 'auth/email-already-in-use') {
           throw new Error('EMAIL_EXISTS');
         }
@@ -222,6 +202,52 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         }
         throw new Error('AUTH_ERROR');
       }
+
+      const now = new Date();
+      const newUser: User = {
+        uid: credential.user.uid,
+        email: data.email,
+        displayName: data.displayName,
+        phone: data.phone,
+        role: data.role,
+        photoUrl: '',
+        socialLink: '',
+        location:
+          data.role !== 'customer' ? { lat: 24.7136, lng: 46.6753 } : null,
+        address: '',
+        ratingAverage: 0,
+        ratingCount: 0,
+        fcmToken: '',
+        createdAt: now.toISOString(),
+      };
+
+      // Step 2: create the Firestore profile. If this fails (e.g. rules reject the
+      // payload), roll back the just-created Auth user so we never leave an orphan
+      // auth-only account that blocks re-registration with "email already in use".
+      try {
+        await fsCreateUser(newUser);
+        console.log('[Auth] Firestore user doc created for:', newUser.uid);
+      } catch (error: any) {
+        console.log(
+          '[Auth] Profile create failed, rolling back auth user:',
+          newUser.uid,
+          error?.code,
+        );
+        try {
+          await deleteUser(credential.user);
+          console.log('[Auth] Orphan auth user rolled back:', newUser.uid);
+        } catch (delErr: any) {
+          console.log(
+            '[Auth] Rollback deleteUser failed:',
+            delErr?.code,
+            delErr?.message,
+          );
+        }
+        throw new Error('PROFILE_CREATE_FAILED');
+      }
+
+      setUser(newUser);
+      return newUser;
     },
     [fb],
   );
