@@ -1,0 +1,142 @@
+Start Release Candidate security / sanity review only.
+
+Current stable baseline:
+
+* APK tested and working
+* GitHub branch: replit-final-mobile-stable
+* Current build confirmed stable
+* Do not add new features yet
+* Do not implement Wathq yet
+
+Scope:
+Audit only.
+Do not change code unless there is a critical security issue that must be fixed immediately, and ask before fixing.
+Do not commit.
+Do not push.
+Do not rebuild.
+Do not publish.
+Do not deploy.
+Do not change UI.
+Do not change business logic.
+Do not touch Wathq.
+
+Review these areas:
+
+1. Authentication and account flow
+
+* login
+* signup
+* logout
+* guest browsing
+* role detection
+* provider/customer/driver routing
+* accountStatus / activatedByAdmin handling
+* error messages
+
+2. Guest access restrictions
+   Confirm guests cannot access:
+
+* map screen
+* provider profile/details
+* provider private data
+* orders
+* payment screens
+* delivery/customer location data
+  Guests may only see limited public offer info:
+* image
+* name
+* price
+
+3. Firestore read/write safety
+   Audit:
+
+* users
+* offers
+* orders
+* provider_ratings
+* driver_ratings
+* app_config
+* app_settings
+
+Confirm:
+
+* customers cannot edit provider/admin fields
+* providers cannot self-verify or self-activate admin fields
+* guests cannot read private user/order/location data
+* order access is restricted to participants
+* rules match app behavior
+
+4. Cloudflare Worker / API usage
+   Audit client calls to:
+
+* tabbakheen-api
+* notification endpoints
+* delivery quote/finalize endpoints
+* aggregate rating endpoints
+
+Confirm:
+
+* no secrets in client app
+* no Cloudflare secret exposed
+* no Firebase private key exposed
+* x-api-key handling is not leaked in logs
+* endpoints are not called from guest flows unless safe
+
+5. External links
+   Audit:
+
+* WhatsApp advertising banner
+* WhatsApp support links if any
+* device maps / navigation links
+
+Confirm:
+
+* URLs are encoded correctly
+* no crash on missing app
+* fallback behavior is safe
+
+6. Map / location flow
+   Audit:
+
+* MapLibre/MapTiler key usage
+* provider markers
+* customer location
+* provider location
+* external navigation
+
+Confirm:
+
+* guests cannot access map/location data
+* authenticated users can view expected map data
+* no Google Maps/CNTXT dependency
+* no paid Google API usage
+
+7. Store readiness sanity
+   Check:
+
+* app.json identifiers
+* package/bundle id
+* app icon/splash
+* permissions strings
+* Android/iOS permission declarations
+* no test/debug text visible to users
+* no temporary LOGIN DEBUG logs
+* no hardcoded local URLs
+* no Replit-only production dependency
+
+8. Known existing warnings
+   List non-blocking warnings separately.
+   Do not treat pre-existing unrelated hooks/useColors.ts type errors as blocking unless they affect current production flows.
+
+Return report only:
+
+* PASS / FAIL per section
+* critical blockers if any
+* recommended fixes if any
+* exact files inspected
+* whether it is safe to start Wathq Phase after this review
+
+No code changes.
+No commit.
+No push.
+Wait for approval.
