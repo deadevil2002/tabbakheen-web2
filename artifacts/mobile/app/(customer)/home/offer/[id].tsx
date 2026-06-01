@@ -21,6 +21,7 @@ import { RatingStars } from '@/components/RatingStars';
 import { formatPrice } from '@/utils/helpers';
 import { PaymentMethod } from '@/types';
 import { requireAuth } from '@/utils/authGuard';
+import LoginRequired from '@/components/LoginRequired';
 
 export default function OfferDetailsScreen() {
   const router = useRouter();
@@ -87,6 +88,10 @@ export default function OfferDetailsScreen() {
       },
     ]);
   }, [offer, user, note, paymentMethod, createOrder, t, locale, router]);
+
+  if (!user) {
+    return <LoginRequired message={t('offerGuestMsg')} headerTitle={t('orderDetails')} />;
+  }
 
   if (!offer) {
     return (

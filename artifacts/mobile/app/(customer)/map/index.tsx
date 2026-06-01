@@ -22,6 +22,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { calculateDistance, formatDistance } from '@/utils/helpers';
 import { User } from '@/types';
 import { MAPTILER_STYLE_URL, deltaToZoom } from '@/constants/maptiler';
+import LoginRequired from '@/components/LoginRequired';
 
 let MapLibreMap: any = null;
 let MapLibreCamera: any = null;
@@ -204,6 +205,10 @@ export default function CustomerMapScreen() {
   }, [t]);
 
   const isNativeMap = MapLibreMap && Platform.OS !== 'web' && !!MAPTILER_STYLE_URL;
+
+  if (!user) {
+    return <LoginRequired message={t('mapGuestMsg')} headerTitle={t('nearbyProviders')} />;
+  }
 
   return (
     <View style={styles.container}>

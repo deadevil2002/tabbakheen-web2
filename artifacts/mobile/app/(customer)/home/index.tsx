@@ -185,7 +185,7 @@ export default function CustomerHomeScreen() {
             <Text style={[styles.offerTitle, isRTL && styles.rtlText]} numberOfLines={1}>
               {offer.title}
             </Text>
-            {provider && (
+            {user && provider && (
               <View style={[styles.offerProviderRow, isRTL && styles.rowRTL]}>
                 {provider.photoUrl ? (
                   <Image source={{ uri: provider.photoUrl }} style={styles.offerProviderAvatar} />
@@ -199,22 +199,24 @@ export default function CustomerHomeScreen() {
                 <Text style={styles.offerRatingText}>{provider.ratingAverage.toFixed(1)}</Text>
               </View>
             )}
-            {distance !== null ? (
-              <View style={[styles.offerDistanceRow, isRTL && styles.rowRTL]}>
-                <MapPin size={11} color={Colors.textTertiary} />
-                <Text style={styles.offerDistanceText}>{formatDistance(distance, locale)}</Text>
-              </View>
-            ) : (
-              <View style={[styles.offerDistanceRow, isRTL && styles.rowRTL]}>
-                <MapPin size={11} color={Colors.textTertiary} />
-                <Text style={styles.offerDistanceText}>{t('distanceNotAvailable')}</Text>
-              </View>
+            {user && (
+              distance !== null ? (
+                <View style={[styles.offerDistanceRow, isRTL && styles.rowRTL]}>
+                  <MapPin size={11} color={Colors.textTertiary} />
+                  <Text style={styles.offerDistanceText}>{formatDistance(distance, locale)}</Text>
+                </View>
+              ) : (
+                <View style={[styles.offerDistanceRow, isRTL && styles.rowRTL]}>
+                  <MapPin size={11} color={Colors.textTertiary} />
+                  <Text style={styles.offerDistanceText}>{t('distanceNotAvailable')}</Text>
+                </View>
+              )
             )}
           </View>
         </Pressable>
       );
     },
-    [getProvider, getDistanceToProvider, cardWidth, locale, isRTL, t, handleOfferPress],
+    [user, getProvider, getDistanceToProvider, cardWidth, locale, isRTL, t, handleOfferPress],
   );
 
   return (
@@ -305,49 +307,51 @@ export default function CustomerHomeScreen() {
           </Pressable>
         ) : null}
 
-        {/* Nearby Providers */}
-        <View style={styles.section}>
-          <View style={[styles.sectionHeader, isRTL && styles.sectionHeaderRTL]}>
-            <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>
-              {t('nearbyProviders')}
-            </Text>
-            <Pressable
-              style={[styles.seeAllBtn, isRTL && styles.seeAllBtnRTL]}
-              onPress={() => router.push('/(customer)/map' as any)}
-            >
-              <Text style={styles.seeAllText}>{t('map')}</Text>
-              <Arrow size={16} color={Colors.primary} />
-            </Pressable>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.providersScroll}
-          >
-            {providers.map((provider) => (
+        {/* Nearby Providers — authenticated users only */}
+        {user && (
+          <View style={styles.section}>
+            <View style={[styles.sectionHeader, isRTL && styles.sectionHeaderRTL]}>
+              <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>
+                {t('nearbyProviders')}
+              </Text>
               <Pressable
-                key={provider.uid}
-                style={({ pressed }) => [styles.providerChip, pressed && styles.chipPressed]}
-                onPress={() => router.push(`/(customer)/home/provider/${provider.uid}` as any)}
+                style={[styles.seeAllBtn, isRTL && styles.seeAllBtnRTL]}
+                onPress={() => router.push('/(customer)/map' as any)}
               >
-                <Image
-                  source={{ uri: provider.photoUrl }}
-                  style={styles.providerChipAvatar}
-                  contentFit="cover"
-                />
-                <Text style={styles.providerChipName} numberOfLines={1}>
-                  {provider.displayName}
-                </Text>
-                <View style={styles.providerChipRating}>
-                  <Star size={10} color={Colors.star} fill={Colors.star} />
-                  <Text style={styles.providerChipRatingText}>
-                    {provider.ratingAverage.toFixed(1)}
-                  </Text>
-                </View>
+                <Text style={styles.seeAllText}>{t('map')}</Text>
+                <Arrow size={16} color={Colors.primary} />
               </Pressable>
-            ))}
-          </ScrollView>
-        </View>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.providersScroll}
+            >
+              {providers.map((provider) => (
+                <Pressable
+                  key={provider.uid}
+                  style={({ pressed }) => [styles.providerChip, pressed && styles.chipPressed]}
+                  onPress={() => router.push(`/(customer)/home/provider/${provider.uid}` as any)}
+                >
+                  <Image
+                    source={{ uri: provider.photoUrl }}
+                    style={styles.providerChipAvatar}
+                    contentFit="cover"
+                  />
+                  <Text style={styles.providerChipName} numberOfLines={1}>
+                    {provider.displayName}
+                  </Text>
+                  <View style={styles.providerChipRating}>
+                    <Star size={10} color={Colors.star} fill={Colors.star} />
+                    <Text style={styles.providerChipRatingText}>
+                      {provider.ratingAverage.toFixed(1)}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {/* All Offers */}
         <View style={styles.section}>

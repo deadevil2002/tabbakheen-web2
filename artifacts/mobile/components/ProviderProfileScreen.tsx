@@ -13,7 +13,9 @@ import { ArrowLeft, ArrowRight, MapPin, Star, MessageCircle } from 'lucide-react
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useData } from '@/contexts/DataContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { OfferCard } from '@/components/OfferCard';
+import LoginRequired from '@/components/LoginRequired';
 import { RatingStars } from '@/components/RatingStars';
 import { Offer } from '@/types';
 import { formatDate } from '@/utils/helpers';
@@ -22,6 +24,7 @@ export default function ProviderProfileScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, isRTL, locale } = useLocale();
+  const { user } = useAuth();
   const { providers, getOffersByProvider, getRatingsByProvider } = useData();
 
   const provider = useMemo(() => providers.find((p) => p.uid === id), [providers, id]);
@@ -39,6 +42,10 @@ export default function ProviderProfileScreen() {
   const handleOfferPress = useCallback((offer: Offer) => {
     router.push(`/(customer)/home/offer/${offer.id}` as any);
   }, []);
+
+  if (!user) {
+    return <LoginRequired message={t('providerGuestMsg')} headerTitle={t('providerProfile')} />;
+  }
 
   if (!provider) {
     return (

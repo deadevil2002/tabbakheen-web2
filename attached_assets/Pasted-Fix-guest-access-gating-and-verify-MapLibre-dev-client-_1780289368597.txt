@@ -1,0 +1,54 @@
+Fix guest access gating and verify MapLibre dev-client behavior.
+
+Important:
+Do not rebuild yet.
+Do not commit.
+Do not push.
+Do not change theme.
+Keep the app theme unified.
+
+Current issue:
+The map is not rendering when opened through Expo Go. Confirm that MapLibre requires the installed Tabbakheen custom dev build, not Expo Go. Provide the correct dev-client open link/instructions.
+
+Also fix guest privacy/access rules:
+
+1. Guest users must NOT access the map screen.
+- If user is not logged in and taps الخريطة, show a login-required screen/modal using the same app theme.
+- Message: "سجل دخولك لعرض الخريطة والطباخين القريبين"
+- CTA: "تسجيل الدخول"
+- Do not show provider locations to guests.
+
+2. Guest users must NOT open provider profile/details.
+- If guest taps provider info or "عرض صفحة الطباخ", redirect/show login required.
+- Do not expose provider address, location, phone, or private details.
+
+3. Guest users may browse limited offers only:
+- show offer name
+- show price
+- show main image if already public
+- hide provider private details
+- hide ordering/payment details until login
+- if guest attempts to order or open full details, require login.
+
+4. Customer map:
+- Only authenticated users can view provider markers, route button, provider page button.
+- Keep current MapLibre/MapTiler setup unchanged.
+- Keep the new card behavior unchanged for logged-in users.
+
+5. Theme:
+- Use the existing orange/cream Tabbakheen theme.
+- Do not introduce new colors or layouts that conflict with current design.
+
+6. Verify:
+- Expo Go shows fallback/does not support MapLibre native module.
+- Installed custom dev build is required for native map.
+- Logged-out user cannot view map/providers/details.
+- Logged-in user can view map and cards.
+- No business logic broken.
+- No Wathq changes.
+
+Return:
+- files changed
+- exact guest gating behavior
+- exact dev-client instructions for testing MapLibre
+- whether rebuild is required or hot reload is enough
