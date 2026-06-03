@@ -37,6 +37,7 @@ import {
   fsSubscribeOrders,
   fsCreateOrder,
   fsUpdateOrder,
+  fsGetOrder,
   fsUpdateDeliveryStatus,
   fsSubscribeAvailableDeliveries,
   fsDriverAcceptOrder,
@@ -547,64 +548,93 @@ export const [DataProvider, useData] = createContextHook(() => {
   const setDeliveryMethod = useCallback(
     async (orderId: string, method: DeliveryMethod, deliveryNotes?: string) => {
       if (fb) {
-        const order = orders.find((o) => o.id === orderId);
         const isPickup = method === 'self_pickup';
+        const expectedStatus = isPickup ? 'self_pickup_selected' : 'ready_for_driver';
+        console.log(
+          '[setDeliveryMethod] START orderId=' + orderId + ' method=' + method +
+            ' (isPickup=' + isPickup + ')',
+        );
 
-        // Best-effort: the external Worker computes the authoritative delivery
-        // fee/quote and fires push notifications. We do NOT depend on it to PERSIST
-        // the selection — if the live Worker is stale/unreachable or its write
-        // silently fails, the order would otherwise stay deliveryMethod=null /
-        // deliveryStatus=null and the customer's choice is lost. So we only use its
-        // result for the fee and never let a Worker failure block persistence.
+        // Best-effort: the external Worker (Admin SDK) owns the privileged fields —
+        // deliveryFee, totalAmount, deliveryDistanceKm, driverUid — and fires push
+        // notifications. The customer client is NOT allowed by Firestore rules to
+        // write those fields, so we never include them in the client write. We only
+        // call the Worker to compute the quote/notify and use its quote id (if any).
         let result: DeliveryFinalizeResult | undefined;
         try {
-          console.log('[DataContext] Finalizing delivery via Worker: orderId=' + orderId + ' method=' + method);
+          console.log('[setDeliveryMethod] calling workerFinalizeDelivery...');
           result = await workerFinalizeDelivery(orderId, isPickup ? 'self_pickup' : 'driver');
-          console.log('[DataContext] Worker finalize result:', JSON.stringify(result));
+          console.log('[setDeliveryMethod] worker response:', JSON.stringify(result));
         } catch (e: any) {
-          console.log('[DataContext] Worker finalize failed; persisting selection directly:', e?.message || e);
+          console.log(
+            '[setDeliveryMethod] worker FAILED (continuing with client write):',
+            e?.code || '',
+            e?.message || e,
+          );
         }
 
-        const priceSnapshot = order?.priceSnapshot ?? 0;
-        const fields: Record<string, any> = isPickup
-          ? {
-              deliveryMethod: 'self_pickup',
-              deliveryStatus: 'self_pickup_selected',
-              driverUid: null,
-              deliveryFee: 0,
-              totalAmount: result?.totalAmount ?? priceSnapshot,
-              deliveryPaymentMethod: null,
-            }
-          : {
-              deliveryMethod: 'driver',
-              deliveryStatus: 'ready_for_driver',
-              driverUid: null,
-              deliveryFee: result?.deliveryFee ?? order?.deliveryFee ?? 0,
-              totalAmount:
-                result?.totalAmount ??
-                priceSnapshot + (result?.deliveryFee ?? order?.deliveryFee ?? 0),
-              deliveryDistanceKm: result?.deliveryDistanceKm ?? 0,
-            };
+        // Client write restricted to ONLY the fields the customer is allowed to
+        // update per current Firestore rules: deliveryMethod, deliveryStatus,
+        // deliveryQuoteId, deliveryPricingVersion. Do NOT write driverUid /
+        // deliveryFee / totalAmount / deliveryDistanceKm — those are rejected with
+        // permission-denied and belong to the Worker/Admin SDK.
+        const fields: Record<string, any> = {
+          deliveryMethod: isPickup ? 'self_pickup' : 'driver',
+          deliveryStatus: expectedStatus,
+        };
         if (result?.deliveryQuoteId) fields.deliveryQuoteId = result.deliveryQuoteId;
-        if (deliveryNotes) fields.deliveryNotes = deliveryNotes;
+        console.log('[setDeliveryMethod] exact Firestore payload:', JSON.stringify(fields));
 
-        // Authoritative persistence from the app. This is the success gate: if the
-        // Firestore write throws, the error propagates and the UI shows an error
-        // instead of a false "success".
-        await fsUpdateOrder(orderId, fields);
+        // Authoritative persistence. This is the success gate: if the Firestore
+        // write throws (e.g. permission-denied), the error propagates and the UI
+        // shows an error instead of a false "success".
+        try {
+          await fsUpdateOrder(orderId, fields);
+          console.log('[setDeliveryMethod] fsUpdateOrder SUCCESS for', orderId);
+        } catch (e: any) {
+          console.log(
+            '[setDeliveryMethod] fsUpdateOrder FAILED:',
+            'code=' + (e?.code || 'unknown'),
+            'message=' + (e?.message || String(e)),
+          );
+          throw e;
+        }
+
+        // Read-back assertion: re-read the same doc and confirm the selection
+        // actually landed. Guards against silent non-persistence.
+        const saved = await fsGetOrder(orderId);
         console.log(
-          '[DataContext] Delivery selection persisted to Firestore:',
-          orderId,
-          '->',
-          fields.deliveryMethod,
-          fields.deliveryStatus,
+          '[setDeliveryMethod] read-back:',
+          JSON.stringify({
+            deliveryMethod: saved?.deliveryMethod ?? null,
+            deliveryStatus: saved?.deliveryStatus ?? null,
+            driverUid: saved?.driverUid ?? null,
+          }),
         );
+        if (
+          !saved ||
+          saved.deliveryMethod !== fields.deliveryMethod ||
+          saved.deliveryStatus !== expectedStatus ||
+          saved.driverUid != null
+        ) {
+          const reason =
+            'read-back mismatch: expected deliveryMethod=' + fields.deliveryMethod +
+            ', deliveryStatus=' + expectedStatus + ', driverUid=null; got ' +
+            JSON.stringify({
+              deliveryMethod: saved?.deliveryMethod ?? null,
+              deliveryStatus: saved?.deliveryStatus ?? null,
+              driverUid: saved?.driverUid ?? null,
+            });
+          console.log('[setDeliveryMethod] ASSERTION FAILED:', reason);
+          throw new Error(reason);
+        }
+        console.log('[setDeliveryMethod] DONE — selection persisted & verified for', orderId);
 
         return (
           result ?? {
-            deliveryFee: fields.deliveryFee,
-            totalAmount: fields.totalAmount,
-            deliveryDistanceKm: fields.deliveryDistanceKm ?? 0,
+            deliveryFee: saved.deliveryFee,
+            totalAmount: saved.totalAmount,
+            deliveryDistanceKm: saved.deliveryDistanceKm,
           }
         );
       }

@@ -3,6 +3,7 @@ import {
   doc,
   addDoc,
   setDoc,
+  getDoc,
   updateDoc,
   onSnapshot,
   query,
@@ -173,6 +174,16 @@ export async function fsUpdateOrder(
   console.log('[fsOrders] updating order', orderId, 'with:', JSON.stringify(payload));
   await updateDoc(doc(db, COLLECTION, orderId), payload);
   console.log('[fsOrders] updated:', orderId);
+}
+
+export async function fsGetOrder(orderId: string): Promise<Order | null> {
+  const db = getFirebaseFirestore();
+  const snap = await getDoc(doc(db, COLLECTION, orderId));
+  if (!snap.exists()) {
+    console.log('[fsOrders] getOrder: not found', orderId);
+    return null;
+  }
+  return toOrder(snap.id, snap.data());
 }
 
 export function fsSubscribeAvailableDeliveries(

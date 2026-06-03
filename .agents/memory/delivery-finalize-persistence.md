@@ -1,30 +1,44 @@
 ---
 name: Delivery finalize persistence (mobile)
-description: Customer delivery selection must be persisted to Firestore by the app, not solely by the external Worker.
+description: What the customer client may write when finalizing delivery, and which fields are Worker/Admin-owned.
 ---
 
 # Delivery finalize persistence
 
-When a customer chooses delivery (driver) or self-pickup on the order details screen,
-`setDeliveryMethod()` (contexts/DataContext.tsx) must write the authoritative fields to
-Firestore **from the app itself** via `fsUpdateOrder`:
-- driver: `deliveryMethod:'driver'`, `deliveryStatus:'ready_for_driver'`, `driverUid:null` (+ fee/total)
-- self-pickup: `deliveryMethod:'self_pickup'`, `deliveryStatus:'self_pickup_selected'`, `driverUid:null`, fee 0
+When a customer finalizes delivery on the order details screen,
+`setDeliveryMethod()` (contexts/DataContext.tsx, Firebase branch) must persist the
+selection itself via `fsUpdateOrder` — it must NOT rely solely on the external
+Cloudflare Worker, whose live deployment can be stale/unreachable and may silently
+not persist, leaving the order `deliveryMethod=null / deliveryStatus=null` and
+drivers seeing nothing.
 
-**Why:** Previously the Firebase-mode branch ONLY called the external Cloudflare Worker
-(`tabbakheen-api.../finalize-delivery`) and never wrote to Firestore. When the *live* Worker
-was stale/unreachable or its write silently failed, the order stayed
-`deliveryMethod=null / deliveryStatus=null / driverUid=null`, the customer's choice was lost,
-and drivers saw nothing. The Worker is external and can't be assumed up-to-date or even
-deployed; the app must not depend on it for persistence.
+## Field ownership (current Firestore rules)
+The **customer client may only update these delivery fields**:
+- `deliveryMethod`
+- `deliveryStatus`
+- `deliveryQuoteId`
+- `deliveryPricingVersion`
 
-**How to apply:** Call the Worker best-effort (try/catch) for the fee quote + push
-notifications, then ALWAYS do the authoritative `fsUpdateOrder`. The Firestore write is the
-success gate — let it throw on failure so the UI shows an error instead of a false success.
-Fee falls back to the order's existing fee / base when the Worker is unavailable. Customers
-are already allowed to update their own order docs from the client (same pattern as
-`submitPaymentProof`/`confirmPayment`), so this needs no Firestore-rule changes.
+The client must **NOT** write `driverUid`, `deliveryFee`, `totalAmount`, or
+`deliveryDistanceKm` — those are rejected with `permission-denied` and are owned by
+the **Worker/Admin SDK** (it also fires push notifications). Writing them from the
+client is exactly what broke the flow before.
 
-The live Worker source (read-only local copy) lives at `.local/worker-src/worker.js`; its
-`/finalize-delivery` handler does persist correctly when reached — the failure is the live
-deployment, not the handler logic.
+`driverUid` must already be `null` at order **creation** (createOrder sets it), because
+`fsSubscribeAvailableDeliveries` queries `where('driverUid','==',null)` — a Firestore
+equality-to-null only matches docs where the field exists. The customer never sets it.
+
+## Correct client write
+- driver: `{ deliveryMethod:'driver', deliveryStatus:'ready_for_driver' [, deliveryQuoteId] }`
+- self-pickup: `{ deliveryMethod:'self_pickup', deliveryStatus:'self_pickup_selected' }`
+
+**How to apply:** call the Worker best-effort (try/catch) for the quote + notifications,
+then write ONLY the allowed fields. Gate success on (1) `fsUpdateOrder` succeeding AND
+(2) a read-back (`fsGetOrder`) asserting `deliveryMethod`/`deliveryStatus` match and
+`driverUid==null`; otherwise throw so the UI shows an error (no false success). Fee/total
+are Worker-owned and may stay unset if the Worker is down — that is acceptable; do not
+backfill them from the client.
+
+The live Worker source (read-only local copy) is `.local/worker-src/worker.js`; its
+`/finalize-delivery` handler persists correctly when reached — the failure is the live
+deployment, which cannot be deployed from here.
