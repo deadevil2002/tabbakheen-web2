@@ -45,6 +45,7 @@ import {
   fsSubmitDriverRating,
   fsSubscribeAppSettings,
 } from '@/services/firestoreOrders';
+import { fsCreateComplaint } from '@/services/firestoreComplaints';
 
 const OFFERS_KEY = 'tabbakheen_offers';
 const ORDERS_KEY = 'tabbakheen_orders';
@@ -767,6 +768,12 @@ export const [DataProvider, useData] = createContextHook(() => {
     async (orderId: string) => {
       const now = new Date().toISOString();
 
+      const existing = orders.find((o) => o.id === orderId);
+      if (existing?.driverUid && existing.deliveryStatus !== 'delivered_pending_confirmation') {
+        console.log('[DataContext] markOrderDelivered BLOCKED: driver-delivery order not awaiting customer confirmation:', orderId, existing.deliveryStatus);
+        throw new Error('Cannot finalize a driver delivery before customer confirmation');
+      }
+
       if (fb) {
         const order = orders.find((o) => o.id === orderId);
         const changes: Record<string, any> = { status: 'delivered', deliveryStatus: 'delivered' };
@@ -796,6 +803,31 @@ export const [DataProvider, useData] = createContextHook(() => {
       console.log('[DataContext] Order marked delivered:', orderId);
     },
     [orders, fb],
+  );
+
+  const raiseDeliveryComplaint = useCallback(
+    async (order: Order, note?: string) => {
+      const payload = {
+        orderId: order.id,
+        orderRef: order.orderRef ?? '',
+        customerUid: order.customerUid,
+        providerUid: order.providerUid,
+        driverUid: order.driverUid ?? '',
+        status: order.status,
+        deliveryStatus: order.deliveryStatus ?? '',
+        driverNote: note ?? '',
+        type: 'delivery_not_confirmed',
+        orderCreatedAt: order.createdAt ?? '',
+        orderUpdatedAt: order.updatedAt ?? '',
+      };
+      if (fb) {
+        await fsCreateComplaint(payload);
+        console.log('[DataContext] Delivery complaint raised via Firestore:', order.id);
+        return;
+      }
+      console.log('[DataContext] Delivery complaint (local, not persisted):', JSON.stringify(payload));
+    },
+    [fb],
   );
 
   // ======= CRUD: Ratings =======
@@ -1208,6 +1240,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     assignDriver,
     updateDriverStatus,
     markOrderDelivered,
+    raiseDeliveryComplaint,
     submitRating,
     submitDriverRating,
     getProviderById,
@@ -1235,7 +1268,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     activeProviders, availableOffers, isLoading,
     createOffer, updateOffer, deleteOffer, createOrder, updateOrderStatus,
     submitPaymentProof, confirmPayment, rejectPayment, setDeliveryMethod,
-    assignDriver, updateDriverStatus, markOrderDelivered, submitRating, submitDriverRating,
+    assignDriver, updateDriverStatus, markOrderDelivered, raiseDeliveryComplaint, submitRating, submitDriverRating,
     getProviderById, getDriverById, getOffersByProvider, getOrdersByCustomer,
     getOrdersByProvider, getOrdersByDriver, getAvailableDeliveries, getAvailableDrivers,
     getRatingsByProvider, getRatingsByDriver, getSubscription, isProviderSubscriptionValid,

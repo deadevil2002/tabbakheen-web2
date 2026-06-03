@@ -1,4 +1,5 @@
 - [MapLibre maps (mobile)](maplibre-maps.md) — Tabbakheen mobile uses MapLibre v11 + MapTiler (no Google Maps); coords are [lng,lat], picker is a center-pin.
+- [Delivery completion gating](delivery-confirmation-flow.md) — driver deliveries finalize only after customer confirms; markOrderDelivered enforces the driverUid + pending-confirmation invariant.
 - [Driver delivery routing (mobile)](driver-delivery-routing.md) — no per-id driver detail route; open a delivery via my-deliveries tab + focusId param (path `/my-deliveries/<id>` 404s).
 - [GitHub push: tabbakheen-web2](github-push-tabbakheen-web2.md) — push via Git Data API w/ GITHUB_TOKEN (bash only); branches lag local, base off replit-final-mobile-stable, include verification deps or build breaks.
 - [Mobile typecheck baseline](typecheck-baseline.md) — `@workspace/mobile` typecheck always fails on scaffold `hooks/useColors.ts` (colors.light/radius); filter it out, don't fix.

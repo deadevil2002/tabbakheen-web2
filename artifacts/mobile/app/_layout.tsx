@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -66,6 +67,7 @@ function NotificationInitializer() {
 function RootLayoutNav() {
   return (
     <>
+      <StatusBar style="dark" />
       <NotificationInitializer />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />

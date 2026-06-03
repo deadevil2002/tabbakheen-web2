@@ -1,0 +1,68 @@
+Stop before push. Two real issues remain.
+
+Attached screenshots show the problems.
+
+Issue 1 — Wrong delivery completion logic:
+The driver can currently close/complete the order while the customer is still in the "confirm receipt" stage.
+
+This is incorrect.
+
+Required logic:
+1. Driver should NOT be able to fully close/complete the order.
+2. Driver can only mark:
+   deliveryStatus = "delivered_waiting_customer_confirmation"
+   or similar existing safe status.
+3. Final completion should happen only after the customer confirms receipt.
+4. If the customer does not confirm, the driver must have a "Raise complaint / بلاغ" button.
+5. The complaint must be sent to admin with full order context:
+   - orderId
+   - orderNumber/orderRef
+   - customerUid
+   - providerUid
+   - driverUid
+   - current status
+   - current deliveryStatus
+   - timestamps
+   - optional driver note
+6. Admin should be able to review it later. If there is no admin UI for complaints yet, create the Firestore collection/write path only and report what admin UI is still missing.
+
+Important:
+- Do not let driver set final completed/delivered status directly.
+- Do not let driver close the order alone.
+- Customer confirmation or admin resolution must be required.
+
+Issue 2 — Status bar / Safe Area still wrong:
+The screen content no longer overlaps visually, but the phone status bar icons/time are white on a light background, so they are invisible.
+
+Fix:
+- Use Expo StatusBar or React Native StatusBar correctly.
+- On light screens, status bar style should be dark-content / dark icons.
+- Apply it globally or per screen using the existing app pattern.
+- Do not hardcode random top padding.
+- Confirm Android and iOS behavior.
+
+Required:
+1. Inspect current delivery completion status flow.
+2. Find where the driver "تم التوصيل" button writes final status.
+3. Change it to waiting-for-customer-confirmation only.
+4. Ensure customer confirm button performs final completion.
+5. Add driver complaint button if customer does not confirm.
+6. Fix StatusBar icon color issue.
+7. Do not touch unrelated flows.
+8. Do not change Firestore rules broadly.
+9. Do not push until reviewed.
+
+Return:
+1. Root cause of driver being able to close early
+2. Exact status transitions before/after
+3. Files changed
+4. Complaint data model/path
+5. Whether Firestore rules need a narrow update
+6. StatusBar fix details
+7. Test steps:
+   - driver marks delivered
+   - customer sees confirm receipt
+   - driver cannot close final
+   - customer confirms
+   - final completion happens
+   - driver complaint path works

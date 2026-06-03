@@ -24,7 +24,7 @@ export default function CustomerOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { orders, getProviderById, getDriverById, submitRating, submitDriverRating, submitPaymentProof, setDeliveryMethod, computeDeliveryFee, fetchDeliveryQuote } = useData();
+  const { orders, getProviderById, getDriverById, submitRating, submitDriverRating, submitPaymentProof, setDeliveryMethod, computeDeliveryFee, fetchDeliveryQuote, markOrderDelivered } = useData();
 
   const order = useMemo(() => orders.find((o) => o.id === id), [orders, id]);
   const provider = useMemo(() => (order ? getProviderById(order.providerUid) : undefined), [order, getProviderById]);
@@ -120,6 +120,26 @@ export default function CustomerOrderDetailScreen() {
       setIsFinalizingDelivery(false);
     }
   }, [order, setDeliveryMethod, t]);
+
+  const handleConfirmReceipt = useCallback(async () => {
+    if (!order) return;
+    AppAlert.alert(t('confirmReceipt'), t('confirmReceiptMsg'), [
+      { text: t('cancel'), style: 'cancel' },
+      {
+        text: t('confirm'),
+        onPress: async () => {
+          try {
+            await markOrderDelivered(order.id);
+            console.log('[OrderDetail] Customer confirmed receipt, order finalized:', order.id);
+            AppAlert.alert(t('success'), t('receiptConfirmed'));
+          } catch (err: any) {
+            console.log('[OrderDetail] confirm receipt error:', err?.message || err);
+            AppAlert.alert(t('error'), t('orderUpdateError'));
+          }
+        },
+      },
+    ]);
+  }, [order, markOrderDelivered, t]);
 
   const handlePickProofImage = useCallback(async () => {
     const result = await pickImageFreeAspect();
@@ -505,6 +525,23 @@ export default function CustomerOrderDetailScreen() {
           </View>
         )}
 
+        {order.deliveryStatus === 'delivered_pending_confirmation' && (
+          <View style={cs.sectionCard}>
+            <View style={s.confirmReceiptInfo}>
+              <PackageCheck size={28} color={Colors.success} />
+              <Text style={[s.confirmReceiptTitle, r && cs.rtlText]}>{t('confirmReceipt')}</Text>
+              <Text style={[s.confirmReceiptDesc, r && cs.rtlText]}>{t('awaitingYourConfirmation')}</Text>
+            </View>
+            <Pressable
+              style={({ pressed }) => [s.confirmReceiptBtn, pressed && cs.btnPressed]}
+              onPress={handleConfirmReceipt}
+            >
+              <PackageCheck size={20} color={Colors.white} />
+              <Text style={s.confirmReceiptBtnText}>{t('confirmReceipt')}</Text>
+            </Pressable>
+          </View>
+        )}
+
         {order.driverUid && order.deliveryStatus && order.deliveryStatus !== 'ready_for_driver' && (
           <View style={cs.sectionCard}>
             <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('deliveryStatusLabel')}</Text>
@@ -517,7 +554,8 @@ export default function CustomerOrderDetailScreen() {
                   delivered: t('delivered'),
                 };
                 const stepOrder = ['driver_assigned', 'picked_up', 'arrived', 'delivered'];
-                const currentIdx = stepOrder.indexOf(order.deliveryStatus ?? '');
+                const effectiveDs = order.deliveryStatus === 'delivered_pending_confirmation' ? 'arrived' : (order.deliveryStatus ?? '');
+                const currentIdx = stepOrder.indexOf(effectiveDs);
                 const isCompleted = idx <= currentIdx;
                 const isCurrent = idx === currentIdx;
                 return (
@@ -651,6 +689,11 @@ const s = StyleSheet.create({
   quoteTotalValue: { fontSize: 18, fontWeight: '800' as const, color: Colors.primary },
   confirmDeliveryBtn: { flexDirection: 'row' as const, backgroundColor: Colors.success, height: 52, borderRadius: 14, justifyContent: 'center' as const, alignItems: 'center' as const, gap: 10, marginBottom: 10 },
   confirmDeliveryText: { color: Colors.white, fontSize: 16, fontWeight: '700' as const },
+  confirmReceiptInfo: { alignItems: 'center' as const, paddingVertical: 12, gap: 8 },
+  confirmReceiptTitle: { fontSize: 17, fontWeight: '700' as const, color: Colors.success },
+  confirmReceiptDesc: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' as const, lineHeight: 20 },
+  confirmReceiptBtn: { flexDirection: 'row' as const, backgroundColor: Colors.success, height: 52, borderRadius: 14, justifyContent: 'center' as const, alignItems: 'center' as const, gap: 10, marginTop: 8 },
+  confirmReceiptBtnText: { color: Colors.white, fontSize: 16, fontWeight: '700' as const },
   cancelQuoteBtn: { alignItems: 'center' as const, paddingVertical: 12 },
   cancelQuoteText: { fontSize: 14, fontWeight: '600' as const, color: Colors.textSecondary },
 });

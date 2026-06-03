@@ -237,7 +237,7 @@ export default function ProviderOrderDetailScreen() {
           </Pressable>
         )}
 
-        {order.status === 'ready_for_pickup' && (!order.driverUid || order.deliveryStatus !== 'delivered') && order.deliveryStatus !== 'delivered' && (
+        {order.status === 'ready_for_pickup' && !order.driverUid && order.deliveryStatus !== 'delivered' && (
           <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.delivered }, pressed && cs.btnPressed]} onPress={handleMarkDelivered}>
             <CircleCheckBig size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('confirmDelivered')}</Text>
           </Pressable>

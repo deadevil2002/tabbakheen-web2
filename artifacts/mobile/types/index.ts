@@ -16,6 +16,7 @@ export type DeliveryStatus =
   | 'in_transit'
   | 'picked_up'
   | 'arrived'
+  | 'delivered_pending_confirmation'
   | 'delivered'
   | 'cancelled';
 
