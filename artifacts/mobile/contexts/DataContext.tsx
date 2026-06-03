@@ -956,11 +956,16 @@ export const [DataProvider, useData] = createContextHook(() => {
   );
 
   const getAvailableDeliveries = useCallback((): Order[] => {
+    // Match the exact, secure query used by fsSubscribeAvailableDeliveries and the
+    // Firestore rules: an order is available to drivers iff it is ready for a driver
+    // and not yet claimed. We deliberately do NOT also require deliveryMethod ===
+    // 'driver' here: the server Worker that finalizes delivery may persist the method
+    // as 'driver_delivery' (or leave it unset), and a strict equality check silently
+    // hid every available order from drivers. deliveryStatus === 'ready_for_driver' is
+    // only ever set for driver deliveries (self-pickup uses 'self_pickup_selected'), so
+    // these two conditions are sufficient and cannot surface pickup orders.
     return orders.filter(
-      (o) =>
-        o.deliveryMethod === 'driver' &&
-        o.deliveryStatus === 'ready_for_driver' &&
-        !o.driverUid,
+      (o) => o.deliveryStatus === 'ready_for_driver' && !o.driverUid,
     );
   }, [orders]);
 
