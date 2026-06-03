@@ -769,6 +769,12 @@ export const [DataProvider, useData] = createContextHook(() => {
       const now = new Date().toISOString();
 
       const existing = orders.find((o) => o.id === orderId);
+      // Only the order's customer may finalize the order (defense-in-depth,
+      // independent of UI gating).
+      if (existing && authUser && authUser.uid !== existing.customerUid) {
+        console.log('[DataContext] markOrderDelivered BLOCKED: only the customer can finalize the order:', orderId, authUser.role);
+        throw new Error('Only the customer can confirm receipt of the order');
+      }
       if (existing?.driverUid && existing.deliveryStatus !== 'delivered_pending_confirmation') {
         console.log('[DataContext] markOrderDelivered BLOCKED: driver-delivery order not awaiting customer confirmation:', orderId, existing.deliveryStatus);
         throw new Error('Cannot finalize a driver delivery before customer confirmation');
@@ -776,12 +782,46 @@ export const [DataProvider, useData] = createContextHook(() => {
 
       if (fb) {
         const order = orders.find((o) => o.id === orderId);
-        const changes: Record<string, any> = { status: 'delivered', deliveryStatus: 'delivered' };
-        if (order?.paymentMethod === 'cod') {
-          changes.paymentStatus = 'paid_confirmed';
+        // Primary write: the field the customer is permitted to change. The UI
+        // treats deliveryStatus === 'delivered' as a finalized order, so this
+        // alone completes the order for the customer.
+        console.log('[DataContext] confirmReceipt primary write', {
+          orderId,
+          payloadKeys: ['deliveryStatus'],
+        });
+        try {
+          await fsUpdateOrder(orderId, { deliveryStatus: 'delivered' });
+        } catch (e: any) {
+          console.log('[DataContext] confirmReceipt primary write FAILED', {
+            orderId,
+            code: e?.code,
+            message: e?.message,
+          });
+          throw e;
         }
-        await fsUpdateOrder(orderId, changes);
-        console.log('[DataContext] Order marked delivered via Firestore (provider action):', orderId);
+        // Best-effort: richer completion fields, written only if Firestore rules
+        // allow the customer to change them. Never blocks confirmation.
+        const extra: Record<string, any> = {
+          status: 'delivered',
+          customerConfirmedAt: now,
+          completedAt: now,
+          updatedAt: now,
+        };
+        if (order?.paymentMethod === 'cod') {
+          extra.paymentStatus = 'paid_confirmed';
+        }
+        try {
+          await fsUpdateOrder(orderId, extra);
+          console.log('[DataContext] confirmReceipt completion fields written:', orderId);
+        } catch (e: any) {
+          console.log('[DataContext] confirmReceipt completion fields skipped (rules?)', {
+            orderId,
+            code: e?.code,
+            message: e?.message,
+            payloadKeys: Object.keys(extra),
+          });
+        }
+        console.log('[DataContext] Order confirmed delivered by customer:', orderId);
         void sendPushNotification('delivered', orderId);
         return;
       }
@@ -806,23 +846,37 @@ export const [DataProvider, useData] = createContextHook(() => {
   );
 
   const raiseDeliveryComplaint = useCallback(
-    async (order: Order, note?: string) => {
+    async (
+      order: Order,
+      opts?: { source?: 'customer' | 'driver'; note?: string; type?: string },
+    ) => {
+      const source = opts?.source ?? 'driver';
+      const type =
+        opts?.type ??
+        (source === 'customer' ? 'customer_rejected_receipt' : 'delivery_not_confirmed');
       const payload = {
         orderId: order.id,
+        orderNumber: order.orderNumber ?? '',
         orderRef: order.orderRef ?? '',
         customerUid: order.customerUid,
         providerUid: order.providerUid,
         driverUid: order.driverUid ?? '',
         status: order.status,
         deliveryStatus: order.deliveryStatus ?? '',
-        driverNote: note ?? '',
-        type: 'delivery_not_confirmed',
-        orderCreatedAt: order.createdAt ?? '',
-        orderUpdatedAt: order.updatedAt ?? '',
+        type,
+        note: opts?.note ?? '',
+        source,
       };
+      console.log('[DataContext] raiseDeliveryComplaint', {
+        orderId: order.id,
+        source,
+        type,
+        fb,
+        payloadKeys: Object.keys(payload),
+      });
       if (fb) {
         await fsCreateComplaint(payload);
-        console.log('[DataContext] Delivery complaint raised via Firestore:', order.id);
+        console.log('[DataContext] Delivery complaint created in delivery_complaints:', order.id);
         return;
       }
       console.log('[DataContext] Delivery complaint (local, not persisted):', JSON.stringify(payload));

@@ -1,0 +1,91 @@
+Fix the mobile delivery completion and complaint creation failure.
+
+Current confirmed issue:
+Customer reaches the order screen after the driver presses "وصلت للعميل" / arrived to customer.
+The order shows "تأكيد استلام الطلب".
+When the customer taps confirm receipt, the app shows:
+"حدث خطأ - خطأ في تحديث الطلب"
+
+Also, when the customer tries to reject/raise a complaint, the app shows the same update error.
+
+Firestore currently does NOT show delivery_complaints or complaints collections after testing, so complaint creation is failing before any document is created.
+
+Important constraints:
+- Do not change the admin dashboard UI.
+- Do not modify Cloudflare Worker unless absolutely required.
+- Do not modify Firestore rules unless you first identify the exact denied write and explain why rules need changing.
+- Do not break provider/customer/driver flows.
+- Do not refactor unrelated code.
+- Keep Arabic UI as-is.
+- Keep the approved delivery logic:
+  1. Driver only presses arrived/delivered-to-customer.
+  2. Order moves to waiting customer confirmation.
+  3. Customer only can finally complete the order.
+  4. If customer rejects, create a delivery complaint.
+
+Task:
+1. Find the exact mobile code paths used by:
+   - Customer confirm receipt
+   - Customer reject receipt / raise complaint
+
+2. Inspect the Firestore update payloads used in both actions.
+
+3. Compare them with the deployed Firestore rules and current order document structure.
+
+4. Fix customer confirm receipt so it updates the order successfully.
+
+Expected behavior for confirm receipt:
+- Only the customer can confirm.
+- Order becomes completed/closed.
+- deliveryStatus becomes delivered/completed if that is what the current rules allow.
+- completedAt / customerConfirmedAt / updatedAt are written only if allowed by rules.
+- Do not let driver complete the order.
+
+5. Fix customer complaint creation.
+
+Expected behavior for complaint:
+- Write to collection:
+  delivery_complaints
+- Use fields compatible with the new admin page:
+  orderId
+  orderNumber
+  orderRef
+  customerUid
+  providerUid
+  driverUid
+  status
+  deliveryStatus
+  complaintStatus: "pending"
+  source: "customer"
+  type
+  note
+  createdAt
+  updatedAt
+
+6. After complaint creation:
+- Keep the order not completed.
+- Update the order to a complaint/disputed state only if rules allow it.
+- If rules do not allow changing the order status, still create the complaint and show success to the customer.
+
+7. Add better console logging around these actions:
+- action name
+- order id
+- attempted payload keys only, not private data
+- Firebase error code/message
+
+8. Test end-to-end:
+- Customer confirms receipt successfully.
+- Customer rejects and creates a delivery complaint successfully.
+- delivery_complaints collection appears in Firestore.
+- Admin dashboard Delivery Complaints page shows the new complaint.
+
+Return:
+- Root cause
+- Files changed
+- Exact payload fixed
+- Whether Firestore rules were touched or not
+- Test result
+
+Do not commit.
+Do not push.
+Do not deploy unless deployment is required for the tested environment.

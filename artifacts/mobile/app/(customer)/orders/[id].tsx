@@ -24,7 +24,7 @@ export default function CustomerOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { orders, getProviderById, getDriverById, submitRating, submitDriverRating, submitPaymentProof, setDeliveryMethod, computeDeliveryFee, fetchDeliveryQuote, markOrderDelivered } = useData();
+  const { orders, getProviderById, getDriverById, submitRating, submitDriverRating, submitPaymentProof, setDeliveryMethod, computeDeliveryFee, fetchDeliveryQuote, markOrderDelivered, raiseDeliveryComplaint } = useData();
 
   const order = useMemo(() => orders.find((o) => o.id === id), [orders, id]);
   const provider = useMemo(() => (order ? getProviderById(order.providerUid) : undefined), [order, getProviderById]);
@@ -133,13 +133,34 @@ export default function CustomerOrderDetailScreen() {
             console.log('[OrderDetail] Customer confirmed receipt, order finalized:', order.id);
             AppAlert.alert(t('success'), t('receiptConfirmed'));
           } catch (err: any) {
-            console.log('[OrderDetail] confirm receipt error:', err?.message || err);
+            console.log('[OrderDetail] confirm receipt error:', { orderId: order.id, code: err?.code, message: err?.message });
             AppAlert.alert(t('error'), t('orderUpdateError'));
           }
         },
       },
     ]);
   }, [order, markOrderDelivered, t]);
+
+  const handleRejectReceipt = useCallback(() => {
+    if (!order) return;
+    AppAlert.alert(t('rejectReceipt'), t('rejectReceiptMsg'), [
+      { text: t('cancel'), style: 'cancel' },
+      {
+        text: t('confirm'),
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await raiseDeliveryComplaint(order, { source: 'customer', type: 'customer_rejected_receipt' });
+            console.log('[OrderDetail] Customer raised delivery complaint:', order.id);
+            AppAlert.alert(t('success'), t('complaintSent'));
+          } catch (err: any) {
+            console.log('[OrderDetail] reject receipt error:', { orderId: order.id, code: err?.code, message: err?.message });
+            AppAlert.alert(t('error'), t('orderUpdateError'));
+          }
+        },
+      },
+    ]);
+  }, [order, raiseDeliveryComplaint, t]);
 
   const handlePickProofImage = useCallback(async () => {
     const result = await pickImageFreeAspect();
@@ -539,6 +560,13 @@ export default function CustomerOrderDetailScreen() {
               <PackageCheck size={20} color={Colors.white} />
               <Text style={s.confirmReceiptBtnText}>{t('confirmReceipt')}</Text>
             </Pressable>
+            <Pressable
+              style={({ pressed }) => [s.rejectReceiptBtn, pressed && cs.btnPressed]}
+              onPress={handleRejectReceipt}
+            >
+              <XCircle size={20} color={Colors.error} />
+              <Text style={s.rejectReceiptBtnText}>{t('rejectReceipt')}</Text>
+            </Pressable>
           </View>
         )}
 
@@ -694,6 +722,8 @@ const s = StyleSheet.create({
   confirmReceiptDesc: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' as const, lineHeight: 20 },
   confirmReceiptBtn: { flexDirection: 'row' as const, backgroundColor: Colors.success, height: 52, borderRadius: 14, justifyContent: 'center' as const, alignItems: 'center' as const, gap: 10, marginTop: 8 },
   confirmReceiptBtnText: { color: Colors.white, fontSize: 16, fontWeight: '700' as const },
+  rejectReceiptBtn: { flexDirection: 'row' as const, backgroundColor: 'transparent', height: 48, borderRadius: 14, justifyContent: 'center' as const, alignItems: 'center' as const, gap: 8, marginTop: 10, borderWidth: 1, borderColor: Colors.error },
+  rejectReceiptBtnText: { color: Colors.error, fontSize: 15, fontWeight: '700' as const },
   cancelQuoteBtn: { alignItems: 'center' as const, paddingVertical: 12 },
   cancelQuoteText: { fontSize: 14, fontWeight: '600' as const, color: Colors.textSecondary },
 });

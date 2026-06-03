@@ -1,6 +1,6 @@
 ---
-name: Delivery completion gating (Tabbakheen mobile)
-description: Who is allowed to finalize an order to 'delivered', and the required two-party confirmation for driver deliveries.
+name: Delivery completion gating + complaints (Tabbakheen mobile)
+description: Who may finalize an order to 'delivered', the two-party confirmation for driver deliveries, and how delivery complaints are persisted under Firestore rules.
 ---
 
 # Delivery completion gating
@@ -9,28 +9,56 @@ Driver-delivery orders must NOT be closed by the driver alone. The state machine
 `arrived → delivered_pending_confirmation → delivered`, and the final `delivered`
 transition happens ONLY when the customer confirms receipt.
 
-- Driver sets `delivered_pending_confirmation` (never `delivered`). In that state the
-  driver also gets a "Raise complaint / بلاغ" action that writes full order context to
-  the Firestore `complaints` collection (used when the customer never confirms).
+- Driver sets `delivered_pending_confirmation` (never `delivered`).
 - Customer confirm-receipt button (shown only for `delivered_pending_confirmation`)
-  calls `markOrderDelivered`, which performs the real finalization (status +
-  deliveryStatus = 'delivered', COD → paid_confirmed).
+  calls `markOrderDelivered`, which finalizes the order.
+- Customer also has a reject-receipt action in that state that raises a delivery
+  complaint and does NOT finalize the order.
 - Provider "confirm delivered" is for SELF-PICKUP only (no `driverUid`). It must never
   appear for driver-delivery orders.
 
-**Invariant enforced in `markOrderDelivered` (DataContext):** if an order has a
-`driverUid` and its `deliveryStatus !== 'delivered_pending_confirmation'`, the call
-throws. This is defense-in-depth so no UI path (provider or otherwise) can bypass the
-customer-confirmation gate for driver deliveries.
+**Invariants enforced in `markOrderDelivered` (DataContext):** the actor must be the
+order's customer (`authUser.uid === order.customerUid`); and if an order has a
+`driverUid` its `deliveryStatus` must be `delivered_pending_confirmation`, else it
+throws. Defense-in-depth so no UI path can bypass the gate.
 
-**Why:** original flow let the driver (and the provider's confirm-delivered button) jump
+**Why:** original flow let the driver / provider's confirm-delivered button jump
 straight to `delivered`, closing the order before the customer acknowledged receipt.
 
-**How to apply:** when adding any new path that completes an order, route it through
-`markOrderDelivered` and respect the driverUid/pending-confirmation invariant rather than
-writing `deliveryStatus='delivered'` directly.
+# Customer writes must survive Firestore rules (rules-resilient write pattern)
+
+Firestore rules let the customer change delivery-only fields (proven: a customer
+update of `{deliveryMethod, deliveryStatus, deliveryQuoteId}` succeeds) but appear to
+DENY a customer changing `status` / `paymentStatus`. A single `updateDoc` mixing
+allowed + denied fields fails entirely → the user saw `orderUpdateError`.
+
+**Rule:** for any customer-initiated order completion, split the write: a *primary*
+write of only the field(s) the customer is permitted to change (`{deliveryStatus:
+'delivered'}` — the UI keys "delivered" off `deliveryStatus`), then a *best-effort*
+try/catch write of the richer fields (`status`, `customerConfirmedAt`, `completedAt`,
+`updatedAt`, COD→`paymentStatus`) that swallows rule denials. Never let the richer
+write block confirmation.
+
+# Delivery complaints → `delivery_complaints` (NOT `complaints`)
+
+The admin dashboard (Cloudflare Worker) reads the **`delivery_complaints`** collection.
+An earlier bug wrote to `complaints` with fields `resolved`/`driverNote`, so complaints
+never appeared in admin. Always write complaints to `delivery_complaints` with
+admin-compatible fields: `orderId, orderNumber, orderRef, customerUid, providerUid,
+driverUid, status, deliveryStatus, complaintStatus:'pending', source, type, note,
+createdAt/updatedAt`.
+
+`raiseDeliveryComplaint(order, {source,type,note})` builds this payload — driver call
+defaults `source='driver'`; customer reject uses `source='customer'`,
+`type='customer_rejected_receipt'`.
+
+**Admin compatibility:** the Worker's `complaintEffStatus()` only recognizes
+`open/resolved/closed` and falls back to `'open'` for anything else, so
+`complaintStatus:'pending'` displays under the admin "Open" filter. Do not change the
+Worker for this.
 
 ## Open items (not in repo)
-- Firestore security rules are NOT in the repo (managed in Firebase console). The
-  `complaints` collection likely needs a narrow rule: allow driver `create`, admin `read`.
-- There is no admin UI to view/resolve `complaints` yet.
+- Firestore security rules are NOT in the repo (Firebase console). Live success of
+  complaint creation requires a rule allowing authed `create` on `delivery_complaints`;
+  the richer confirm-receipt fields require customer update perms. Rules were NOT
+  touched by this work — report the exact rule to the user if live writes still deny.
