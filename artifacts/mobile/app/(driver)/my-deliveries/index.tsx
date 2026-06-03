@@ -1,5 +1,6 @@
 import { AppAlert } from '@/components/AppDialog';
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useEffect } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import {
   View,
   Text,
@@ -30,6 +31,15 @@ export default function MyDeliveriesScreen() {
 
   const [filter, setFilter] = useState<DriverFilter>('all');
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const params = useLocalSearchParams<{ focusId?: string | string[] }>();
+  const focusId = Array.isArray(params.focusId) ? params.focusId[0] : params.focusId;
+
+  useEffect(() => {
+    if (focusId) {
+      setFilter('all');
+      setExpandedOrderId(focusId);
+    }
+  }, [focusId]);
 
   const allDeliveries = useMemo(
     () => (user ? getOrdersByDriver(user.uid) : []),
