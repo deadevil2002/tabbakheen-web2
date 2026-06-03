@@ -12,7 +12,7 @@ import {
   Platform,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -86,6 +86,7 @@ export default function CustomerHomeScreen() {
   const { t, isRTL, locale, toggleLocale } = useLocale();
   const { user } = useAuth();
   const { availableOffers, providers, isLoading, appSettings } = useData();
+  const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
 
   const [search, setSearch] = useState<string>('');
@@ -250,7 +251,7 @@ export default function CustomerHomeScreen() {
 
   return (
     <View style={styles.container}>
-      <SafeAreaView edges={['top']} style={styles.safeTop}>
+      <View style={[styles.safeTop, { paddingTop: insets.top }]}>
         <View style={[styles.header, isRTL && styles.headerRTL]}>
           <View style={styles.headerLeft}>
             <Text style={[styles.greeting, isRTL && styles.rtlText]}>
@@ -277,7 +278,7 @@ export default function CustomerHomeScreen() {
             testID="home-search"
           />
         </View>
-      </SafeAreaView>
+      </View>
 
       <ScrollView
         style={styles.scrollView}

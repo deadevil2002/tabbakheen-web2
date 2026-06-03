@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, Platform, Dimensions } from 'react-native';
+import React, { useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, Platform, Dimensions, Pressable, Linking } from 'react-native';
 import { MapPin, Navigation } from 'lucide-react-native';
 
 let MapLibreMap: any = null;
@@ -48,6 +48,33 @@ function DeliveryRouteMapInner({
 }: Props) {
   const { t, isRTL } = useLocale();
 
+  const openNavigation = useCallback(async () => {
+    if (destLat === null || destLng === null) return;
+    const latlng = `${destLat},${destLng}`;
+    try {
+      if (Platform.OS === 'web') {
+        await Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${latlng}`);
+        return;
+      }
+      if (Platform.OS === 'ios') {
+        const googleUrl = `comgooglemaps://?daddr=${latlng}&directionsmode=driving`;
+        const canGoogle = await Linking.canOpenURL(googleUrl);
+        await Linking.openURL(
+          canGoogle ? googleUrl : `http://maps.apple.com/?daddr=${latlng}&dirflg=d`,
+        );
+        return;
+      }
+      // Android: launch Google Maps turn-by-turn navigation.
+      try {
+        await Linking.openURL(`google.navigation:q=${latlng}`);
+      } catch {
+        await Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${latlng}`);
+      }
+    } catch (err) {
+      console.log('[DeliveryRouteMap] Failed to open navigation:', err);
+    }
+  }, [destLat, destLng]);
+
   const region = useMemo(() => {
     if (originLat && originLng && destLat && destLng) {
       const midLat = (originLat + destLat) / 2;
@@ -81,19 +108,25 @@ function DeliveryRouteMapInner({
   const phaseLabel = phase === 'to_provider' ? t('goingToProvider') : t('goingToCustomer');
 
   return (
-    <View style={styles.container}>
+    <Pressable
+      style={({ pressed }) => [styles.container, pressed && hasDest && styles.containerPressed]}
+      onPress={openNavigation}
+      disabled={!hasDest}
+      accessibilityRole="button"
+      accessibilityLabel={isRTL ? 'افتح الملاحة في الخرائط' : 'Open navigation in maps'}
+    >
       <View style={[styles.phaseRow, isRTL && styles.rowRTL]}>
         <Navigation size={16} color={Colors.primary} />
         <Text style={[styles.phaseText, isRTL && styles.rtlText]}>{phaseLabel}</Text>
       </View>
-      <View style={styles.mapWrapper}>
+      <View style={styles.mapWrapper} pointerEvents="none">
         {isNativeMap ? (
           <MapLibreMap
             style={styles.map}
             mapStyle={MAPTILER_STYLE_URL}
             compass={false}
-            dragPan={true}
-            touchZoom={true}
+            dragPan={false}
+            touchZoom={false}
             touchPitch={false}
             touchRotate={false}
           >
@@ -163,7 +196,15 @@ function DeliveryRouteMapInner({
           <Text style={styles.legendText}>{destLabel}</Text>
         </View>
       </View>
-    </View>
+      {hasDest && (
+        <View style={[styles.navCta, isRTL && styles.rowRTL]}>
+          <Navigation size={16} color={Colors.white} />
+          <Text style={styles.navCtaText}>
+            {isRTL ? 'ابدأ الملاحة' : 'Start navigation'}
+          </Text>
+        </View>
+      )}
+    </Pressable>
   );
 }
 
@@ -183,12 +224,31 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
+  containerPressed: {
+    opacity: 0.92,
+  },
   phaseRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     padding: 14,
     paddingBottom: 0,
+  },
+  navCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    marginHorizontal: 14,
+    marginBottom: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  navCtaText: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.white,
   },
   rowRTL: {
     flexDirection: 'row-reverse',
