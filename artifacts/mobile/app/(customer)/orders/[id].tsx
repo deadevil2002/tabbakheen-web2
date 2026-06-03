@@ -418,7 +418,12 @@ export default function CustomerOrderDetailScreen() {
         {showDeliveryConfirm && deliveryQuote && (
           <View style={cs.sectionCard}>
             <Text style={[cs.sectionTitle, r && cs.rtlText]}>
-              {locale === 'ar' ? 'تأكيد التوصيل' : 'Confirm Delivery'}
+              {locale === 'ar' ? 'اختيار طريقة الاستلام' : 'Choose Pickup Method'}
+            </Text>
+            <Text style={[s.deliveryDesc, r && cs.rtlText]}>
+              {locale === 'ar'
+                ? 'اختر التوصيل عبر مندوب وسيتم عرض الطلب على السائقين المتاحين'
+                : 'Choose driver delivery and your order will be shown to available drivers'}
             </Text>
             <View style={s.quoteCard}>
               <View style={[s.quoteRow, r && cs.rowRTL]}>
@@ -456,7 +461,7 @@ export default function CustomerOrderDetailScreen() {
                 <>
                   <Truck size={20} color={Colors.white} />
                   <Text style={s.confirmDeliveryText}>
-                    {locale === 'ar' ? 'تأكيد التوصيل' : 'Confirm Delivery'}
+                    {locale === 'ar' ? 'طلب مندوب توصيل' : 'Request a Driver'}
                   </Text>
                 </>
               )}
@@ -466,7 +471,9 @@ export default function CustomerOrderDetailScreen() {
               onPress={() => { setShowDeliveryConfirm(false); setDeliveryQuote(null); }}
               disabled={isFinalizingDelivery}
             >
-              <Text style={s.cancelQuoteText}>{t('cancel')}</Text>
+              <Text style={s.cancelQuoteText}>
+                {locale === 'ar' ? 'سأستلم الطلب بنفسي' : "I'll pick it up myself"}
+              </Text>
             </Pressable>
           </View>
         )}
