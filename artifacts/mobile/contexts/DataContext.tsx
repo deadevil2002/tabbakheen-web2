@@ -45,7 +45,11 @@ import {
   fsSubmitDriverRating,
   fsSubscribeAppSettings,
 } from '@/services/firestoreOrders';
-import { fsCreateComplaint } from '@/services/firestoreComplaints';
+import {
+  fsCreateComplaint,
+  fsSubscribeMyComplaints,
+  type ComplaintRef,
+} from '@/services/firestoreComplaints';
 
 const OFFERS_KEY = 'tabbakheen_offers';
 const ORDERS_KEY = 'tabbakheen_orders';
@@ -61,6 +65,7 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const [offers, setOffers] = useState<Offer[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [myComplaints, setMyComplaints] = useState<ComplaintRef[]>([]);
   const [ratings, setRatings] = useState<ProviderRating[]>([]);
   const [driverRatings, setDriverRatings] = useState<DriverRating[]>([]);
   const [providers, setProviders] = useState<User[]>([]);
@@ -235,11 +240,20 @@ export const [DataProvider, useData] = createContextHook(() => {
 
     if (!authUser) {
       setOrders([]);
+      setMyComplaints([]);
       return;
     }
 
     console.log('[DataContext] Setting up order subscriptions for', authUser.role, authUser.uid);
     const unsubs: (() => void)[] = [];
+
+    const complaintField =
+      authUser.role === 'driver'
+        ? 'driverUid'
+        : authUser.role === 'provider'
+          ? 'providerUid'
+          : 'customerUid';
+    unsubs.push(fsSubscribeMyComplaints(complaintField, authUser.uid, setMyComplaints));
 
     if (authUser.role === 'driver') {
       unsubs.push(
@@ -263,6 +277,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       unsubs.forEach((fn) => fn());
       driverAssigned.current = [];
       driverAvailable.current = [];
+      setMyComplaints([]);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fb, authUser?.uid, authUser?.role, mergeDriverOrders]);
@@ -876,12 +891,30 @@ export const [DataProvider, useData] = createContextHook(() => {
       });
       if (fb) {
         await fsCreateComplaint(payload);
+        setMyComplaints((prev) =>
+          prev.some((c) => c.orderId === order.id && c.source === source)
+            ? prev
+            : [...prev, { orderId: order.id, source }],
+        );
         console.log('[DataContext] Delivery complaint created in delivery_complaints:', order.id);
         return;
       }
+      setMyComplaints((prev) =>
+        prev.some((c) => c.orderId === order.id && c.source === source)
+          ? prev
+          : [...prev, { orderId: order.id, source }],
+      );
       console.log('[DataContext] Delivery complaint (local, not persisted):', JSON.stringify(payload));
     },
     [fb],
+  );
+
+  const hasComplaint = useCallback(
+    (orderId: string, source?: 'customer' | 'driver' | 'provider') =>
+      myComplaints.some(
+        (c) => c.orderId === orderId && (!source || c.source === source),
+      ),
+    [myComplaints],
   );
 
   // ======= CRUD: Ratings =======
@@ -1295,6 +1328,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     updateDriverStatus,
     markOrderDelivered,
     raiseDeliveryComplaint,
+    hasComplaint,
     submitRating,
     submitDriverRating,
     getProviderById,
@@ -1322,7 +1356,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     activeProviders, availableOffers, isLoading,
     createOffer, updateOffer, deleteOffer, createOrder, updateOrderStatus,
     submitPaymentProof, confirmPayment, rejectPayment, setDeliveryMethod,
-    assignDriver, updateDriverStatus, markOrderDelivered, raiseDeliveryComplaint, submitRating, submitDriverRating,
+    assignDriver, updateDriverStatus, markOrderDelivered, raiseDeliveryComplaint, hasComplaint, submitRating, submitDriverRating,
     getProviderById, getDriverById, getOffersByProvider, getOrdersByCustomer,
     getOrdersByProvider, getOrdersByDriver, getAvailableDeliveries, getAvailableDrivers,
     getRatingsByProvider, getRatingsByDriver, getSubscription, isProviderSubscriptionValid,

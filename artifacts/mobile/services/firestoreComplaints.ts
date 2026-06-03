@@ -2,10 +2,45 @@ import {
   addDoc,
   collection,
   serverTimestamp,
+  onSnapshot,
+  query,
+  where,
+  type Unsubscribe,
 } from 'firebase/firestore';
 import { getFirebaseFirestore } from './firebase';
 
 const COLLECTION = 'delivery_complaints';
+
+export interface ComplaintRef {
+  orderId: string;
+  source: string;
+}
+
+export function fsSubscribeMyComplaints(
+  field: 'customerUid' | 'providerUid' | 'driverUid',
+  value: string,
+  cb: (complaints: ComplaintRef[]) => void,
+): Unsubscribe {
+  const db = getFirebaseFirestore();
+  const q = query(collection(db, COLLECTION), where(field, '==', value));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const items = snap.docs
+        .map((d) => {
+          const data = d.data() as { orderId?: string; source?: string };
+          return { orderId: data.orderId ?? '', source: data.source ?? '' };
+        })
+        .filter((c) => !!c.orderId);
+      cb(items);
+    },
+    (err: unknown) => {
+      const msg = (err as { message?: string })?.message ?? String(err);
+      console.log('[fsComplaints] subscribe error for', field, ':', msg);
+      cb([]);
+    },
+  );
+}
 
 export interface ComplaintInput {
   orderId: string;

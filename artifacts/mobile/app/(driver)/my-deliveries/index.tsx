@@ -1,4 +1,5 @@
 import { AppAlert } from '@/components/AppDialog';
+import { ComplaintNoteModal } from '@/components/ComplaintNoteModal';
 import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import {
@@ -27,10 +28,11 @@ type DriverFilter = 'all' | 'active' | 'delivered';
 export default function MyDeliveriesScreen() {
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { getOrdersByDriver, updateDeliveryStatusAsDriver, getProviderById, raiseDeliveryComplaint } = useData();
+  const { getOrdersByDriver, updateDeliveryStatusAsDriver, getProviderById, raiseDeliveryComplaint, hasComplaint } = useData();
 
   const [filter, setFilter] = useState<DriverFilter>('all');
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const [complaintOrder, setComplaintOrder] = useState<Order | null>(null);
   const params = useLocalSearchParams<{ focusId?: string | string[] }>();
   const focusId = Array.isArray(params.focusId) ? params.focusId[0] : params.focusId;
 
@@ -154,31 +156,29 @@ export default function MyDeliveriesScreen() {
     [updateDeliveryStatusAsDriver, t, locale],
   );
 
-  const handleRaiseComplaint = useCallback(
-    async (order: Order) => {
-      AppAlert.alert(
-        t('raiseComplaint'),
-        t('raiseComplaintMsg'),
-        [
-          { text: t('cancel'), style: 'cancel' },
-          {
-            text: t('confirm'),
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                await raiseDeliveryComplaint(order);
-                console.log('[MyDeliveries] Complaint raised:', order.id);
-                AppAlert.alert(t('success'), t('complaintSent'));
-              } catch (e: any) {
-                console.log('[MyDeliveries] complaint error:', e?.message || e);
-                AppAlert.alert(t('error'), t('orderUpdateError'));
-              }
-            },
-          },
-        ],
-      );
+  const handleRaiseComplaint = useCallback((order: Order) => {
+    setComplaintOrder(order);
+  }, []);
+
+  const handleSubmitComplaint = useCallback(
+    async (note: string) => {
+      if (!complaintOrder) return;
+      try {
+        await raiseDeliveryComplaint(complaintOrder, {
+          source: 'driver',
+          type: 'delivery_not_confirmed',
+          note,
+        });
+        console.log('[MyDeliveries] Complaint raised:', complaintOrder.id);
+        setComplaintOrder(null);
+        AppAlert.alert(t('success'), t('complaintSent'));
+      } catch (e: any) {
+        console.log('[MyDeliveries] complaint error:', e?.message || e);
+        setComplaintOrder(null);
+        AppAlert.alert(t('error'), t('orderUpdateError'));
+      }
     },
-    [raiseDeliveryComplaint, t],
+    [complaintOrder, raiseDeliveryComplaint, t],
   );
 
   const handleRejectDelivery = useCallback(
@@ -365,19 +365,28 @@ export default function MyDeliveriesScreen() {
                   {t('awaitingCustomerConfirmation')}
                 </Text>
               </View>
-              <Pressable
-                style={({ pressed }) => [styles.actionBtn, styles.complaintBtnStyle, pressed && styles.btnPressed]}
-                onPress={() => handleRaiseComplaint(item)}
-              >
-                <AlertTriangle size={18} color={Colors.white} />
-                <Text style={styles.actionBtnText}>{t('raiseComplaint')}</Text>
-              </Pressable>
+              {hasComplaint(item.id, 'driver') ? (
+                <View style={[styles.complaintRaisedBox, isRTL && styles.rowRTL]}>
+                  <AlertTriangle size={16} color={Colors.textSecondary} />
+                  <Text style={[styles.complaintRaisedText, isRTL && styles.rtlText]}>
+                    {t('complaintRaisedLabel')}
+                  </Text>
+                </View>
+              ) : (
+                <Pressable
+                  style={({ pressed }) => [styles.actionBtn, styles.complaintBtnStyle, pressed && styles.btnPressed]}
+                  onPress={() => handleRaiseComplaint(item)}
+                >
+                  <AlertTriangle size={18} color={Colors.white} />
+                  <Text style={styles.actionBtnText}>{t('raiseComplaint')}</Text>
+                </Pressable>
+              )}
             </>
           )}
         </View>
       );
     },
-    [isRTL, locale, t, user, expandedOrderId, getProviderById, handlePickedUp, handleArrived, handleDelivered, handleRejectDelivery, handleRaiseComplaint, getDeliveryStatusLabel],
+    [isRTL, locale, t, user, expandedOrderId, getProviderById, handlePickedUp, handleArrived, handleDelivered, handleRejectDelivery, handleRaiseComplaint, hasComplaint, getDeliveryStatusLabel],
   );
 
   const filters: DriverFilter[] = ['all', 'active', 'delivered'];
@@ -415,6 +424,14 @@ export default function MyDeliveriesScreen() {
             description={t('emptyDeliveriesDesc')}
           />
         }
+      />
+
+      <ComplaintNoteModal
+        visible={!!complaintOrder}
+        title={t('raiseComplaint')}
+        message={t('raiseComplaintMsg')}
+        onCancel={() => setComplaintOrder(null)}
+        onSubmit={handleSubmitComplaint}
       />
     </View>
   );
@@ -585,6 +602,22 @@ const styles = StyleSheet.create({
   },
   complaintBtnStyle: {
     backgroundColor: Colors.warning,
+  },
+  complaintRaisedBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.surfaceSecondary,
+  },
+  complaintRaisedText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.textSecondary,
   },
   awaitingBox: {
     flexDirection: 'row',

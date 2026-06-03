@@ -1,4 +1,5 @@
 import { AppAlert } from '@/components/AppDialog';
+import { ComplaintNoteModal } from '@/components/ComplaintNoteModal';
 import React, { useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,7 +25,7 @@ export default function CustomerOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { orders, getProviderById, getDriverById, submitRating, submitDriverRating, submitPaymentProof, setDeliveryMethod, computeDeliveryFee, fetchDeliveryQuote, markOrderDelivered, raiseDeliveryComplaint } = useData();
+  const { orders, getProviderById, getDriverById, submitRating, submitDriverRating, submitPaymentProof, setDeliveryMethod, computeDeliveryFee, fetchDeliveryQuote, markOrderDelivered, raiseDeliveryComplaint, hasComplaint } = useData();
 
   const order = useMemo(() => orders.find((o) => o.id === id), [orders, id]);
   const provider = useMemo(() => (order ? getProviderById(order.providerUid) : undefined), [order, getProviderById]);
@@ -43,6 +44,7 @@ export default function CustomerOrderDetailScreen() {
   const [isUploadingProof, setIsUploadingProof] = useState<boolean>(false);
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
   const [showDeliveryConfirm, setShowDeliveryConfirm] = useState<boolean>(false);
+  const [showComplaintModal, setShowComplaintModal] = useState<boolean>(false);
   const [deliveryQuote, setDeliveryQuote] = useState<{ deliveryFee: number; totalAmount: number; deliveryDistanceKm: number; subtotal: number } | null>(null);
   const [isLoadingQuote, setIsLoadingQuote] = useState<boolean>(false);
   const [isFinalizingDelivery, setIsFinalizingDelivery] = useState<boolean>(false);
@@ -143,24 +145,25 @@ export default function CustomerOrderDetailScreen() {
 
   const handleRejectReceipt = useCallback(() => {
     if (!order) return;
-    AppAlert.alert(t('rejectReceipt'), t('rejectReceiptMsg'), [
-      { text: t('cancel'), style: 'cancel' },
-      {
-        text: t('confirm'),
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await raiseDeliveryComplaint(order, { source: 'customer', type: 'customer_rejected_receipt' });
-            console.log('[OrderDetail] Customer raised delivery complaint:', order.id);
-            AppAlert.alert(t('success'), t('complaintSent'));
-          } catch (err: any) {
-            console.log('[OrderDetail] reject receipt error:', { orderId: order.id, code: err?.code, message: err?.message });
-            AppAlert.alert(t('error'), t('orderUpdateError'));
-          }
-        },
-      },
-    ]);
-  }, [order, raiseDeliveryComplaint, t]);
+    setShowComplaintModal(true);
+  }, [order]);
+
+  const handleSubmitComplaint = useCallback(
+    async (note: string) => {
+      if (!order) return;
+      try {
+        await raiseDeliveryComplaint(order, { source: 'customer', type: 'customer_rejected_receipt', note });
+        console.log('[OrderDetail] Customer raised delivery complaint:', order.id);
+        setShowComplaintModal(false);
+        AppAlert.alert(t('success'), t('complaintSent'));
+      } catch (err: any) {
+        console.log('[OrderDetail] reject receipt error:', { orderId: order.id, code: err?.code, message: err?.message });
+        setShowComplaintModal(false);
+        AppAlert.alert(t('error'), t('orderUpdateError'));
+      }
+    },
+    [order, raiseDeliveryComplaint, t],
+  );
 
   const handlePickProofImage = useCallback(async () => {
     const result = await pickImageFreeAspect();
@@ -560,13 +563,20 @@ export default function CustomerOrderDetailScreen() {
               <PackageCheck size={20} color={Colors.white} />
               <Text style={s.confirmReceiptBtnText}>{t('confirmReceipt')}</Text>
             </Pressable>
-            <Pressable
-              style={({ pressed }) => [s.rejectReceiptBtn, pressed && cs.btnPressed]}
-              onPress={handleRejectReceipt}
-            >
-              <XCircle size={20} color={Colors.error} />
-              <Text style={s.rejectReceiptBtnText}>{t('rejectReceipt')}</Text>
-            </Pressable>
+            {hasComplaint(order.id, 'customer') ? (
+              <View style={[s.complaintRaisedBox, r && s.complaintRaisedBoxRTL]}>
+                <XCircle size={18} color={Colors.textSecondary} />
+                <Text style={[s.complaintRaisedText, r && cs.rtlText]}>{t('complaintRaisedLabel')}</Text>
+              </View>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [s.rejectReceiptBtn, pressed && cs.btnPressed]}
+                onPress={handleRejectReceipt}
+              >
+                <XCircle size={20} color={Colors.error} />
+                <Text style={s.rejectReceiptBtnText}>{t('rejectReceipt')}</Text>
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -647,6 +657,13 @@ export default function CustomerOrderDetailScreen() {
         onSave={handleLocationPickerSave}
         initialLocation={user?.location}
       />
+      <ComplaintNoteModal
+        visible={showComplaintModal}
+        title={t('rejectReceipt')}
+        message={t('rejectReceiptMsg')}
+        onCancel={() => setShowComplaintModal(false)}
+        onSubmit={handleSubmitComplaint}
+      />
     </View>
   );
 }
@@ -724,6 +741,9 @@ const s = StyleSheet.create({
   confirmReceiptBtnText: { color: Colors.white, fontSize: 16, fontWeight: '700' as const },
   rejectReceiptBtn: { flexDirection: 'row' as const, backgroundColor: 'transparent', height: 48, borderRadius: 14, justifyContent: 'center' as const, alignItems: 'center' as const, gap: 8, marginTop: 10, borderWidth: 1, borderColor: Colors.error },
   rejectReceiptBtnText: { color: Colors.error, fontSize: 15, fontWeight: '700' as const },
+  complaintRaisedBox: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, height: 48, borderRadius: 14, marginTop: 10, backgroundColor: Colors.surfaceSecondary },
+  complaintRaisedBoxRTL: { flexDirection: 'row-reverse' as const },
+  complaintRaisedText: { color: Colors.textSecondary, fontSize: 14, fontWeight: '600' as const },
   cancelQuoteBtn: { alignItems: 'center' as const, paddingVertical: 12 },
   cancelQuoteText: { fontSize: 14, fontWeight: '600' as const, color: Colors.textSecondary },
 });
