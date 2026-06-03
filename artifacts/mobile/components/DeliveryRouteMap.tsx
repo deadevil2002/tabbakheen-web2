@@ -21,6 +21,7 @@ try {
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
 import { MAPTILER_STYLE_URL, fitZoom } from '@/constants/maptiler';
+import { AppAlert } from '@/components/AppDialog';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Visible map area: container marginHorizontal (20*2) + wrapper margin (14*2).
@@ -49,7 +50,15 @@ function DeliveryRouteMapInner({
   const { t, isRTL } = useLocale();
 
   const openNavigation = useCallback(async () => {
-    if (destLat === null || destLng === null) return;
+    if (destLat === null || destLng === null) {
+      AppAlert.alert(
+        isRTL ? 'الإحداثيات غير متوفرة' : 'Coordinates unavailable',
+        isRTL
+          ? 'لا تتوفر إحداثيات الوجهة لفتح الملاحة.'
+          : 'Destination coordinates are not available to open navigation.',
+      );
+      return;
+    }
     const latlng = `${destLat},${destLng}`;
     try {
       if (Platform.OS === 'web') {
@@ -73,7 +82,7 @@ function DeliveryRouteMapInner({
     } catch (err) {
       console.log('[DeliveryRouteMap] Failed to open navigation:', err);
     }
-  }, [destLat, destLng]);
+  }, [destLat, destLng, isRTL]);
 
   const region = useMemo(() => {
     if (originLat && originLng && destLat && destLng) {
@@ -109,9 +118,8 @@ function DeliveryRouteMapInner({
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.container, pressed && hasDest && styles.containerPressed]}
+      style={({ pressed }) => [styles.container, pressed && styles.containerPressed]}
       onPress={openNavigation}
-      disabled={!hasDest}
       accessibilityRole="button"
       accessibilityLabel={isRTL ? 'افتح الملاحة في الخرائط' : 'Open navigation in maps'}
     >
