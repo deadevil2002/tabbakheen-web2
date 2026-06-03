@@ -29,7 +29,7 @@ import {
 } from '@/mocks/data';
 import { generateId, generateOrderNumber, generateOrderRef, calculateDeliveryFee } from '@/utils/helpers';
 import { isFirebaseConfigured } from '@/services/firebase';
-import { sendPushNotification, aggregateRatingViaWorker, getDeliveryQuote, finalizeDeliveryMethod as workerFinalizeDelivery } from '@/services/pushApi';
+import { sendPushNotification, aggregateRatingViaWorker, getDeliveryQuote, finalizeDeliveryMethod as workerFinalizeDelivery, type DeliveryFinalizeResult } from '@/services/pushApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { fsSubscribeByRole, fsUpdateUser } from '@/services/firestoreUsers';
 import { fsSubscribeOffers, fsCreateOffer, fsUpdateOffer } from '@/services/firestoreOffers';
@@ -547,10 +547,66 @@ export const [DataProvider, useData] = createContextHook(() => {
   const setDeliveryMethod = useCallback(
     async (orderId: string, method: DeliveryMethod, deliveryNotes?: string) => {
       if (fb) {
-        console.log('[DataContext] Finalizing delivery via Worker: orderId=' + orderId + ' method=' + method);
-        const result = await workerFinalizeDelivery(orderId, method === 'self_pickup' ? 'self_pickup' : 'driver');
-        console.log('[DataContext] Worker finalize result:', JSON.stringify(result));
-        return result;
+        const order = orders.find((o) => o.id === orderId);
+        const isPickup = method === 'self_pickup';
+
+        // Best-effort: the external Worker computes the authoritative delivery
+        // fee/quote and fires push notifications. We do NOT depend on it to PERSIST
+        // the selection — if the live Worker is stale/unreachable or its write
+        // silently fails, the order would otherwise stay deliveryMethod=null /
+        // deliveryStatus=null and the customer's choice is lost. So we only use its
+        // result for the fee and never let a Worker failure block persistence.
+        let result: DeliveryFinalizeResult | undefined;
+        try {
+          console.log('[DataContext] Finalizing delivery via Worker: orderId=' + orderId + ' method=' + method);
+          result = await workerFinalizeDelivery(orderId, isPickup ? 'self_pickup' : 'driver');
+          console.log('[DataContext] Worker finalize result:', JSON.stringify(result));
+        } catch (e: any) {
+          console.log('[DataContext] Worker finalize failed; persisting selection directly:', e?.message || e);
+        }
+
+        const priceSnapshot = order?.priceSnapshot ?? 0;
+        const fields: Record<string, any> = isPickup
+          ? {
+              deliveryMethod: 'self_pickup',
+              deliveryStatus: 'self_pickup_selected',
+              driverUid: null,
+              deliveryFee: 0,
+              totalAmount: result?.totalAmount ?? priceSnapshot,
+              deliveryPaymentMethod: null,
+            }
+          : {
+              deliveryMethod: 'driver',
+              deliveryStatus: 'ready_for_driver',
+              driverUid: null,
+              deliveryFee: result?.deliveryFee ?? order?.deliveryFee ?? 0,
+              totalAmount:
+                result?.totalAmount ??
+                priceSnapshot + (result?.deliveryFee ?? order?.deliveryFee ?? 0),
+              deliveryDistanceKm: result?.deliveryDistanceKm ?? 0,
+            };
+        if (result?.deliveryQuoteId) fields.deliveryQuoteId = result.deliveryQuoteId;
+        if (deliveryNotes) fields.deliveryNotes = deliveryNotes;
+
+        // Authoritative persistence from the app. This is the success gate: if the
+        // Firestore write throws, the error propagates and the UI shows an error
+        // instead of a false "success".
+        await fsUpdateOrder(orderId, fields);
+        console.log(
+          '[DataContext] Delivery selection persisted to Firestore:',
+          orderId,
+          '->',
+          fields.deliveryMethod,
+          fields.deliveryStatus,
+        );
+
+        return (
+          result ?? {
+            deliveryFee: fields.deliveryFee,
+            totalAmount: fields.totalAmount,
+            deliveryDistanceKm: fields.deliveryDistanceKm ?? 0,
+          }
+        );
       }
 
       const now = new Date().toISOString();
