@@ -1,0 +1,106 @@
+Complaint System Audit and Fix.
+
+Do not modify payment flow.
+Do not modify delivery flow.
+Do not modify suspension logic.
+Do not modify account status logic.
+Do not modify Firestore rules.
+Do not refactor unrelated code.
+
+Issue discovered during production testing:
+
+A customer successfully submitted a complaint from an order.
+
+Expected:
+- Complaint should appear in:
+  1. Customer → "بلاغاتي"
+  2. Admin → "بلاغات"
+
+Actual:
+- Customer sees "لا توجد بلاغات حتى الآن"
+- Admin does not see the complaint.
+- Order remains active/open.
+
+Task 1 — Complaint persistence audit
+
+Trace the entire complaint creation flow.
+
+Verify:
+- Where complaints are written.
+- Which collection is used.
+- Which collection Admin reads.
+- Which collection "بلاغاتي" reads.
+
+Find any mismatch.
+
+Fix so ALL complaints created by:
+- customer
+- provider
+- driver
+
+are stored in one consistent complaint system.
+
+Requirements:
+
+Every complaint must appear:
+- in Admin complaints page
+- in the creator's "بلاغاتي" page
+
+The creator must only see their own complaints.
+
+Admin must see all complaints.
+
+Task 2 — Order locking while complaint is open
+
+When a complaint is created:
+
+Automatically set the order into a complaint/open-dispute state.
+
+Expected behavior:
+
+Customer:
+- cannot complete the order
+- cannot submit final confirmation
+
+Provider:
+- cannot continue processing the order
+
+Driver:
+- cannot continue delivery actions
+
+Until complaint is resolved.
+
+Admin can:
+
+1. Resolve complaint
+2. Close complaint
+3. Reopen order if appropriate
+
+When complaint is resolved:
+
+Order may continue or be completed according to existing workflow.
+
+Task 3 — Verification
+
+Test with:
+- customer complaint
+- provider complaint
+- driver complaint
+
+Verify:
+
+- complaint appears in creator's "بلاغاتي"
+- complaint appears in Admin
+- order enters dispute state
+- order actions are blocked while dispute is open
+- admin can resolve complaint
+- order can continue afterward
+
+Return:
+
+- Root cause
+- Collections used
+- Files changed
+- Dispute state implementation
+- Test results
+- Confirmation that no unrelated workflows were changed
