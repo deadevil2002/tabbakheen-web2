@@ -9,9 +9,15 @@ Driver-delivery orders must NOT be closed by the driver alone. The state machine
 `arrived → delivered_pending_confirmation → delivered`, and the final `delivered`
 transition happens ONLY when the customer confirms receipt.
 
-- Driver sets `delivered_pending_confirmation` (never `delivered`).
-- Customer confirm-receipt button (shown only for `delivered_pending_confirmation`)
-  calls `markOrderDelivered`, which finalizes the order.
+- Driver sets `arrived`, then `delivered_pending_confirmation` (never `delivered`).
+- Customer confirm-receipt button shows for `deliveryStatus` of EITHER
+  `delivered_pending_confirmation` OR `arrived`, and calls `markOrderDelivered`.
+  **Why both:** `delivered_pending_confirmation` is a newer intermediate state that
+  does not always persist (a driver write can be rejected by Firestore rules, leaving
+  the order stuck at `arrived` showing "وصل السائق" with no confirm button — the
+  reported regression). `arrived` always persists, so keying the button on both makes
+  the customer able to confirm once the driver has reached them. It still does NOT show
+  while the driver is en route (`driver_assigned`/`picked_up`/`in_transit`).
 - Customer also has a reject-receipt action in that state that raises a delivery
   complaint and does NOT finalize the order.
 - Provider "confirm delivered" is for SELF-PICKUP only (no `driverUid`). It must never
@@ -19,8 +25,9 @@ transition happens ONLY when the customer confirms receipt.
 
 **Invariants enforced in `markOrderDelivered` (DataContext):** the actor must be the
 order's customer (`authUser.uid === order.customerUid`); and if an order has a
-`driverUid` its `deliveryStatus` must be `delivered_pending_confirmation`, else it
-throws. Defense-in-depth so no UI path can bypass the gate.
+`driverUid` its `deliveryStatus` must be `delivered_pending_confirmation` OR `arrived`,
+else it throws. The guard must stay in lockstep with the button condition above, or the
+button shows but finalize fails. Defense-in-depth so no UI path can bypass the gate.
 
 **Why:** original flow let the driver / provider's confirm-delivered button jump
 straight to `delivered`, closing the order before the customer acknowledged receipt.

@@ -1,7 +1,7 @@
 - [MapLibre maps (mobile)](maplibre-maps.md) — Tabbakheen mobile uses MapLibre v11 + MapTiler (no Google Maps); coords are [lng,lat], picker is a center-pin.
 - [Complaint gating (mobile)](complaint-gating.md) — duplicate-complaint prevention is order-level (hasComplaint(orderId) no source); docs carry all UIDs so every actor sees the same complaint.
 - [Delivery completion + complaints](delivery-confirmation-flow.md) — customer-only finalize; split writes to survive Firestore rules; complaints go to `delivery_complaints` (not `complaints`) w/ admin-compatible fields.
-- [Driver delivery routing (mobile)](driver-delivery-routing.md) — no per-id driver detail route; open a delivery via my-deliveries tab + focusId param (path `/my-deliveries/<id>` 404s).
+- [Driver delivery routing (mobile)](driver-delivery-routing.md) — my-deliveries has a real `[id].tsx` detail route; cards push `/my-deliveries/<id>`; action buttons live on the tab cards.
 - [GitHub push: tabbakheen-web2](github-push-tabbakheen-web2.md) — push via Git Data API w/ GITHUB_TOKEN (bash only); branches lag local, base off replit-final-mobile-stable, include verification deps or build breaks.
 - [Mobile typecheck baseline](typecheck-baseline.md) — `@workspace/mobile` typecheck always fails on scaffold `hooks/useColors.ts` (colors.light/radius); filter it out, don't fix.
 - [Admin Worker editing](admin-worker-editing.md) — `.local/worker-src/worker.js` is CRLF + one big getAdminHTML template literal; strip/restore CR to edit, escape nested onclick quotes as `\\'`.

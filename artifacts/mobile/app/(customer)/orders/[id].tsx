@@ -615,7 +615,7 @@ export default function CustomerOrderDetailScreen() {
           </View>
         )}
 
-        {order.deliveryStatus === 'delivered_pending_confirmation' && (
+        {(order.deliveryStatus === 'delivered_pending_confirmation' || order.deliveryStatus === 'arrived') && (
           <View style={cs.sectionCard}>
             <View style={s.confirmReceiptInfo}>
               <PackageCheck size={28} color={Colors.success} />

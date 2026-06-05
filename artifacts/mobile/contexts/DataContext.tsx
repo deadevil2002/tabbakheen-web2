@@ -798,7 +798,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         console.log('[DataContext] markOrderDelivered BLOCKED: only the customer can finalize the order:', orderId, authUser.role);
         throw new Error('Only the customer can confirm receipt of the order');
       }
-      if (existing?.driverUid && existing.deliveryStatus !== 'delivered_pending_confirmation') {
+      if (existing?.driverUid && existing.deliveryStatus !== 'delivered_pending_confirmation' && existing.deliveryStatus !== 'arrived') {
         console.log('[DataContext] markOrderDelivered BLOCKED: driver-delivery order not awaiting customer confirmation:', orderId, existing.deliveryStatus);
         throw new Error('Cannot finalize a driver delivery before customer confirmation');
       }
