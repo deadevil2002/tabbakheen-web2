@@ -1,7 +1,7 @@
 import { AppAlert } from '@/components/AppDialog';
 import { ComplaintNoteModal } from '@/components/ComplaintNoteModal';
 import React, { useMemo, useCallback, useState, useEffect } from 'react';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   View,
   Text,
@@ -26,6 +26,7 @@ import { sendLocalNotification } from '@/services/notifications';
 type DriverFilter = 'all' | 'active' | 'delivered';
 
 export default function MyDeliveriesScreen() {
+  const router = useRouter();
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
   const { getOrdersByDriver, updateDeliveryStatusAsDriver, getProviderById, raiseDeliveryComplaint, hasComplaint } = useData();
@@ -242,14 +243,15 @@ export default function MyDeliveriesScreen() {
       return (
         <View style={styles.deliveryCard}>
           <Pressable
-            onPress={() => setExpandedOrderId(isExpanded ? null : item.id)}
-            style={[styles.cardHeader, isRTL && styles.rowRTL]}
+            onPress={() => router.push(`/(driver)/my-deliveries/${item.id}` as any)}
+            style={({ pressed }) => pressed && styles.btnPressed}
           >
+          <View style={[styles.cardHeader, isRTL && styles.rowRTL]}>
             <Text style={[styles.cardTitle, isRTL && styles.rtlText]} numberOfLines={1}>
               {item.offerTitleSnapshot}
             </Text>
             <OrderStatusBadge status={item.status} size="small" />
-          </Pressable>
+          </View>
 
           {item.orderRef ? (
             <Text style={[styles.cardRef, isRTL && styles.rtlText]}>{item.orderRef}</Text>
@@ -295,6 +297,7 @@ export default function MyDeliveriesScreen() {
               </Text>
             </View>
           ) : null}
+          </Pressable>
 
           {isActive && isExpanded && (
             <View style={{ marginHorizontal: -18, marginTop: 12 }}>
@@ -386,7 +389,7 @@ export default function MyDeliveriesScreen() {
         </View>
       );
     },
-    [isRTL, locale, t, user, expandedOrderId, getProviderById, handlePickedUp, handleArrived, handleDelivered, handleRejectDelivery, handleRaiseComplaint, hasComplaint, getDeliveryStatusLabel],
+    [router, isRTL, locale, t, user, expandedOrderId, getProviderById, handlePickedUp, handleArrived, handleDelivered, handleRejectDelivery, handleRaiseComplaint, hasComplaint, getDeliveryStatusLabel],
   );
 
   const filters: DriverFilter[] = ['all', 'active', 'delivered'];

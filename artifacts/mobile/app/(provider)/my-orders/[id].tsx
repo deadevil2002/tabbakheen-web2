@@ -52,7 +52,15 @@ export default function ProviderOrderDetailScreen() {
     if (!order) return;
     AppAlert.alert(t('confirmPayment'), t('confirmPaymentMsg'), [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('confirm'), onPress: async () => { await confirmPayment(order.id); AppAlert.alert(t('success'), t('paymentConfirmed')); } },
+      { text: t('confirm'), onPress: async () => {
+        try {
+          await confirmPayment(order.id);
+          AppAlert.alert(t('success'), t('paymentConfirmed'));
+        } catch (e: any) {
+          console.log('[ProviderOrder] confirmPayment error:', e?.message || e);
+          AppAlert.alert(t('error'), t('orderUpdateError'));
+        }
+      } },
     ]);
   }, [order, confirmPayment, t]);
 
@@ -60,7 +68,15 @@ export default function ProviderOrderDetailScreen() {
     if (!order) return;
     AppAlert.alert(t('rejectPaymentAction'), t('rejectPaymentMsg'), [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('confirm'), style: 'destructive', onPress: async () => { await rejectPayment(order.id); AppAlert.alert(t('success'), t('paymentRejectedMsg')); } },
+      { text: t('confirm'), style: 'destructive', onPress: async () => {
+        try {
+          await rejectPayment(order.id);
+          AppAlert.alert(t('success'), t('paymentRejectedMsg'));
+        } catch (e: any) {
+          console.log('[ProviderOrder] rejectPayment error:', e?.message || e);
+          AppAlert.alert(t('error'), t('orderUpdateError'));
+        }
+      } },
     ]);
   }, [order, rejectPayment, t]);
 

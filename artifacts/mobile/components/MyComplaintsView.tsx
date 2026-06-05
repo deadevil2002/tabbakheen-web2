@@ -10,6 +10,24 @@ import { useAuth } from '@/contexts/AuthContext';
 import { fsSubscribeComplaintsByCreator, type CustomerComplaint } from '@/services/firestoreComplaints';
 import { formatDate } from '@/utils/helpers';
 
+const TYPE_LABELS: Record<'ar' | 'en', Record<string, string>> = {
+  ar: {
+    customer_rejected_receipt: 'العميل رفض الاستلام',
+    delivery_not_confirmed: 'لم يتم تأكيد التوصيل',
+    customer_complaint: 'شكوى عميل',
+  },
+  en: {
+    customer_rejected_receipt: 'Customer Rejected Receipt',
+    delivery_not_confirmed: 'Delivery Not Confirmed',
+    customer_complaint: 'Customer Complaint',
+  },
+};
+
+const PARTY_LABELS: Record<'ar' | 'en', Record<string, string>> = {
+  ar: { customer: 'العميل', driver: 'المندوب', provider: 'مقدم الخدمة' },
+  en: { customer: 'Customer', driver: 'Driver', provider: 'Provider' },
+};
+
 export default function MyComplaintsView() {
   const router = useRouter();
   const { t, isRTL, locale } = useLocale();
@@ -46,17 +64,17 @@ export default function MyComplaintsView() {
     return { text: Colors.warning ?? Colors.primary, bg: Colors.surfaceSecondary };
   };
 
+  const L: 'ar' | 'en' = locale === 'ar' ? 'ar' : 'en';
+
   const targetLabel = (c: CustomerComplaint): string => {
-    if (c.target === 'provider') return t('complaintAgainstProvider');
-    if (c.target === 'driver') return t('complaintAgainstDriver');
-    if (c.type === 'customer_rejected_receipt') return t('complaintAgainstDriver');
+    if (c.target === 'provider' || c.target === 'driver') return PARTY_LABELS[L][c.target];
+    if (c.type === 'customer_rejected_receipt') return PARTY_LABELS[L].driver;
     return '-';
   };
 
   const typeLabel = (c: CustomerComplaint): string => {
-    if (c.type === 'customer_complaint') return t('complaintTypeGeneral');
-    if (c.type === 'customer_rejected_receipt') return t('complaintTypeRejectedReceipt');
-    return c.type || '-';
+    if (!c.type) return '-';
+    return TYPE_LABELS[L][c.type] ?? c.type;
   };
 
   const fmt = (ms: number | null): string => (ms ? formatDate(new Date(ms).toISOString(), locale) : '-');

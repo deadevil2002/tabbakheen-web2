@@ -787,9 +787,14 @@ export const [DataProvider, useData] = createContextHook(() => {
       const now = new Date().toISOString();
 
       const existing = orders.find((o) => o.id === orderId);
+      // A self-pickup order (no assigned driver) is completed by the owning
+      // provider at handover — there is no driver/customer confirmation step.
+      // Driver deliveries remain customer-finalized only.
+      const isOwnerProviderSelfPickup =
+        !!existing && !!authUser && existing.providerUid === authUser.uid && !existing.driverUid;
       // Only the order's customer may finalize the order (defense-in-depth,
-      // independent of UI gating).
-      if (existing && authUser && authUser.uid !== existing.customerUid) {
+      // independent of UI gating) — except the self-pickup case above.
+      if (existing && authUser && authUser.uid !== existing.customerUid && !isOwnerProviderSelfPickup) {
         console.log('[DataContext] markOrderDelivered BLOCKED: only the customer can finalize the order:', orderId, authUser.role);
         throw new Error('Only the customer can confirm receipt of the order');
       }

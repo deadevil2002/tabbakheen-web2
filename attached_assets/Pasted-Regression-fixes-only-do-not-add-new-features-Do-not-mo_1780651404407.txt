@@ -1,0 +1,136 @@
+Regression fixes only — do not add new features.
+
+Do not modify admin dashboard.
+Do not modify Firestore rules.
+Do not modify authentication.
+Do not modify unrelated screens.
+Do not refactor.
+Do not start Phase 2.
+Do not touch password reset emails.
+Do not change delivery workflow logic unless required to fix the listed regression.
+Do not commit.
+Do not push.
+
+Current issues tested on real device:
+
+Issue 1:
+Driver delivery cards still do not open.
+
+Screen:
+Driver → Deliveries
+
+Current behavior:
+Tapping the delivery card does nothing.
+Only the complaint button works.
+
+Expected:
+- Driver can tap any delivery card.
+- It opens the correct delivery/order details screen.
+- This was working before recent complaint fixes.
+- Restore the previous working behavior without changing delivery statuses.
+
+Important:
+Make sure nested buttons like "رفع بلاغ" do not block the whole card press.
+
+--------------------------------------------------
+
+Issue 2:
+Provider payment proof confirmation fails.
+
+Screen:
+Provider → Order details → Customer payment proof section.
+
+Current behavior:
+Provider taps:
+"تأكيد استلام الدفع"
+
+App shows:
+"حدث خطأ - خطأ في تحديث الطلب"
+
+Expected:
+- Provider can confirm receiving payment proof/payment.
+- Order payment status updates correctly.
+- UI updates without error.
+
+Investigate:
+- The exact Firestore payload sent by this button.
+- Whether the provider update payload contains fields not allowed by current rules.
+- If the payload uses fields not allowed, fix the mobile payload only.
+- Do not change Firestore rules.
+
+--------------------------------------------------
+
+Issue 3:
+Complaint type labels in "بلاغاتي" are still raw English.
+
+Example currently visible:
+delivery_not_confirmed
+
+Expected Arabic:
+لم يؤكد العميل الاستلام
+
+Use the same Arabic mapping used by the admin page.
+
+Apply this mapping everywhere in the mobile "بلاغاتي" screen:
+- complaint type
+- complaint status
+- complaint source
+- complaint target
+- delivery status if shown
+
+--------------------------------------------------
+
+Issue 4:
+Order numbering audit only.
+
+Some old complaints still show old order number TB-10005.
+Do not overwrite old records.
+
+But verify:
+- All newly created orders now receive unique order numbers.
+- No new order should reuse TB-10005.
+- Report the current order number generation method.
+
+--------------------------------------------------
+
+Issue 5:
+My Complaints visibility audit only.
+
+Verify:
+- Customer sees only complaints created by that customer.
+- Provider sees only complaints created by that provider.
+- Driver sees only complaints created by that driver.
+
+Do not change this unless the audit finds a real bug.
+
+--------------------------------------------------
+
+Required regression testing after fixes:
+
+1. Driver:
+- Open Driver → Deliveries.
+- Tap delivery card.
+- Confirm order details open.
+- Confirm complaint button still works.
+
+2. Provider:
+- Open provider order details.
+- Tap "تأكيد استلام الدفع".
+- Confirm no error appears.
+- Confirm payment status updates.
+
+3. Customer:
+- Open "بلاغاتي".
+- Confirm complaint labels are Arabic.
+- Confirm only customer-created complaints are shown.
+
+4. Driver:
+- Open "بلاغاتي".
+- Confirm only driver-created complaints are shown.
+
+Return:
+- Root cause for each issue.
+- Files changed.
+- Exact Firestore payload fixed for provider payment confirmation.
+- Confirmation that no Firestore rules were changed.
+- Regression test result.
