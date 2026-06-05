@@ -14,3 +14,4 @@
 - [Safe-area insets (mobile)](safe-area-insets.md) — root had NO SafeAreaProvider; Expo SDK 54 is edge-to-edge so tab bars need inset-based paddingBottom.
 - [Driver available deliveries](driver-available-deliveries.md) — availability = `deliveryStatus=='ready_for_driver' && driverUid==null` only; never also filter by deliveryMethod (it's 'driver' vs 'driver_delivery' inconsistent).
 - [Delivery finalize persistence](delivery-finalize-persistence.md) — customer delivery choice must be written to Firestore by the app (fsUpdateOrder), not solely by the external Worker; Worker is best-effort for fee/notifs only.
+- [Suspension appeals](suspension-appeals.md) — `suspension_appeals` collection; public /appeal routes must precede apiKey gate; accept = reactivate-first-then-mark; lifecycle = in-app notifications only.

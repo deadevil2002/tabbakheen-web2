@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, Linking, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ShieldAlert, Clock, Ban, LogOut, Mail, MessageCircle } from 'lucide-react-native';
+import { ShieldAlert, Clock, Ban, LogOut, Mail, MessageCircle, FileText } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -10,6 +10,7 @@ import { AccountGateResult } from '@/utils/accountGating';
 
 const SUPPORT_EMAIL = 'tabbakheen@gmail.com';
 const WHATSAPP_NUMBER = '966570758881';
+const APPEAL_BASE_URL = 'https://tabbakheen-api.tabbakheen.workers.dev/appeal';
 
 interface AccountGateScreenProps {
   gateResult: AccountGateResult & { allowed: false };
@@ -23,6 +24,20 @@ export default function AccountGateScreen({ gateResult }: AccountGateScreenProps
   const handleLogout = async () => {
     await logout();
     router.replace('/auth/login' as any);
+  };
+
+  const handleAppeal = async () => {
+    const params = new URLSearchParams();
+    if (user?.uid) params.set('uid', user.uid);
+    if (user?.email) params.set('email', user.email);
+    if (user?.role) params.set('role', user.role);
+    if (user?.suspendedReason) params.set('reason', user.suspendedReason);
+    const url = `${APPEAL_BASE_URL}?${params.toString()}`;
+    try {
+      if (Platform.OS === 'web') { window.open(url, '_blank'); return; }
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) { await Linking.openURL(url); }
+    } catch { /* ignore */ }
   };
 
   const getIcon = () => {
@@ -131,6 +146,18 @@ export default function AccountGateScreen({ gateResult }: AccountGateScreenProps
           </Pressable>
         </View>
 
+        {gateResult.reason === 'suspended' ? (
+          <Pressable
+            style={({ pressed }) => [styles.appealBtn, pressed && styles.btnPressed]}
+            onPress={handleAppeal}
+          >
+            <FileText size={20} color={Colors.white} />
+            <Text style={styles.appealText}>
+              {locale === 'ar' ? 'تقديم اعتراض' : 'Submit an Appeal'}
+            </Text>
+          </Pressable>
+        ) : null}
+
         <Pressable
           style={({ pressed }) => [styles.logoutBtn, pressed && styles.btnPressed]}
           onPress={handleLogout}
@@ -238,6 +265,23 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
     color: Colors.primary,
     flex: 1,
+  },
+  appealBtn: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: Colors.primary,
+    height: 52,
+    borderRadius: 14,
+    paddingHorizontal: 32,
+    gap: 10,
+    width: '100%' as any,
+    marginBottom: 12,
+  },
+  appealText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '700' as const,
   },
   logoutBtn: {
     flexDirection: 'row' as const,
