@@ -45,6 +45,8 @@ export default function CustomerOrderDetailScreen() {
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
   const [showDeliveryConfirm, setShowDeliveryConfirm] = useState<boolean>(false);
   const [showComplaintModal, setShowComplaintModal] = useState<boolean>(false);
+  const [showGeneralComplaint, setShowGeneralComplaint] = useState<boolean>(false);
+  const [complaintTarget, setComplaintTarget] = useState<'provider' | 'driver'>('provider');
   const [deliveryQuote, setDeliveryQuote] = useState<{ deliveryFee: number; totalAmount: number; deliveryDistanceKm: number; subtotal: number } | null>(null);
   const [isLoadingQuote, setIsLoadingQuote] = useState<boolean>(false);
   const [isFinalizingDelivery, setIsFinalizingDelivery] = useState<boolean>(false);
@@ -164,6 +166,37 @@ export default function CustomerOrderDetailScreen() {
       }
     },
     [order, raiseDeliveryComplaint, t],
+  );
+
+  const handleOpenGeneralComplaint = useCallback(() => {
+    if (!order) return;
+    if (order.driverUid && driver) {
+      AppAlert.alert(t('complaintAgainstWhom'), undefined, [
+        { text: t('complaintAgainstProvider'), onPress: () => { setComplaintTarget('provider'); setShowGeneralComplaint(true); } },
+        { text: t('complaintAgainstDriver'), onPress: () => { setComplaintTarget('driver'); setShowGeneralComplaint(true); } },
+        { text: t('cancel'), style: 'cancel' },
+      ]);
+    } else {
+      setComplaintTarget('provider');
+      setShowGeneralComplaint(true);
+    }
+  }, [order, driver, t]);
+
+  const handleSubmitGeneralComplaint = useCallback(
+    async (note: string) => {
+      if (!order) return;
+      try {
+        await raiseDeliveryComplaint(order, { source: 'customer', type: 'customer_complaint', target: complaintTarget, note });
+        console.log('[OrderDetail] Customer raised general complaint:', order.id, complaintTarget);
+        setShowGeneralComplaint(false);
+        AppAlert.alert(t('success'), t('complaintSent'));
+      } catch (err: any) {
+        console.log('[OrderDetail] general complaint error:', { orderId: order.id, code: err?.code, message: err?.message });
+        setShowGeneralComplaint(false);
+        AppAlert.alert(t('error'), t('orderUpdateError'));
+      }
+    },
+    [order, complaintTarget, raiseDeliveryComplaint, t],
   );
 
   const handlePickProofImage = useCallback(async () => {
@@ -634,6 +667,26 @@ export default function CustomerOrderDetailScreen() {
 
 
 
+        {['accepted', 'preparing', 'ready_for_pickup', 'searching_driver', 'assigned_to_driver', 'picked_up'].includes(order.status) && order.deliveryStatus !== 'delivered_pending_confirmation' && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('haveAnIssue')}</Text>
+            {hasComplaint(order.id) ? (
+              <View style={[s.complaintRaisedBox, r && s.complaintRaisedBoxRTL]}>
+                <XCircle size={18} color={Colors.textSecondary} />
+                <Text style={[s.complaintRaisedText, r && cs.rtlText]}>{t('complaintRaisedLabel')}</Text>
+              </View>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [s.rejectReceiptBtn, pressed && cs.btnPressed]}
+                onPress={handleOpenGeneralComplaint}
+              >
+                <XCircle size={20} color={Colors.error} />
+                <Text style={s.rejectReceiptBtnText}>{t('raiseComplaint')}</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
         {canRateProvider && (
           <View style={cs.sectionCard}>
             <Text style={[s.ratingTitle, r && cs.rtlText]}>{t('rateProvider')}</Text>
@@ -666,6 +719,13 @@ export default function CustomerOrderDetailScreen() {
         message={t('rejectReceiptMsg')}
         onCancel={() => setShowComplaintModal(false)}
         onSubmit={handleSubmitComplaint}
+      />
+      <ComplaintNoteModal
+        visible={showGeneralComplaint}
+        title={t('raiseComplaint')}
+        message={complaintTarget === 'driver' ? t('complaintAgainstDriverMsg') : t('complaintAgainstProviderMsg')}
+        onCancel={() => setShowGeneralComplaint(false)}
+        onSubmit={handleSubmitGeneralComplaint}
       />
     </View>
   );

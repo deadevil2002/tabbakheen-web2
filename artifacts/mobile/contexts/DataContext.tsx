@@ -866,7 +866,7 @@ export const [DataProvider, useData] = createContextHook(() => {
   const raiseDeliveryComplaint = useCallback(
     async (
       order: Order,
-      opts?: { source?: 'customer' | 'driver'; note?: string; type?: string },
+      opts?: { source?: 'customer' | 'driver'; note?: string; type?: string; target?: 'provider' | 'driver' },
     ) => {
       const source = opts?.source ?? 'driver';
       const type =
@@ -884,6 +884,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         type,
         note: opts?.note ?? '',
         source,
+        target: opts?.target ?? '',
       };
       console.log('[DataContext] raiseDeliveryComplaint', {
         orderId: order.id,

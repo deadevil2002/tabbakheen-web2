@@ -17,6 +17,65 @@ export interface ComplaintRef {
   complaintStatus: string;
 }
 
+export interface CustomerComplaint {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  source: string;
+  target: string;
+  type: string;
+  complaintStatus: string;
+  note: string;
+  adminNote: string;
+  createdAt: number | null;
+  updatedAt: number | null;
+}
+
+function toMillis(v: unknown): number | null {
+  if (!v) return null;
+  const ts = v as { toMillis?: () => number; seconds?: number };
+  if (typeof ts.toMillis === 'function') return ts.toMillis();
+  if (typeof ts.seconds === 'number') return ts.seconds * 1000;
+  const n = new Date(v as string).getTime();
+  return isNaN(n) ? null : n;
+}
+
+export function fsSubscribeCustomerComplaints(
+  customerUid: string,
+  cb: (complaints: CustomerComplaint[]) => void,
+): Unsubscribe {
+  const db = getFirebaseFirestore();
+  const q = query(collection(db, COLLECTION), where('customerUid', '==', customerUid));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const items = snap.docs.map((d) => {
+        const data = d.data() as Record<string, unknown>;
+        return {
+          id: d.id,
+          orderId: (data.orderId as string) ?? '',
+          orderNumber: (data.orderNumber as string) ?? '',
+          source: (data.source as string) ?? '',
+          target: (data.target as string) ?? '',
+          type: (data.type as string) ?? '',
+          complaintStatus: (data.complaintStatus as string) ?? '',
+          note: (data.note as string) ?? '',
+          adminNote: (data.adminNote as string) ?? '',
+          createdAt: toMillis(data.createdAt),
+          updatedAt: toMillis(data.updatedAt),
+        };
+      });
+      items.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+      cb(items);
+    },
+    (err: unknown) => {
+      const msg = (err as { message?: string })?.message ?? String(err);
+      console.log('[fsComplaints] customer complaints subscribe error:', msg);
+      cb([]);
+    },
+  );
+}
+
 export function fsSubscribeMyComplaints(
   field: 'customerUid' | 'providerUid' | 'driverUid',
   value: string,
@@ -59,6 +118,7 @@ export interface ComplaintInput {
   type: string;
   note: string;
   source: string;
+  target?: string;
 }
 
 export async function fsCreateComplaint(input: ComplaintInput): Promise<string> {
@@ -74,6 +134,7 @@ export async function fsCreateComplaint(input: ComplaintInput): Promise<string> 
     deliveryStatus: input.deliveryStatus ?? '',
     complaintStatus: 'pending',
     source: input.source ?? '',
+    target: input.target ?? '',
     type: input.type ?? '',
     note: input.note ?? '',
     createdAt: serverTimestamp(),

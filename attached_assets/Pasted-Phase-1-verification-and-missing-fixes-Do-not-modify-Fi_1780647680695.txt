@@ -1,0 +1,88 @@
+Phase 1 verification and missing fixes.
+
+Do not modify Firestore rules.
+Do not commit.
+Do not push.
+Do not start Phase 2.
+Do not add suspension/appeal system yet.
+
+Important:
+The production admin URL I am testing is:
+https://tabbakheen-api.tabbakheen.workers.dev/admin
+
+Current issue:
+The production admin still shows:
+"بلاغات التوصيل"
+and raw English values like:
+driver
+delivery_not_confirmed
+delivered_pending_confirmation
+
+This means either:
+- the admin worker changes were not deployed to the production URL, or
+- you edited/tested a different worker URL.
+
+Task 1:
+Confirm exactly which admin URL you modified and tested.
+Then make sure all admin complaint changes are applied to:
+https://tabbakheen-api.tabbakheen.workers.dev/admin
+
+Required admin fixes:
+- Sidebar/page title must be "بلاغات" only.
+- Translate all raw complaint values to Arabic.
+- Details modal must show customer/provider/driver names and phone numbers if available.
+- Do not show Firebase UIDs.
+- Keep current admin layout.
+
+Task 2:
+Mobile payment proof issue.
+In provider order details, the customer payment proof currently displays a raw Cloudinary URL.
+Fix it:
+- If the proof is an image, show a preview image.
+- Add button "عرض الإثبات".
+- Do not show the raw URL text.
+- Keep fallback if URL is missing.
+
+Task 3:
+Order number uniqueness.
+Multiple orders for the same customer are showing the same order number like TB-10005.
+This is wrong.
+Investigate root cause.
+Fix order number generation so every order has a unique trackable order number.
+Do not overwrite old order numbers.
+For new orders only:
+- Generate a unique readable order number.
+- Avoid duplicates even for the same customer.
+- Prefer timestamp/random suffix if no central counter exists.
+
+Task 4:
+Customer complaint button.
+Customer currently has no complaint button.
+Add complaint action for customer when order is active or waiting customer confirmation.
+Customer should be able to raise a complaint against:
+- provider
+- driver if driver exists
+
+Use required-note modal.
+Only one active complaint per order.
+
+Task 5:
+Add "بلاغاتي" in customer settings/account.
+It should list complaints raised by the current customer:
+- order number
+- complaint status
+- who complaint is against/source/target
+- note
+- admin reply/adminNote if available
+- created date
+- updated date
+
+Keep it simple and mobile-friendly.
+
+Return:
+- Which admin URL was modified before
+- Which admin URL is now deployed
+- Files changed
+- Confirmation that production admin URL works
+- Root cause for duplicate order number
+- Test result

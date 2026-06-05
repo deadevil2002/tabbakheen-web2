@@ -1,7 +1,8 @@
 import { AppAlert } from '@/components/AppDialog';
 import React, { useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, ArrowRight, Check, X, ChefHat, PackageCheck, CreditCard, Banknote, Building2, Truck, FileCheck, CheckCircle2, XCircle, CircleCheckBig } from 'lucide-react-native';
 import Colors from '@/constants/colors';
@@ -209,7 +210,18 @@ export default function ProviderOrderDetailScreen() {
         {hasPaymentProof && (
           <View style={cs.sectionCard}>
             <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('customerPaymentProof')}</Text>
-            {order.stcPayProofImageUrl ? <View style={s.proofDetail}><Text style={[s.proofLabel, r && cs.rtlText]}>{t('proofImage')}</Text><Text style={s.proofValue} numberOfLines={2}>{order.stcPayProofImageUrl}</Text></View> : null}
+            {order.stcPayProofImageUrl ? (
+              <View style={s.proofDetail}>
+                <Text style={[s.proofLabel, r && cs.rtlText]}>{t('proofImage')}</Text>
+                <Pressable onPress={() => Linking.openURL(order.stcPayProofImageUrl!)}>
+                  <Image source={{ uri: order.stcPayProofImageUrl }} style={s.proofImage} contentFit="cover" />
+                </Pressable>
+                <Pressable style={({ pressed }) => [s.viewProofBtn, pressed && cs.btnPressed]} onPress={() => Linking.openURL(order.stcPayProofImageUrl!)}>
+                  <FileCheck size={16} color={Colors.primary} />
+                  <Text style={s.viewProofText}>{t('viewProof')}</Text>
+                </Pressable>
+              </View>
+            ) : null}
             {order.stcPayProofNote ? <View style={s.proofDetail}><Text style={[s.proofLabel, r && cs.rtlText]}>{t('proofNote')}</Text><Text style={[s.proofValue, r && cs.rtlText]}>{order.stcPayProofNote}</Text></View> : null}
             {order.paymentReference ? <View style={s.proofDetail}><Text style={[s.proofLabel, r && cs.rtlText]}>{t('paymentReferenceLabel')}</Text><Text style={s.proofValue}>{order.paymentReference}</Text></View> : null}
             {canConfirmPayment && (
@@ -266,6 +278,9 @@ const s = StyleSheet.create({
   proofDetail: { marginBottom: 12 },
   proofLabel: { fontSize: 12, color: Colors.textTertiary, marginBottom: 4 },
   proofValue: { fontSize: 14, fontWeight: '600' as const, color: Colors.text },
+  proofImage: { width: '100%', height: 220, borderRadius: 12, backgroundColor: Colors.background },
+  viewProofBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10, height: 44, borderRadius: 12, borderWidth: 1, borderColor: Colors.primary },
+  viewProofText: { color: Colors.primary, fontSize: 14, fontWeight: '700' as const },
   payActionsRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
   confirmPayBtn: { flex: 1, flexDirection: 'row', backgroundColor: Colors.success, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', gap: 8 },
   rejectPayBtn: { flex: 1, flexDirection: 'row', backgroundColor: Colors.error, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', gap: 8 },

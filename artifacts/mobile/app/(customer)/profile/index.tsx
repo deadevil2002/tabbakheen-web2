@@ -27,6 +27,7 @@ import {
   Camera,
   Edit3,
   Save,
+  FileText,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -229,6 +230,15 @@ export default function CustomerProfileScreen() {
             <Globe size={20} color={Colors.primary} />
             <Text style={[styles.menuText, isRTL && styles.rtlText, styles.menuTextFlex]}>{t('language')}</Text>
             <Text style={styles.menuValue}>{locale === 'ar' ? t('arabic') : t('english')}</Text>
+            <Arrow size={18} color={Colors.textTertiary} />
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.menuItem, isRTL && styles.rowRTL, pressed && styles.menuPressed]}
+            onPress={() => router.push('/(customer)/profile/my-complaints' as any)}
+          >
+            <FileText size={20} color={Colors.primary} />
+            <Text style={[styles.menuText, isRTL && styles.rtlText, styles.menuTextFlex]}>{t('myComplaints')}</Text>
             <Arrow size={18} color={Colors.textTertiary} />
           </Pressable>
 
