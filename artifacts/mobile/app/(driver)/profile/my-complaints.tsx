@@ -1,5 +1,5 @@
 import MyComplaintsView from '@/components/MyComplaintsView';
 
-export default function CustomerMyComplaintsScreen() {
+export default function DriverMyComplaintsScreen() {
   return <MyComplaintsView />;
 }

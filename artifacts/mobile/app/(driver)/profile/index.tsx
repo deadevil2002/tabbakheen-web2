@@ -3,7 +3,7 @@ import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Switch, TextInput, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Mail, Phone, MapPin, Star, LogOut, Globe, Truck, HelpCircle, Info, Car, Bike, Hash, Navigation, Save, Camera, ImageIcon, Check, Crosshair } from 'lucide-react-native';
+import { Mail, Phone, MapPin, Star, LogOut, Globe, Truck, HelpCircle, Info, Car, Bike, Hash, Navigation, Save, Camera, ImageIcon, Check, Crosshair, FileText } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -208,6 +208,7 @@ export default function DriverProfileScreen() {
         <View style={cs.menuSection}>
           <Pressable style={[cs.menuRow, r && cs.rowRTL]} onPress={toggleLocale}><Globe size={20} color={Colors.textSecondary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('language')}</Text><Text style={cs.menuValue}>{t('switchLang')}</Text></Pressable>
           <Pressable style={[cs.menuRow, r && cs.rowRTL]} onPress={() => setShowSupport(true)}><HelpCircle size={20} color={Colors.textSecondary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('supportTitle')}</Text></Pressable>
+          <Pressable style={[cs.menuRow, r && cs.rowRTL]} onPress={() => router.push('/(driver)/profile/my-complaints' as any)}><FileText size={20} color={Colors.textSecondary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('myComplaints')}</Text></Pressable>
           <Pressable style={[cs.menuRow, r && cs.rowRTL, { borderBottomWidth: 0 }]} onPress={() => router.push('/(driver)/profile/about' as any)}><Info size={20} color={Colors.textSecondary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('aboutTitle')}</Text></Pressable>
         </View>
 

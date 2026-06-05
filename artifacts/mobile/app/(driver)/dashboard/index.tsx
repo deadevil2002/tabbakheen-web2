@@ -220,10 +220,7 @@ export default function DriverDashboardScreen() {
                     );
                     return;
                   }
-                  router.push({
-                    pathname: '/(driver)/my-deliveries',
-                    params: { focusId: order.id },
-                  } as any);
+                  router.push(`/(driver)/my-deliveries/${order.id}` as any);
                 }}
               >
                 <View style={[styles.recentRow, isRTL && styles.rowRTL]}>
