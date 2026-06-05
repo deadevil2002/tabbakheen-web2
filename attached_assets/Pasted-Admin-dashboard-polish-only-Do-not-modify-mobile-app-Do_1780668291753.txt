@@ -1,0 +1,98 @@
+Admin dashboard polish only.
+
+Do not modify mobile app.
+Do not modify Firestore rules.
+Do not modify order workflow.
+Do not modify delivery workflow.
+Do not modify complaint creation flow.
+Do not refactor unrelated code.
+
+Goal:
+Make the admin dashboard more professional by adding new-item indicators and complaint-violation visibility.
+
+Task 1 — Sidebar counters / new item badges
+
+Add small count badges next to sidebar menu items when there are new/unreviewed items.
+
+Examples:
+- Users: new registered users or unreviewed users
+- Complaints: open/pending complaints
+- Invoices: pending invoices if available
+- Verifications: pending verifications if available
+
+Requirements:
+- Show the number next to the sidebar item.
+- If count is 0, hide the badge.
+- Badge should be small and clean.
+- Use existing admin style.
+- Do not make the sidebar crowded.
+
+Task 2 — Highlight new/unreviewed rows
+
+When opening a list page, highlight new/unreviewed rows with a light background color.
+
+Examples:
+- New user
+- Open complaint
+- Pending invoice
+- Pending verification
+
+Requirements:
+- Use a soft/light highlight color.
+- Do not make it too strong.
+- The row should still be readable.
+- Existing resolved/closed/completed rows should not be highlighted.
+
+Task 3 — Complaint violation visibility in Users page
+
+In the Admin → Users page, show complaint violation information for providers and drivers.
+
+Add columns or badges:
+- complaintCount
+- confirmedComplaintCount
+- accountStatus
+
+Important:
+- confirmedComplaintCount means admin-confirmed violations only.
+- Do not count raw complaints as confirmed violations.
+
+Task 4 — Filtering
+
+Add filters in the Users page for:
+- accountStatus
+  - active
+  - suspended
+- confirmedComplaintCount
+  - 0
+  - 1+
+  - threshold reached
+
+Use the configured suspensionThreshold setting to determine "threshold reached".
+
+Task 5 — User detail modal
+
+Inside the user detail/edit modal, show:
+- complaintCount
+- confirmedComplaintCount
+- suspensionThreshold
+- accountStatus
+- suspendedReason if suspended
+- suspendedAt if available
+
+Task 6 — Verification
+
+Test:
+- Sidebar shows complaints count when open complaints exist.
+- Complaints page highlights open complaints.
+- Users page shows confirmedComplaintCount for provider/driver.
+- Users page can filter suspended users.
+- Users page can filter users with confirmed complaints.
+- Users page can filter users who reached the threshold.
+- Customer users are not auto-suspended.
+
+Return:
+- Files changed
+- Counts added
+- Filters added
+- Data source used
+- Test result

@@ -20,3 +20,9 @@ Cloned from GitHub repo `deadevil2002/tabbakheen-api-worker`. Single esbuild-bun
 
 Deploy from `.local/worker-src` with `npx wrangler deploy` (needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets). The live URL `tabbakheen-api.tabbakheen.workers.dev` is the **default workers.dev subdomain**, served by `workers_dev = true` in `wrangler.toml` — NOT a custom domain. A `routes` entry with `custom_domain = true` pointing at the `*.workers.dev` host fails deploy ("Wildcard operators / Paths not allowed in Custom Domains"). `wrangler.toml` is also CRLF.
 **Why:** the cloned `wrangler.toml` shipped an invalid custom_domain route that blocks every deploy until replaced with `workers_dev = true`.
+
+## Admin "new/unreviewed" semantics (no explicit flags)
+- There is NO `reviewedByAdmin`/`isNew`/`seen` field on users. "New user" = `createdAt` within last 7 days (NEW_USER_WINDOW_DAYS). Be consistent if extending.
+- Invoices are ALWAYS created with `status:"issued"` — there is no "pending" invoice state in data. "Invoices pending" badge/row-highlight (status==='pending') is intentionally inert today (hides at 0), kept for future backend status transitions.
+- Sidebar count badges + soft row highlight (`tr.row-new`) must share the SAME predicate per surface so badge count == highlighted-row count: isNewUser / isOpenComplaint (complaintEffStatus==='open') / isPendingInvoice / isPendingCrVerif (verificationStatus==='pending_review') + isPendingFreelanceFc (reviewStatus pending, missing treated as pending).
+- Violation/confirmedComplaintCount columns & filters apply to provider/driver only — customer rows must show '-' and never be counted.
