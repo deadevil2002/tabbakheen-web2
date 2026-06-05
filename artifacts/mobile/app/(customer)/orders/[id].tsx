@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Linking } from 'react-native';
-import { ArrowLeft, ArrowRight, CreditCard, Banknote, Building2, Truck, Phone, Copy, PackageCheck, MessageCircle, Upload, FileCheck, CheckCircle2, XCircle, ImageIcon } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight, CreditCard, Banknote, Building2, Truck, Phone, Copy, PackageCheck, MessageCircle, Upload, FileCheck, CheckCircle2, XCircle, ImageIcon, MapPin } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -29,6 +29,34 @@ export default function CustomerOrderDetailScreen() {
 
   const order = useMemo(() => orders.find((o) => o.id === id), [orders, id]);
   const provider = useMemo(() => (order ? getProviderById(order.providerUid) : undefined), [order, getProviderById]);
+
+  const openPickupLocation = useCallback(async () => {
+    const lat = provider?.location?.lat;
+    const lng = provider?.location?.lng;
+    const addr = (provider?.address || provider?.displayName || '').trim();
+    const hasCoords = typeof lat === 'number' && typeof lng === 'number';
+    if (!hasCoords && !addr) {
+      AppAlert.alert('', locale === 'ar' ? 'موقع الطباخ غير متوفر' : "Cook's location is unavailable");
+      return;
+    }
+    const query = hasCoords ? `${lat},${lng}` : encodeURIComponent(addr);
+    let url: string;
+    if (Platform.OS === 'ios') {
+      url = hasCoords
+        ? `http://maps.apple.com/?ll=${query}&q=${encodeURIComponent(addr || 'الموقع')}`
+        : `http://maps.apple.com/?q=${query}`;
+    } else if (Platform.OS === 'android') {
+      url = hasCoords ? `geo:${query}?q=${query}(${encodeURIComponent(addr || '')})` : `geo:0,0?q=${query}`;
+    } else {
+      url = `https://www.google.com/maps/search/?api=1&query=${query}`;
+    }
+    try {
+      await Linking.openURL(url);
+    } catch (err) {
+      console.log('[OrderDetail] Cannot open maps:', err);
+      AppAlert.alert('', locale === 'ar' ? 'موقع الطباخ غير متوفر' : "Cook's location is unavailable");
+    }
+  }, [provider, locale]);
   const driver = useMemo(() => (order?.driverUid ? getDriverById(order.driverUid) : undefined), [order, getDriverById]);
 
   const [providerStars, setProviderStars] = useState<number>(0);
@@ -563,6 +591,10 @@ export default function CustomerOrderDetailScreen() {
               <Text style={[s.selfPickupTitle, r && cs.rtlText]}>{t('selfPickup')}</Text>
               <Text style={[s.selfPickupDesc, r && cs.rtlText]}>{t('selfPickupInfo')}</Text>
               {provider && <Text style={[s.selfPickupAddress, r && cs.rtlText]}>{provider.address || provider.displayName}</Text>}
+              <Pressable style={({ pressed }) => [s.openMapBtn, pressed && cs.btnPressed]} onPress={openPickupLocation}>
+                <MapPin size={18} color="#fff" />
+                <Text style={s.openMapBtnText}>{locale === 'ar' ? 'فتح موقع الطباخ في الخريطة' : "Open cook's location on map"}</Text>
+              </Pressable>
             </View>
           </View>
         )}
@@ -785,6 +817,8 @@ const s = StyleSheet.create({
   selfPickupTitle: { fontSize: 17, fontWeight: '700' as const, color: Colors.delivered },
   selfPickupDesc: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' as const, lineHeight: 20 },
   selfPickupAddress: { fontSize: 15, fontWeight: '600' as const, color: Colors.text, marginTop: 4 },
+  openMapBtn: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, backgroundColor: Colors.delivered, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 12, marginTop: 12, alignSelf: 'stretch' as const },
+  openMapBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' as const },
   waitingDriverInfo: { alignItems: 'center' as const, paddingVertical: 16, gap: 10 },
   waitingDriverTitle: { fontSize: 17, fontWeight: '700' as const, color: Colors.assignedToDriver },
   waitingDriverDesc: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' as const, lineHeight: 20 },
