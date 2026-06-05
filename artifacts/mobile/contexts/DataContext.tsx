@@ -59,6 +59,9 @@ const USERS_KEY = 'tabbakheen_users';
 const SUBSCRIPTIONS_KEY = 'tabbakheen_subscriptions';
 const APP_SETTINGS_KEY = 'tabbakheen_app_settings';
 
+const isComplaintActive = (complaintStatus?: string): boolean =>
+  complaintStatus !== 'resolved' && complaintStatus !== 'closed';
+
 export const [DataProvider, useData] = createContextHook(() => {
   const { user: authUser } = useAuth();
   const fb = isFirebaseConfigured();
@@ -889,12 +892,19 @@ export const [DataProvider, useData] = createContextHook(() => {
         fb,
         payloadKeys: Object.keys(payload),
       });
+      const alreadyActive = myComplaints.some(
+        (c) => c.orderId === order.id && isComplaintActive(c.complaintStatus),
+      );
+      if (alreadyActive) {
+        console.log('[DataContext] Active complaint already exists for order, skipping:', order.id);
+        return;
+      }
       if (fb) {
         await fsCreateComplaint(payload);
         setMyComplaints((prev) =>
           prev.some((c) => c.orderId === order.id && c.source === source)
             ? prev
-            : [...prev, { orderId: order.id, source }],
+            : [...prev, { orderId: order.id, source, complaintStatus: 'pending' }],
         );
         console.log('[DataContext] Delivery complaint created in delivery_complaints:', order.id);
         return;
@@ -902,17 +912,20 @@ export const [DataProvider, useData] = createContextHook(() => {
       setMyComplaints((prev) =>
         prev.some((c) => c.orderId === order.id && c.source === source)
           ? prev
-          : [...prev, { orderId: order.id, source }],
+          : [...prev, { orderId: order.id, source, complaintStatus: 'pending' }],
       );
       console.log('[DataContext] Delivery complaint (local, not persisted):', JSON.stringify(payload));
     },
-    [fb],
+    [fb, myComplaints],
   );
 
   const hasComplaint = useCallback(
     (orderId: string, source?: 'customer' | 'driver' | 'provider') =>
       myComplaints.some(
-        (c) => c.orderId === orderId && (!source || c.source === source),
+        (c) =>
+          c.orderId === orderId &&
+          isComplaintActive(c.complaintStatus) &&
+          (!source || c.source === source),
       ),
     [myComplaints],
   );

@@ -14,6 +14,7 @@ const COLLECTION = 'delivery_complaints';
 export interface ComplaintRef {
   orderId: string;
   source: string;
+  complaintStatus: string;
 }
 
 export function fsSubscribeMyComplaints(
@@ -28,8 +29,12 @@ export function fsSubscribeMyComplaints(
     (snap) => {
       const items = snap.docs
         .map((d) => {
-          const data = d.data() as { orderId?: string; source?: string };
-          return { orderId: data.orderId ?? '', source: data.source ?? '' };
+          const data = d.data() as { orderId?: string; source?: string; complaintStatus?: string };
+          return {
+            orderId: data.orderId ?? '',
+            source: data.source ?? '',
+            complaintStatus: data.complaintStatus ?? '',
+          };
         })
         .filter((c) => !!c.orderId);
       cb(items);

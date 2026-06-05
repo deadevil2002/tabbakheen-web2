@@ -50,6 +50,7 @@ export default function CustomerOrderDetailScreen() {
   const [isFinalizingDelivery, setIsFinalizingDelivery] = useState<boolean>(false);
 
   const isDelivered = order?.status === 'delivered' || order?.deliveryStatus === 'delivered';
+  const deliveryActive = !!order && order.status !== 'delivered' && order.status !== 'cancelled' && order.status !== 'rejected' && order.deliveryStatus !== 'delivered' && order.deliveryStatus !== 'cancelled';
   const canRateProvider = isDelivered && !order?.providerHasRating && !order?.ratingSubmitted;
   const canRateDriver = isDelivered && !order?.driverHasRating && !order?.driverRatingSubmitted && !!order?.driverUid;
   const driverAccepted = !!order?.driverUid && order?.deliveryStatus !== 'ready_for_driver';
@@ -563,7 +564,7 @@ export default function CustomerOrderDetailScreen() {
               <PackageCheck size={20} color={Colors.white} />
               <Text style={s.confirmReceiptBtnText}>{t('confirmReceipt')}</Text>
             </Pressable>
-            {hasComplaint(order.id, 'customer') ? (
+            {hasComplaint(order.id) ? (
               <View style={[s.complaintRaisedBox, r && s.complaintRaisedBoxRTL]}>
                 <XCircle size={18} color={Colors.textSecondary} />
                 <Text style={[s.complaintRaisedText, r && cs.rtlText]}>{t('complaintRaisedLabel')}</Text>
@@ -619,13 +620,15 @@ export default function CustomerOrderDetailScreen() {
               </View>
               <View style={{ alignItems: 'center' as const }}><Text style={s.driverRatingBig}>{driver.ratingAverage?.toFixed(1) || '0.0'}</Text><Text style={{ fontSize: 12 }}>⭐</Text></View>
             </View>
-            <Pressable
-              style={({ pressed }) => [s.whatsappDriverBtn, pressed && cs.btnPressed]}
-              onPress={handleShareLocationWithDriver}
-            >
-              <MessageCircle size={20} color="#FFFFFF" />
-              <Text style={s.whatsappText}>{t('contactDriverWhatsapp')}</Text>
-            </Pressable>
+            {deliveryActive && (
+              <Pressable
+                style={({ pressed }) => [s.whatsappDriverBtn, pressed && cs.btnPressed]}
+                onPress={handleShareLocationWithDriver}
+              >
+                <MessageCircle size={20} color="#FFFFFF" />
+                <Text style={s.whatsappText}>{t('contactDriverWhatsapp')}</Text>
+              </Pressable>
+            )}
           </View>
         )}
 

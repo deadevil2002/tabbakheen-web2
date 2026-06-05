@@ -193,7 +193,7 @@ export default function ProviderSettingsScreen() {
   const handleLogout = useCallback(() => {
     AppAlert.alert(t('logout'), locale === 'ar' ? 'هل أنت متأكد من تسجيل الخروج؟' : 'Are you sure you want to logout?', [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('logout'), style: 'destructive', onPress: async () => { await logout(); router.replace('/auth/login' as any); } },
+      { text: t('logoutShort'), style: 'destructive', onPress: async () => { await logout(); router.replace('/auth/login' as any); } },
     ]);
   }, [logout, t, locale]);
 

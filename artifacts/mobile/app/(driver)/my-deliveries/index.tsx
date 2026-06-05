@@ -365,7 +365,7 @@ export default function MyDeliveriesScreen() {
                   {t('awaitingCustomerConfirmation')}
                 </Text>
               </View>
-              {hasComplaint(item.id, 'driver') ? (
+              {hasComplaint(item.id) ? (
                 <View style={[styles.complaintRaisedBox, isRTL && styles.rowRTL]}>
                   <AlertTriangle size={16} color={Colors.textSecondary} />
                   <Text style={[styles.complaintRaisedText, isRTL && styles.rtlText]}>

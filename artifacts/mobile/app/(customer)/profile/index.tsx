@@ -105,7 +105,7 @@ export default function CustomerProfileScreen() {
       [
         { text: t('cancel'), style: 'cancel' },
         {
-          text: t('logout'),
+          text: t('logoutShort'),
           style: 'destructive',
           onPress: async () => {
             await logout();
