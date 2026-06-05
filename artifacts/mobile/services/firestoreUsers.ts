@@ -24,6 +24,7 @@ const FORBIDDEN_FIELDS = [
   'trialEndsAt', 'subscriptionEndsAt',
   'activatedByAdmin', 'approvedByAdmin', 'isApproved',
   'disabledAt', 'disabledReason',
+  'suspendedReason', 'suspendedAt', 'suspendedBy',
   // Verification fields are written ONLY by the Worker/Admin SDK — never by the client.
   'verificationStatus', 'verificationSource', 'crNumber', 'verifiedAt',
   'verificationCrName', 'verificationError', 'verificationCheckedAt',
@@ -66,6 +67,9 @@ function toUser(id: string, data: Record<string, any>): User {
     subscriptionEndsAt: data.subscriptionEndsAt?.toDate?.()?.toISOString?.() ?? data.subscriptionEndsAt,
     activatedByAdmin: data.activatedByAdmin,
     disabledReason: data.disabledReason,
+    suspendedReason: data.suspendedReason,
+    suspendedAt: data.suspendedAt?.toDate?.()?.toISOString?.() ?? data.suspendedAt,
+    suspendedBy: data.suspendedBy,
     expoPushToken: data.expoPushToken,
     pushNotificationsEnabled: data.pushNotificationsEnabled,
     // Only PUBLIC verification fields are hydrated client-side. Sensitive CR data

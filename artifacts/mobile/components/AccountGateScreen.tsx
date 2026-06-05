@@ -59,8 +59,8 @@ export default function AccountGateScreen({ gateResult }: AccountGateScreenProps
           : 'Your free 30-day trial has expired. Contact admin to activate your account.';
       case 'suspended':
         return locale === 'ar'
-          ? 'تم إيقاف حسابك مؤقتاً. تواصل مع الدعم الفني للمزيد من المعلومات.'
-          : 'Your account has been temporarily suspended. Contact support for more information.';
+          ? 'تم إيقاف حسابك مؤقتًا. يمكنك تقديم اعتراض من خلال رابط الاعتراض المرسل لك.'
+          : 'Your account has been temporarily suspended. You can submit an appeal through the appeal link sent to you.';
       case 'disabled':
         return locale === 'ar'
           ? 'تم تعطيل حسابك. تواصل مع الدعم الفني للمزيد من المعلومات.'
@@ -81,12 +81,12 @@ export default function AccountGateScreen({ gateResult }: AccountGateScreenProps
         <Text style={[styles.title, isRTL && styles.rtlText]}>{getTitle()}</Text>
         <Text style={[styles.description, isRTL && styles.rtlText]}>{getDescription()}</Text>
 
-        {user?.disabledReason ? (
+        {(user?.suspendedReason || user?.disabledReason) ? (
           <View style={styles.reasonCard}>
             <Text style={[styles.reasonLabel, isRTL && styles.rtlText]}>
               {locale === 'ar' ? 'السبب:' : 'Reason:'}
             </Text>
-            <Text style={[styles.reasonText, isRTL && styles.rtlText]}>{user.disabledReason}</Text>
+            <Text style={[styles.reasonText, isRTL && styles.rtlText]}>{user.suspendedReason || user.disabledReason}</Text>
           </View>
         ) : null}
 

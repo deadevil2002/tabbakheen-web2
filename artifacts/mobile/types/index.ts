@@ -92,6 +92,9 @@ export interface User {
   subscriptionEndsAt?: string;
   activatedByAdmin?: boolean;
   disabledReason?: string;
+  suspendedReason?: string;
+  suspendedAt?: string;
+  suspendedBy?: string;
   expoPushToken?: string;
   pushNotificationsEnabled?: boolean;
   // Optional commercial-registration verification — PUBLIC fields only.

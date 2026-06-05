@@ -59,6 +59,9 @@ const USERS_KEY = 'tabbakheen_users';
 const SUBSCRIPTIONS_KEY = 'tabbakheen_subscriptions';
 const APP_SETTINGS_KEY = 'tabbakheen_app_settings';
 
+const SUSPENDED_ACCOUNT_MESSAGE =
+  'تم إيقاف حسابك مؤقتًا. يمكنك تقديم اعتراض من خلال رابط الاعتراض المرسل لك.';
+
 const isComplaintActive = (complaintStatus?: string): boolean =>
   complaintStatus !== 'resolved' && complaintStatus !== 'closed';
 
@@ -289,6 +292,9 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const createOffer = useCallback(
     async (offer: Omit<Offer, 'id' | 'createdAt'>) => {
+      if (authUser?.accountStatus === 'suspended') {
+        throw new Error(SUSPENDED_ACCOUNT_MESSAGE);
+      }
       if (fb) {
         const id = await fsCreateOffer(offer);
         const newOffer: Offer = { ...offer, id, createdAt: new Date().toISOString() };
@@ -299,7 +305,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       await saveOffers([newOffer, ...offers]);
       return newOffer;
     },
-    [offers, fb],
+    [offers, fb, authUser],
   );
 
   const updateOffer = useCallback(
@@ -439,6 +445,9 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const updateOrderStatus = useCallback(
     async (orderId: string, status: OrderStatus, comment?: string, reason?: string) => {
+      if ((status === 'accepted' || status === 'preparing') && authUser?.accountStatus === 'suspended') {
+        throw new Error(SUSPENDED_ACCOUNT_MESSAGE);
+      }
       const now = new Date().toISOString();
 
       if (fb) {
@@ -481,7 +490,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       await saveOrders(updated);
       console.log('[DataContext] Order status updated:', orderId, '->', status);
     },
-    [orders, fb],
+    [orders, fb, authUser],
   );
 
   const submitPaymentProof = useCallback(
@@ -729,6 +738,9 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const driverAcceptDelivery = useCallback(
     async (orderId: string, driverUid: string) => {
+      if (authUser?.accountStatus === 'suspended') {
+        throw new Error(SUSPENDED_ACCOUNT_MESSAGE);
+      }
       if (fb) {
         await fsDriverAcceptOrder(orderId, driverUid);
         console.log('[DataContext] Driver self-accepted delivery via Firestore:', driverUid, 'order:', orderId);
@@ -749,7 +761,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       await saveOrders(updated);
       console.log('[DataContext] Driver self-accepted delivery:', driverUid, 'order:', orderId);
     },
-    [orders, fb],
+    [orders, fb, authUser],
   );
 
   const updateDriverStatus = useCallback(
