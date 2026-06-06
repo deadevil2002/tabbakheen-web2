@@ -1,0 +1,69 @@
+Map screen UX fixes after real Android dev-build testing.
+
+The MapLibre map is working now. Do not change the map provider.
+Do not change MapLibre / MapTiler setup.
+Do not touch Wathq.
+Do not change authentication.
+Do not commit.
+Do not push.
+
+Fix only the customer map UX.
+
+Issues observed:
+1. Not all registered providers with saved locations appear on the map.
+   Audit provider filtering logic and make sure every active provider with valid latitude/longitude is shown as a marker and card.
+   Do not show providers without valid coordinates.
+
+2. The floating popup/card over the map is always showing and covers the provider cards below.
+   Remove or redesign this intrusive floating popup.
+   The "عرض صفحة الطباخ" action should be inside the provider bottom card, not in a large overlay that blocks the map/cards.
+
+3. Tapping a provider card currently opens the provider page.
+   Change behavior:
+   - tapping the provider card should focus/center the map on that provider marker
+   - it should NOT navigate to the provider profile
+   - only the button "عرض صفحة الطباخ" should open the provider page
+
+4. Back navigation issue:
+   When opening provider page from the map, pressing back should return to the map screen, not home.
+   Preserve the map context if possible.
+
+5. Add external navigation button:
+   Add a button like "افتح الطريق" or "افتح بالملاحة" for each provider with coordinates.
+   It should open the phone's native map/navigation app.
+   No API keys.
+   No Google Maps API.
+   No paid Directions API.
+
+   Use React Native Linking:
+   - Android: prefer geo:lat,lng?q=lat,lng(label) or google.navigation:q=lat,lng
+   - iOS: Apple Maps URL
+   - fallback: https://www.google.com/maps/dir/?api=1&destination=lat,lng
+
+6. Keep current visual theme.
+   Make the map screen cleaner and more professional:
+   - marker press selects provider
+   - card press centers provider
+   - buttons inside card:
+     أ) عرض صفحة الطباخ
+     ب) افتح الطريق
+
+7. Validate:
+   - Map markers render for all active providers with valid coordinates
+   - card tap centers map only
+   - profile button navigates only when pressed
+   - back from provider profile returns to map
+   - navigation button opens device maps
+   - no crash if coordinates are missing
+   - web fallback still does not crash
+
+Return:
+- files changed
+- exact behavior changed
+- how provider filtering works now
+- URL schemes used for navigation
+- any remaining blockers
+
+No commit.
+No push.
+Wait for approval.

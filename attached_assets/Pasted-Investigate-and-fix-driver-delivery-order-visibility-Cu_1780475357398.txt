@@ -1,0 +1,69 @@
+Investigate and fix driver delivery order visibility.
+
+Current issue:
+Customer placed an order.
+Provider accepted/prepared the order.
+Customer selected delivery, not pickup.
+Driver account enabled "available for delivery".
+But driver sees zero available delivery orders.
+
+Important:
+Do not refactor.
+Do not change unrelated flows.
+Do not break customer/provider order flow.
+Do not change payment flow.
+Do not deploy.
+Do not push until review.
+
+Firestore rules currently allow drivers to read unassigned delivery orders only when:
+deliveryStatus == "ready_for_driver"
+driverUid == null
+
+Task:
+1. Inspect the customer delivery-selection code.
+2. Inspect provider "order ready" code.
+3. Inspect driver available-orders query.
+4. Inspect actual order fields after customer chooses delivery:
+   - deliveryMethod
+   - deliveryStatus
+   - status
+   - driverUid
+   - providerUid
+   - customerUid
+
+Find the mismatch.
+
+Expected behavior:
+After provider marks order ready and customer chooses delivery:
+orders/{orderId} must contain:
+deliveryMethod = delivery
+deliveryStatus = ready_for_driver
+driverUid = null
+
+Then driver available-orders screen must query exactly:
+deliveryStatus == ready_for_driver
+driverUid == null
+
+If current app uses a different deliveryStatus name, normalize it to ready_for_driver OR update both app code and Firestore rules consistently.
+
+Do not loosen rules broadly.
+Do not allow drivers to read all orders.
+Only unassigned ready-for-driver delivery orders should be visible.
+
+Also verify driver claim flow:
+When driver accepts an available order:
+driverUid = current driver uid
+deliveryStatus = driver_assigned or accepted_by_driver
+
+Return:
+1. Root cause
+2. Exact files changed
+3. Existing wrong value vs corrected value
+4. Test steps:
+   - customer creates order
+   - provider prepares
+   - customer selects delivery
+   - driver available = true
+   - driver sees order
+   - driver accepts order
+5. Confirm Firestore rules still secure

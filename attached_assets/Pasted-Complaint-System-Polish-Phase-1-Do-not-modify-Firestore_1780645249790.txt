@@ -1,0 +1,161 @@
+Complaint System Polish Phase 1
+
+Do not modify Firestore rules.
+Do not modify existing delivery workflow.
+Do not modify authentication.
+Do not deploy Firestore changes.
+
+Goal:
+Finish the complaints system UI/UX and admin visibility.
+
+1. Rename admin sidebar item:
+
+Current:
+بلاغات التوصيل
+
+Change to:
+بلاغات
+
+Everywhere in admin UI.
+
+--------------------------------------------------
+
+2. Prevent duplicate complaints.
+
+Rules:
+
+A single order can only have ONE active complaint.
+
+Before creating a complaint:
+
+Check delivery_complaints collection.
+
+If an active complaint already exists for the order:
+
+- Do not create another complaint.
+- Hide complaint button for all users.
+- Show:
+"تم رفع بلاغ لهذا الطلب"
+
+This applies to:
+- customer
+- provider
+- driver
+
+--------------------------------------------------
+
+3. Translate all complaint-related values to Arabic in admin UI.
+
+Never show raw values such as:
+
+delivery_not_confirmed
+delivered_pending_confirmation
+driver
+customer
+provider
+
+Show Arabic labels instead.
+
+--------------------------------------------------
+
+4. Expand complaint details modal.
+
+Display:
+
+- Order number
+- Order reference
+- Customer name
+- Customer phone
+- Provider name
+- Provider phone
+- Driver name
+- Driver phone
+- Vehicle plate number (if available)
+- Complaint source
+- Complaint type
+- Complaint note
+- Complaint status
+- Delivery status
+- Creation date
+- Last update date
+- Admin note
+
+Do not display Firebase UIDs to admins.
+
+--------------------------------------------------
+
+5. Add complaint source identification.
+
+Clearly show:
+
+رفع بواسطة العميل
+
+or
+
+رفع بواسطة مقدم الخدمة
+
+or
+
+رفع بواسطة المندوب
+
+--------------------------------------------------
+
+6. Mobile UI fixes.
+
+Change:
+
+تسجيل الخروج
+
+to:
+
+خروج
+
+inside confirmation dialog.
+
+--------------------------------------------------
+
+7. Guest browsing button.
+
+Change:
+
+تصفح
+
+to:
+
+تصفح كزائر
+
+Center text correctly.
+
+--------------------------------------------------
+
+8. Hide WhatsApp driver button.
+
+When order is:
+
+completed
+cancelled
+closed
+
+Hide:
+
+التواصل مع المندوب عبر واتساب
+
+Button must only appear while delivery is active.
+
+--------------------------------------------------
+
+9. Keep existing complaint records compatible.
+
+Do not delete old complaints.
+
+Map old values into Arabic display labels.
+
+--------------------------------------------------
+
+Return:
+
+- Files changed
+- UI changes completed
+- Duplicate complaint protection logic
+- Arabic mappings added
+- No Firestore rules changes

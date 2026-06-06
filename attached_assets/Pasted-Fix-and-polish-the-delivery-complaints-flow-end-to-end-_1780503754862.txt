@@ -1,0 +1,152 @@
+Fix and polish the delivery complaints flow end-to-end.
+
+Current status:
+- delivery_complaints collection is now created successfully.
+- Admin dashboard shows complaints.
+- Driver can raise a complaint.
+- But there are UX and flow issues that must be fixed.
+
+Important constraints:
+- Do not change Firestore rules.
+- Do not commit.
+- Do not push.
+- Do not break existing customer/provider/driver flows.
+- Keep Arabic UI polished and RTL.
+- Use existing modal/dialog style in the mobile app.
+- Keep admin dashboard layout/sidebar unchanged.
+
+Issues to fix:
+
+1. Customer confirmation button missing
+When driver marks the order as delivered / arrived to customer, the driver screen shows:
+"بانتظار تأكيد العميل"
+But on the customer order details page, there is no visible button to confirm receipt.
+
+Fix:
+- On customer order details page, when deliveryStatus is:
+  delivered_pending_confirmation
+  or any existing equivalent waiting-customer-confirmation status,
+  show a clear button:
+  "تأكيد استلام الطلب"
+- This button must call the fixed customer confirm receipt function.
+- After confirmation, the order should no longer stay in active delivery state.
+
+2. Complaint button must be locked after one complaint
+Currently the complaint button can be pressed more than once for the same order.
+
+Fix:
+- Before showing/enabling "رفع بلاغ", check if a complaint already exists for this orderId in delivery_complaints.
+- If a complaint exists:
+  - Disable/hide the button.
+  - Show a clear status text:
+    "تم رفع بلاغ لهذا الطلب"
+- Do not allow duplicate complaints for the same order from the same actor.
+- Also do not show complaint button for completed orders.
+
+3. Admin complaint details must be more Arabic and useful
+The admin details modal currently shows raw English fields like:
+ready_for_pickup
+delivered_pending_confirmation
+delivery_not_confirmed
+driver
+
+Fix:
+- Display Arabic labels and Arabic translated values.
+Examples:
+  ready_for_pickup = جاهز للاستلام
+  delivered_pending_confirmation = بانتظار تأكيد العميل
+  delivery_not_confirmed = لم يتم تأكيد التوصيل
+  driver = السائق
+  customer = العميل
+  pending/open = مفتوح
+  resolved = تم الحل
+  closed = مغلق
+
+4. Admin complaint details must include useful contact and delivery info
+Add more fields to the admin complaint details if available from order/user docs:
+- Customer name
+- Customer phone
+- Provider name
+- Provider phone
+- Driver name
+- Driver phone
+- Vehicle type
+- Vehicle plate if available
+- Pickup location/address
+- Delivery destination/address
+- Order total
+- Payment method
+- Order created date
+
+If some fields are missing, show "-" instead of breaking.
+
+5. Admin resolution note
+Admin needs a clear text box to write the solution/admin note.
+
+Fix:
+- In complaint details modal, add a textarea:
+  "حل المشكلة / ملاحظة المسؤول"
+- Admin must be able to save it.
+- When clicking "تعليم كمحلول", require a note if the note is empty.
+- Save:
+  adminNote
+  resolvedAt
+  resolvedBy
+  complaintStatus = "resolved"
+
+6. Notify only provider and driver when admin resolves/comments
+When admin writes a solution/admin note, create notifications/messages only for:
+- providerUid
+- driverUid
+
+Do not notify customer for this admin note unless already existing behavior requires it.
+
+Notification text example:
+"تم تحديث بلاغ التوصيل للطلب رقم TB-10005. ملاحظة الإدارة: ..."
+
+Use the existing notifications structure if available. If not available, add a safe minimal notification under:
+users/{uid}/notifications
+
+7. Driver complaint flow must require a note
+Currently the driver can raise a complaint without typing anything.
+
+Fix:
+- When driver taps "رفع بلاغ", open a modal/dialog using the same existing app dialog style.
+- The dialog must include a required text input:
+  "اكتب تفاصيل المشكلة"
+- Do not submit if empty.
+- Show validation:
+  "يرجى كتابة تفاصيل المشكلة"
+- Save the note into delivery_complaints.note
+- source should be "driver"
+- type can be "delivery_not_confirmed" or an existing compatible type.
+
+8. Customer complaint flow must also require a note
+If the customer rejects receipt / raises complaint:
+- Open the same style modal.
+- Require note.
+- source should be "customer"
+- Save note.
+
+9. Admin table should show source in Arabic
+- driver => السائق
+- customer => العميل
+- provider => مقدم الخدمة
+
+10. Verify end-to-end
+Test:
+- Driver delivered order → customer sees confirm receipt button.
+- Customer confirms receipt → order completes correctly.
+- Driver raises complaint → modal requires note → one complaint created.
+- Customer raises complaint → modal requires note → one complaint created.
+- Duplicate complaint button is locked after first complaint.
+- Admin page shows complaint with Arabic values and contact details.
+- Admin can write solution note and mark resolved.
+- Provider and driver receive notification only.
+
+Return:
+- Root cause
+- Files changed
+- Exact behavior fixed
+- Whether Firestore rules were touched or not
+- Test result

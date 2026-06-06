@@ -1,0 +1,64 @@
+Start Wathq Verification Phase — preparation and implementation plan first.
+
+Current status:
+- Release Candidate is stable.
+- Firestore Rules were updated to protect future verification fields.
+- Verification must be optional.
+- Do not block signup.
+- Do not block providers from using the app.
+- Providers without verification remain fully active but without a blue verified badge.
+
+Rules:
+- Do not commit.
+- Do not push.
+- Do not rebuild.
+- Do not deploy.
+- Do not change existing flows.
+- Do not break provider/customer/driver behavior.
+
+Goal:
+Add optional Wathq commercial registration verification for providers/families.
+
+Important security:
+- Wathq API must be called server-side only through Cloudflare Worker tabbakheen-api.
+- Never call Wathq directly from the mobile app.
+- Never expose Wathq secrets in Expo, app.json, EXPO_PUBLIC, or client code.
+- Secrets must live only in Cloudflare Worker secrets.
+
+First, inspect current code and return implementation plan only.
+
+Plan must cover:
+1. Provider settings UI location for entering Commercial Registration number.
+2. Firestore fields already protected by rules:
+   - verificationStatus
+   - verificationSource
+   - crNumber
+   - verifiedAt
+   - verificationCrName
+   - verificationError
+   - verificationCheckedAt
+3. Shared VerifiedBadge component placement.
+4. Where badge should appear:
+   - provider profile
+   - offer cards
+   - map cards
+   - provider lists
+5. Cloudflare Worker endpoint design:
+   POST /verify-cr
+6. Required Worker secrets:
+   WATHQ_API_KEY
+   WATHQ_API_SECRET
+7. Confirm whether current Wathq account uses OAuth2 key+secret or simple apiKey.
+8. Firestore write path through Worker/Admin SDK only.
+9. Manual review fallback if Wathq result is unclear.
+10. No blocking of unverified providers.
+
+Return:
+- exact files to change
+- exact Worker route design
+- exact Cloudflare secrets needed
+- questions before implementation
+- whether any app rebuild will be required
+
+Do not implement code yet.
+Wait for approval.

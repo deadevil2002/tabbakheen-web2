@@ -1,0 +1,161 @@
+Start a full production and store-readiness audit for Tabbakheen.
+
+Important:
+Read-only audit only.
+
+Do not modify code.
+Do not install packages.
+Do not commit.
+Do not push.
+Do not deploy.
+Do not run destructive commands.
+Do not change Firebase, Cloudflare, or app configuration.
+
+Current context:
+- Project: Tabbakheen
+- Current active branch in GitHub/Replit: replit-monorepo
+- Mobile app is under artifacts/mobile/
+- Replit is development only.
+- Production must rely only on Cloudflare, Firebase, Cloudinary, Expo services, and official production domains.
+- Do not introduce any Replit runtime dependency.
+- Cloudflare production Worker exists separately as tabbakheen-api.
+- Wathq integration is planned later only. Do not implement it now.
+
+Audit scope:
+
+1. Project structure and source of truth
+- Confirm current app path
+- Confirm package manager
+- Confirm active branch
+- Confirm whether the app structure is monorepo or root app
+- Confirm no accidental Replit runtime dependency is required for production
+
+2. Expo / EAS readiness
+Check:
+- app.json / app.config
+- eas.json
+- package.json
+- SDK version
+- expo-dev-client setup
+- extra.eas.projectId
+- Android package name
+- iOS bundle identifier
+- app version
+- Android versionCode
+- iOS buildNumber
+
+Report any blocker for:
+- Android development build
+- Android production AAB
+- iOS development build
+- iOS production build
+
+3. Store permissions audit
+Check all native permissions used by the app and whether they are configured correctly for Google Play and App Store.
+
+Specifically check:
+- Location permission
+- Camera permission
+- Photo/media library permission
+- Notifications permission
+- Maps usage
+- Any background permissions
+- Any sensitive permissions
+
+Report missing:
+- Android permission declarations
+- iOS Info.plist usage descriptions
+- Google Play Data Safety implications
+- App Store Privacy Nutrition Label implications
+
+4. Google Maps / location readiness
+Check whether react-native-maps and expo-location are used.
+Identify exactly:
+- files/screens using maps
+- files/screens using location
+- whether Android Google Maps API key is configured
+- whether iOS Maps/API setup is required
+- whether any missing key will block Android build/runtime
+
+5. Push notifications readiness
+Check expo-notifications setup for:
+- development build
+- production Android
+- production iOS
+- token registration
+- Firebase/Firestore token storage
+- Cloudflare Worker push flow
+- required EAS credentials/config
+- anything that will fail in store builds
+
+Important:
+Do not add Expo Go workaround.
+We are not using Expo Go.
+
+6. Firebase readiness
+Check:
+- Firebase env variables
+- Auth initialization
+- Firestore usage
+- whether any Firebase config is missing for production builds
+- whether any secrets are exposed client-side beyond normal Firebase public config
+
+7. Cloudflare / API readiness
+Check:
+- all API base URLs
+- tabbakheen-api usage
+- x-api-key usage
+- hardcoded API keys or exposed client secrets
+- any dependency on Replit URLs
+- whether production backend points to Cloudflare only
+
+8. Security audit
+Check for:
+- hardcoded secrets
+- API keys that should not be client-side
+- admin secrets in app bundle
+- Wathq secrets accidentally present
+- Cloudflare secrets accidentally present
+- unsafe CORS assumptions
+- insecure storage of tokens
+- any obvious release-blocking security issue
+
+9. App metadata readiness
+Check:
+- app name
+- icon
+- splash
+- adaptive icon
+- package/bundle identifiers
+- URL scheme
+- orientation
+- supported platforms
+- build profiles
+
+10. Dependency health
+Check:
+- deprecated packages
+- native module build risks
+- Expo SDK compatibility
+- libraries that require development build
+- libraries that may fail on iOS/Android production
+
+11. Wathq future integration readiness
+Read-only only.
+Confirm where Wathq should be integrated later:
+- Cloudflare Worker tabbakheen-api
+- never mobile app directly
+- never Replit runtime
+Do not implement Wathq now.
+
+Return a categorized report only:
+
+A) Critical blockers before store builds
+B) Warnings before store submission
+C) Optional improvements
+D) Confirmed OK
+E) Exact files inspected
+F) Exact recommended next fix prompt
+
+Do not fix anything yet.
+Wait for approval.

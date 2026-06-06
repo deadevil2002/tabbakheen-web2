@@ -1,0 +1,64 @@
+Fix login error accuracy and bottom tab safe-area layout.
+
+Do not change business logic.
+Do not change auth rules.
+Do not touch Firebase config.
+Do not touch maps.
+Do not touch Wathq.
+Do not commit.
+Do not push.
+
+Task 1 — Login error messages
+
+Issue:
+When the user enters the correct email but wrong password, the app shows:
+"لم يتم العثور على حساب بهذا البريد"
+
+This is misleading.
+
+Required behavior:
+- If email does not exist: show "لم يتم العثور على حساب بهذا البريد"
+- If password is wrong: show "كلمة المرور غير صحيحة"
+- If Firebase returns auth/invalid-credential, do NOT blindly show account not found.
+  Handle it more accurately:
+  - If possible, check whether the email exists in Firestore/Auth-related user records before deciding the message.
+  - Existing known account + invalid credential = wrong password.
+  - Unknown email + invalid credential = account not found.
+- Keep messages Arabic and consistent with the themed dialog system.
+- Keep the new AppAlert/AppDialog style.
+
+Also remove or disable temporary LOGIN DEBUG logs if they are no longer needed.
+
+Return:
+- exact Firebase error codes handled
+- final user-facing Arabic messages
+- files changed
+
+Task 2 — Bottom tab / safe area fix
+
+Issue:
+On Android, the system navigation bar overlaps the app bottom tab bar in the provider/dashboard screen.
+The phone navigation buttons cover the app icons/text.
+
+Required behavior:
+- Bottom tab bar must automatically respect device safe area / navigation bar height.
+- Works across Android gesture navigation and 3-button navigation.
+- Works across different screen sizes.
+- Do not hardcode one fixed height only.
+- Add bottom padding/margin based on safe area insets where appropriate.
+- Keep the app theme and current tab design.
+
+Check:
+- customer tabs
+- provider/dashboard tabs
+- driver tabs if present
+- any custom bottom nav component
+
+Verify:
+- icons and labels are fully visible above the Android system navigation bar
+- no excessive empty space on iOS
+- no layout break on web preview
+
+No commit.
+No push.
+Wait for approval.

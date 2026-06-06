@@ -1,0 +1,381 @@
+import { AppAlert } from '@/components/AppDialog';
+import { ComplaintNoteModal } from '@/components/ComplaintNoteModal';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Linking } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { ArrowLeft, ArrowRight, Check, X, ChefHat, PackageCheck, CreditCard, Banknote, Building2, Truck, FileCheck, CheckCircle2, XCircle, CircleCheckBig, AlertTriangle } from 'lucide-react-native';
+import Colors from '@/constants/colors';
+import { commonStyles as cs } from '@/constants/sharedStyles';
+import { useLocale } from '@/contexts/LocaleContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useData } from '@/contexts/DataContext';
+import { OrderStatusBadge } from '@/components/OrderStatusBadge';
+import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor } from '@/utils/helpers';
+import { sendLocalNotification } from '@/services/notifications';
+import { fsGetOrderContactPhone } from '@/services/firestoreUsers';
+
+export default function ProviderOrderDetailScreen() {
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { t, isRTL, locale } = useLocale();
+  const { user } = useAuth();
+  const { orders, updateOrderStatus, confirmPayment, rejectPayment, isProviderSubscriptionValid, getDriverById, markOrderReady, markOrderDelivered, raiseDeliveryComplaint, hasComplaint } = useData();
+
+  const order = useMemo(() => orders.find((o) => o.id === id), [orders, id]);
+  const driver = useMemo(() => (order?.driverUid ? getDriverById(order.driverUid) : undefined), [order, getDriverById]);
+  const isSubValid = useMemo(() => (user ? isProviderSubscriptionValid(user.uid) : false), [user, isProviderSubscriptionValid]);
+
+  const [rejectComment, setRejectComment] = useState<string>('');
+  const [showRejectInput, setShowRejectInput] = useState<boolean>(false);
+  const [showComplaintModal, setShowComplaintModal] = useState<boolean>(false);
+  const [complaintTarget, setComplaintTarget] = useState<'customer' | 'driver'>('customer');
+  const [driverContactPhone, setDriverContactPhone] = useState<string>('');
+
+  useEffect(() => {
+    if (!order?.driverUid) return;
+    let cancelled = false;
+    fsGetOrderContactPhone(order.driverUid).then((p) => { if (!cancelled) setDriverContactPhone(p); });
+    return () => { cancelled = true; };
+  }, [order?.id, order?.driverUid]);
+
+  const hasPaymentProof = order?.paymentStatus === 'proof_sent';
+  const canConfirmPayment = order?.paymentStatus === 'proof_sent';
+  const BackIcon = isRTL ? ArrowRight : ArrowLeft;
+  const r = isRTL;
+
+  const handleAccept = useCallback(async () => {
+    if (!order) return;
+    if (!isSubValid) { AppAlert.alert(t('error'), t('subscriptionRequired')); return; }
+    await updateOrderStatus(order.id, 'accepted');
+    AppAlert.alert(t('success'), locale === 'ar' ? 'تم قبول الطلب' : 'Order accepted');
+  }, [order, updateOrderStatus, isSubValid, t, locale]);
+
+  const handleReject = useCallback(async () => {
+    if (!order) return;
+    if (!rejectComment.trim()) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى كتابة سبب الرفض' : 'Please write rejection reason'); return; }
+    await updateOrderStatus(order.id, 'rejected', rejectComment.trim(), rejectComment.trim());
+    setShowRejectInput(false);
+    AppAlert.alert(t('success'), locale === 'ar' ? 'تم رفض الطلب' : 'Order rejected');
+  }, [order, rejectComment, updateOrderStatus, t, locale]);
+
+  const handleConfirmPayment = useCallback(async () => {
+    if (!order) return;
+    AppAlert.alert(t('confirmPayment'), t('confirmPaymentMsg'), [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('confirm'), onPress: async () => {
+        try {
+          await confirmPayment(order.id);
+          AppAlert.alert(t('success'), t('paymentConfirmed'));
+        } catch (e: any) {
+          console.log('[ProviderOrder] confirmPayment error:', e?.message || e);
+          AppAlert.alert(t('error'), t('orderUpdateError'));
+        }
+      } },
+    ]);
+  }, [order, confirmPayment, t]);
+
+  const handleRejectPayment = useCallback(async () => {
+    if (!order) return;
+    AppAlert.alert(t('rejectPaymentAction'), t('rejectPaymentMsg'), [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('confirm'), style: 'destructive', onPress: async () => {
+        try {
+          await rejectPayment(order.id);
+          AppAlert.alert(t('success'), t('paymentRejectedMsg'));
+        } catch (e: any) {
+          console.log('[ProviderOrder] rejectPayment error:', e?.message || e);
+          AppAlert.alert(t('error'), t('orderUpdateError'));
+        }
+      } },
+    ]);
+  }, [order, rejectPayment, t]);
+
+  const handleStartPreparing = useCallback(async () => {
+    if (!order) return;
+    await updateOrderStatus(order.id, 'preparing');
+    AppAlert.alert(t('success'), locale === 'ar' ? 'تم بدء التحضير' : 'Preparation started');
+  }, [order, updateOrderStatus, t, locale]);
+
+  const handleMarkOrderReady = useCallback(async () => {
+    if (!order) return;
+    AppAlert.alert(t('markOrderReady'), t('markOrderReadyConfirm'), [
+      { text: t('cancel'), style: 'cancel' },
+      {
+        text: t('confirm'),
+        onPress: async () => {
+          try {
+            await markOrderReady(order.id);
+            void sendLocalNotification(
+              t('markOrderReady'),
+              t('orderMarkedReadyBody'),
+            );
+            console.log('[ProviderOrder] Order marked ready:', order.id);
+            AppAlert.alert(t('success'), t('orderMarkedReadyBody'));
+          } catch (e: any) {
+            console.log('[ProviderOrder] markOrderReady error:', e?.message || e);
+            AppAlert.alert(t('error'), t('orderUpdateError'));
+          }
+        },
+      },
+    ]);
+  }, [order, markOrderReady, t]);
+
+  const handleMarkDelivered = useCallback(async () => {
+    if (!order) return;
+    AppAlert.alert(t('confirmDelivered'), t('confirmDeliveredMsg'), [
+      { text: t('cancel'), style: 'cancel' },
+      {
+        text: t('confirm'),
+        onPress: async () => {
+          try {
+            await markOrderDelivered(order.id);
+            void sendLocalNotification(
+              t('orderDeliveredTitle'),
+              t('orderDeliveredBody'),
+            );
+            console.log('[ProviderOrder] Order marked delivered:', order.id);
+            AppAlert.alert(t('success'), locale === 'ar' ? 'تم تأكيد التسليم' : 'Delivery confirmed');
+          } catch (e: any) {
+            console.log('[ProviderOrder] markDelivered error:', e?.message || e);
+            AppAlert.alert(t('error'), t('orderUpdateError'));
+          }
+        },
+      },
+    ]);
+  }, [order, markOrderDelivered, t, locale]);
+
+  const handleOpenComplaint = useCallback(() => {
+    if (!order) return;
+    if (order.driverUid && driver) {
+      AppAlert.alert(t('complaintAgainstWhom'), undefined, [
+        { text: t('complaintAgainstCustomer'), onPress: () => { setComplaintTarget('customer'); setShowComplaintModal(true); } },
+        { text: t('complaintAgainstDriver'), onPress: () => { setComplaintTarget('driver'); setShowComplaintModal(true); } },
+        { text: t('cancel'), style: 'cancel' },
+      ]);
+    } else {
+      setComplaintTarget('customer');
+      setShowComplaintModal(true);
+    }
+  }, [order, driver, t]);
+
+  const handleSubmitComplaint = useCallback(
+    async (note: string) => {
+      if (!order) return;
+      try {
+        await raiseDeliveryComplaint(order, { source: 'provider', type: 'provider_complaint', target: complaintTarget, note });
+        console.log('[ProviderOrder] Provider raised complaint:', order.id, complaintTarget);
+        setShowComplaintModal(false);
+        AppAlert.alert(t('success'), t('complaintSent'));
+      } catch (err: any) {
+        console.log('[ProviderOrder] complaint error:', { orderId: order.id, code: err?.code, message: err?.message });
+        setShowComplaintModal(false);
+        AppAlert.alert(t('error'), t('orderUpdateError'));
+      }
+    },
+    [order, complaintTarget, raiseDeliveryComplaint, t],
+  );
+
+  if (!order) return (<SafeAreaView style={cs.centerSafe}><Text>{t('error')}</Text></SafeAreaView>);
+
+  const paymentColors = getPaymentMethodColor(order.paymentMethod);
+  const getPaymentLabel = () => {
+    if (order.paymentMethod === 'stc_pay') return t('stcPay');
+    if (order.paymentMethod === 'bank_transfer') return t('bankTransfer');
+    return t('cashOnDelivery');
+  };
+
+  return (
+    <View style={cs.container}>
+      <SafeAreaView edges={['top']} style={cs.headerSafe}>
+        <View style={[cs.header, r && cs.headerRTL]}>
+          <Pressable style={cs.backBtn} onPress={() => router.back()}><BackIcon size={22} color={Colors.text} /></Pressable>
+          <Text style={[cs.headerTitle, r && cs.rtlText]}>{t('orderDetails')}</Text>
+          <View style={cs.backBtn} />
+        </View>
+      </SafeAreaView>
+
+      <ScrollView style={cs.flex1} showsVerticalScrollIndicator={false}>
+        <View style={[cs.card, { marginBottom: 16 }]}>
+          {order.orderNumber ? <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('orderNumber')}</Text><Text style={cs.orderNumber}>{order.orderNumber}</Text></View> : null}
+          <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('statusLabel')}</Text><OrderStatusBadge status={order.status} /></View>
+          <View style={cs.divider} />
+          <Text style={[cs.dishTitle, r && cs.rtlText]}>{order.offerTitleSnapshot}</Text>
+          <View style={cs.divider} />
+          <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('foodPrice')}</Text><Text style={cs.priceValue}>{formatPrice(order.priceSnapshot, locale)}</Text></View>
+          {order.deliveryMethod && (
+            <>
+              <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('deliveryFee')}</Text><Text style={cs.dateValue}>{order.deliveryFee === 0 ? t('free') : formatPrice(order.deliveryFee, locale)}</Text></View>
+              <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('deliveryMethod')}</Text><Text style={cs.dateValue}>{order.deliveryMethod === 'self_pickup' ? t('selfPickup') : t('driverDelivery')}</Text></View>
+            </>
+          )}
+          <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.totalLabel, r && cs.rtlText]}>{t('totalAmount')}</Text><Text style={cs.totalValue}>{formatPrice(order.totalAmount, locale)}</Text></View>
+          <View style={cs.divider} />
+          <View style={[cs.cardRow, r && cs.rowRTL]}>
+            <Text style={[cs.label, r && cs.rtlText]}>{t('paymentMethod')}</Text>
+            <View style={[cs.paymentBadge, { backgroundColor: paymentColors.bg }]}>
+              {order.paymentMethod === 'stc_pay' ? <CreditCard size={14} color={paymentColors.text} /> : order.paymentMethod === 'bank_transfer' ? <Building2 size={14} color={paymentColors.text} /> : <Banknote size={14} color={paymentColors.text} />}
+              <Text style={[cs.paymentBadgeText, { color: paymentColors.text }]}>{getPaymentLabel()}</Text>
+            </View>
+          </View>
+          <View style={[cs.cardRow, r && cs.rowRTL]}>
+            <Text style={[cs.label, r && cs.rtlText]}>{t('paymentStatus')}</Text>
+            {(() => { const psC = getPaymentStatusColor(order.paymentStatus); return (
+              <View style={[cs.statusBadge, { backgroundColor: psC.bg }]}>
+                {order.paymentStatus === 'proof_sent' && <FileCheck size={13} color={psC.text} />}
+                {(order.paymentStatus === 'paid' || order.paymentStatus === 'paid_confirmed') && <CheckCircle2 size={13} color={psC.text} />}
+                {order.paymentStatus === 'payment_rejected' && <XCircle size={13} color={psC.text} />}
+                <Text style={[cs.statusBadgeText, { color: psC.text }]}>{t(order.paymentStatus as any)}</Text>
+              </View>); })()}
+          </View>
+          <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('orderedOn')}</Text><Text style={cs.dateValue}>{formatDate(order.createdAt, locale)}</Text></View>
+          {order.note ? <><View style={cs.divider} /><Text style={[cs.label, r && cs.rtlText]}>{t('noteLabel')}</Text><Text style={[cs.noteText, r && cs.rtlText]}>{order.note}</Text></> : null}
+          {order.providerComment ? <><View style={cs.divider} /><Text style={[cs.label, r && cs.rtlText]}>{t('providerNote')}</Text><Text style={[cs.noteText, r && cs.rtlText]}>{order.providerComment}</Text></> : null}
+        </View>
+
+        {driver && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('deliveryInfo')}</Text>
+            <View style={[cs.driverRow, r && cs.rowRTL]}>
+              <View style={cs.driverIconWrap}><Truck size={20} color={Colors.primary} /></View>
+              <View style={cs.flex1}><Text style={[s.driverName, r && cs.rtlText]}>{driver.displayName}</Text><Text style={s.driverPhone}>{driverContactPhone}</Text></View>
+              <Text style={s.driverRating}>{driver.ratingAverage?.toFixed(1) || '0.0'} ⭐</Text>
+            </View>
+          </View>
+        )}
+
+        {order.status === 'pending' && (
+          <View style={[cs.sectionCard, { shadowOpacity: 0 }]}>
+            <Text style={[s.actionsTitle, r && cs.rtlText]}>{t('orderActions')}</Text>
+            {!isSubValid && <View style={s.subWarning}><Text style={[s.subWarningText, r && cs.rtlText]}>{t('subscriptionRequired')}</Text></View>}
+            <View style={s.actionsRow}>
+              <Pressable style={({ pressed }) => [s.acceptBtn, pressed && cs.btnPressed, !isSubValid && cs.btnDisabled]} onPress={handleAccept} disabled={!isSubValid}>
+                <Check size={18} color={Colors.white} /><Text style={s.actionText}>{t('accept')}</Text>
+              </Pressable>
+              <Pressable style={({ pressed }) => [s.rejectBtn, pressed && cs.btnPressed]} onPress={() => setShowRejectInput(true)}>
+                <X size={18} color={Colors.white} /><Text style={s.actionText}>{t('reject')}</Text>
+              </Pressable>
+            </View>
+            {showRejectInput && (
+              <View style={{ marginTop: 16 }}>
+                <TextInput style={[s.rejectInput, r && cs.inputRTL]} placeholder={t('rejectReasonHint')} placeholderTextColor={Colors.textTertiary} value={rejectComment} onChangeText={setRejectComment} multiline numberOfLines={2} textAlignVertical="top" textAlign={r ? 'right' : 'left'} />
+                <Pressable style={({ pressed }) => [s.confirmRejectBtn, pressed && cs.btnPressed]} onPress={handleReject}><Text style={s.confirmRejectText}>{t('confirm')}</Text></Pressable>
+              </View>
+            )}
+          </View>
+        )}
+
+        {hasPaymentProof && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('customerPaymentProof')}</Text>
+            {order.stcPayProofImageUrl ? (
+              <View style={s.proofDetail}>
+                <Text style={[s.proofLabel, r && cs.rtlText]}>{t('proofImage')}</Text>
+                <Pressable onPress={() => Linking.openURL(order.stcPayProofImageUrl!)}>
+                  <Image source={{ uri: order.stcPayProofImageUrl }} style={s.proofImage} contentFit="cover" />
+                </Pressable>
+                <Pressable style={({ pressed }) => [s.viewProofBtn, pressed && cs.btnPressed]} onPress={() => Linking.openURL(order.stcPayProofImageUrl!)}>
+                  <FileCheck size={16} color={Colors.primary} />
+                  <Text style={s.viewProofText}>{t('viewProof')}</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {order.stcPayProofNote ? <View style={s.proofDetail}><Text style={[s.proofLabel, r && cs.rtlText]}>{t('proofNote')}</Text><Text style={[s.proofValue, r && cs.rtlText]}>{order.stcPayProofNote}</Text></View> : null}
+            {order.paymentReference ? <View style={s.proofDetail}><Text style={[s.proofLabel, r && cs.rtlText]}>{t('paymentReferenceLabel')}</Text><Text style={s.proofValue}>{order.paymentReference}</Text></View> : null}
+            {canConfirmPayment && (
+              <View style={s.payActionsRow}>
+                <Pressable style={({ pressed }) => [s.confirmPayBtn, pressed && cs.btnPressed]} onPress={handleConfirmPayment}><CheckCircle2 size={18} color={Colors.white} /><Text style={s.actionText}>{t('confirmPayment')}</Text></Pressable>
+                <Pressable style={({ pressed }) => [s.rejectPayBtn, pressed && cs.btnPressed]} onPress={handleRejectPayment}><XCircle size={18} color={Colors.white} /><Text style={s.actionText}>{t('rejectPaymentAction')}</Text></Pressable>
+              </View>
+            )}
+          </View>
+        )}
+
+        {!hasPaymentProof && (order.paymentMethod === 'stc_pay' || order.paymentMethod === 'bank_transfer') && order.paymentStatus === 'unpaid' && order.status !== 'rejected' && order.status !== 'cancelled' && (
+          <View style={s.waitingCard}><FileCheck size={24} color={Colors.textTertiary} /><Text style={[s.waitingText, r && cs.rtlText]}>{t('waitingForProof')}</Text></View>
+        )}
+
+        {order.status === 'accepted' && (
+          <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.preparing }, pressed && cs.btnPressed]} onPress={handleStartPreparing}>
+            <ChefHat size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('markPreparing')}</Text>
+          </Pressable>
+        )}
+
+        {order.status === 'preparing' && (
+          <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.readyForPickup }, pressed && cs.btnPressed]} onPress={handleMarkOrderReady}>
+            <PackageCheck size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('markOrderReady')}</Text>
+          </Pressable>
+        )}
+
+        {order.status === 'ready_for_pickup' && !order.driverUid && order.deliveryStatus !== 'delivered' && (
+          <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.delivered }, pressed && cs.btnPressed]} onPress={handleMarkDelivered}>
+            <CircleCheckBig size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('confirmDelivered')}</Text>
+          </Pressable>
+        )}
+
+        {['pending', 'accepted', 'preparing', 'ready_for_pickup', 'searching_driver', 'assigned_to_driver', 'picked_up'].includes(order.status) && order.deliveryStatus !== 'delivered_pending_confirmation' && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('haveAnIssue')}</Text>
+            {hasComplaint(order.id) ? (
+              <View style={[s.complaintRaisedBox, r && s.complaintRaisedBoxRTL]}>
+                <AlertTriangle size={18} color={Colors.textSecondary} />
+                <Text style={[s.complaintRaisedText, r && cs.rtlText]}>{t('complaintRaisedLabel')}</Text>
+              </View>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [s.raiseComplaintBtn, pressed && cs.btnPressed]}
+                onPress={handleOpenComplaint}
+              >
+                <AlertTriangle size={20} color={Colors.error} />
+                <Text style={s.raiseComplaintBtnText}>{t('raiseComplaint')}</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        <View style={cs.bottomSpacer} />
+      </ScrollView>
+
+      <ComplaintNoteModal
+        visible={showComplaintModal}
+        title={t('raiseComplaint')}
+        message={complaintTarget === 'driver' ? t('complaintAgainstDriverMsg') : t('complaintAgainstCustomerMsg')}
+        onCancel={() => setShowComplaintModal(false)}
+        onSubmit={handleSubmitComplaint}
+      />
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  driverName: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, marginBottom: 2 },
+  driverPhone: { fontSize: 13, color: Colors.textTertiary },
+  driverRating: { fontSize: 14, fontWeight: '600' as const, color: Colors.text },
+  actionsTitle: { fontSize: 16, fontWeight: '700' as const, color: Colors.text, marginBottom: 16 },
+  subWarning: { backgroundColor: Colors.errorLight, borderRadius: 10, padding: 12, marginBottom: 12 },
+  subWarningText: { fontSize: 13, color: Colors.error, lineHeight: 18 },
+  actionsRow: { flexDirection: 'row', gap: 12 },
+  acceptBtn: { flex: 1, flexDirection: 'row', backgroundColor: Colors.success, height: 48, borderRadius: 14, justifyContent: 'center', alignItems: 'center', gap: 8 },
+  rejectBtn: { flex: 1, flexDirection: 'row', backgroundColor: Colors.error, height: 48, borderRadius: 14, justifyContent: 'center', alignItems: 'center', gap: 8 },
+  actionText: { color: Colors.white, fontSize: 16, fontWeight: '700' as const },
+  rejectInput: { backgroundColor: Colors.background, borderRadius: 12, padding: 14, fontSize: 14, color: Colors.text, minHeight: 60, borderWidth: 1, borderColor: Colors.borderLight, marginBottom: 12 },
+  confirmRejectBtn: { backgroundColor: Colors.error, height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+  confirmRejectText: { color: Colors.white, fontSize: 15, fontWeight: '700' as const },
+  proofDetail: { marginBottom: 12 },
+  proofLabel: { fontSize: 12, color: Colors.textTertiary, marginBottom: 4 },
+  proofValue: { fontSize: 14, fontWeight: '600' as const, color: Colors.text },
+  proofImage: { width: '100%', height: 220, borderRadius: 12, backgroundColor: Colors.background },
+  viewProofBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10, height: 44, borderRadius: 12, borderWidth: 1, borderColor: Colors.primary },
+  viewProofText: { color: Colors.primary, fontSize: 14, fontWeight: '700' as const },
+  payActionsRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  confirmPayBtn: { flex: 1, flexDirection: 'row', backgroundColor: Colors.success, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', gap: 8 },
+  rejectPayBtn: { flex: 1, flexDirection: 'row', backgroundColor: Colors.error, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', gap: 8 },
+  waitingCard: { backgroundColor: Colors.surface, borderRadius: 16, padding: 24, marginHorizontal: 20, marginBottom: 16, alignItems: 'center', gap: 10 },
+  waitingText: { fontSize: 14, color: Colors.textTertiary, textAlign: 'center', lineHeight: 20 },
+  complaintRaisedBox: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, backgroundColor: Colors.surfaceSecondary },
+  complaintRaisedBoxRTL: { flexDirection: 'row-reverse' },
+  complaintRaisedText: { flex: 1, fontSize: 13, fontWeight: '600' as const, color: Colors.textSecondary },
+  raiseComplaintBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 46, borderRadius: 12, borderWidth: 1, borderColor: Colors.error },
+  raiseComplaintBtnText: { color: Colors.error, fontSize: 15, fontWeight: '700' as const },
+});

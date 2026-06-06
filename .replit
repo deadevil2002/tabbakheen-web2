@@ -11,6 +11,26 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Tabbakheen Mobile"
+
+[[workflows.workflow]]
+name = "Tabbakheen Mobile"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=18115 pnpm --filter @workspace/mobile run dev"
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
@@ -26,3 +46,7 @@ externalPort = 80
 [[ports]]
 localPort = 8081
 externalPort = 8081
+
+[[ports]]
+localPort = 18115
+externalPort = 3000

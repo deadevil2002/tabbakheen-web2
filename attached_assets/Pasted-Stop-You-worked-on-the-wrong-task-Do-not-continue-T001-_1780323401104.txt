@@ -1,0 +1,62 @@
+Stop. You worked on the wrong task.
+
+Do not continue T001/T002/T003.
+Those tasks are unrelated and already completed.
+
+The requested task is ONLY:
+
+Freelance Certificate manual verification + existing admin web review integration.
+
+Required scope:
+1. Provider Settings:
+   - Add second verification type: Freelance Certificate.
+   - Certificate number input.
+   - Certificate image upload only.
+   - Store under verifications/{uid}.freelanceCertificate.
+   - Set users/{uid}.verificationStatus = pending_review.
+   - Do not show badge until admin approval.
+
+2. Existing admin web:
+   - Update https://tabbakheen-api.tabbakheen.workers.dev/admin
+   - Add pending Freelance Certificate verification requests.
+   - Admin can view certificate number and image.
+   - Admin can approve.
+   - Admin can reject with internal note.
+   - Approval sets:
+     users/{uid}.verificationStatus = verified
+     users/{uid}.verificationSource = freelance_certificate
+     users/{uid}.verifiedAt = current ISO timestamp
+     verifications/{uid}.freelanceCertificate.reviewStatus = approved
+     reviewedAt = current ISO timestamp
+
+   - Rejection:
+     no public failed status
+     update only private freelanceCertificate.reviewStatus = rejected
+     internalReviewNote if provided
+
+3. Must stay connected to live app data:
+   - Firestore users collection
+   - Firestore verifications collection
+   - Existing Cloudflare admin Worker
+   - Existing provider mobile app
+
+Important:
+- Do not change Wathq commercial registration logic.
+- Do not change signup/login/orders/offers.
+- Do not change completed T001/T002/T003 tasks.
+- Do not deploy.
+- Do not rebuild.
+- Do not commit.
+- Do not push.
+
+Now inspect the current code and return a fresh implementation plan for THIS task only.
+
+Return:
+1. Files that need changes.
+2. Whether admin web is inside the Cloudflare Worker code or in the repo.
+3. Whether Cloudinary image upload can be reused now.
+4. Firestore rules changes required.
+5. Step-by-step implementation plan.
+6. Risks.
+
+Do not write code yet.

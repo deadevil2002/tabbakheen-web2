@@ -1,0 +1,157 @@
+Start Complaint Enforcement Phase 2.
+
+Do not modify Firestore rules.
+Do not modify existing order workflow.
+Do not modify delivery workflow.
+Do not modify payment workflow.
+Do not modify authentication.
+Do not refactor unrelated code.
+Do not commit.
+Do not push.
+
+Important:
+Do not break any existing working flow.
+Make minimal, scoped changes only.
+After every change, verify provider/customer/driver flows still work.
+
+Goal:
+Add admin-controlled complaint enforcement.
+
+Principle:
+Do NOT suspend anyone automatically from raw complaints.
+Only admin-confirmed complaints count toward suspension.
+
+Applies to:
+- providers
+- drivers
+
+Do not auto-suspend customers in this phase.
+
+1. Admin setting for suspension threshold
+
+In admin settings, add configurable setting:
+
+"عدد البلاغات المؤكدة قبل إيقاف الحساب"
+
+Default value:
+4
+
+Admin can change it to any number >= 1.
+
+Store it safely in existing admin/app settings storage if available.
+
+Use this setting instead of hardcoding 4.
+
+If setting is missing or invalid, fallback to 4.
+
+2. Admin complaint actions
+
+In admin Complaints page, when admin resolves a complaint, add checkbox:
+
+"احتساب هذا البلاغ كمخالفة مؤكدة"
+
+If checked:
+- confirmedViolation = true
+- confirmedAt
+- confirmedBy = "admin"
+
+If unchecked:
+- Resolve complaint normally without counting it.
+
+3. User counters
+
+For the complained-against user:
+- complaintCount = total complaints related to user
+- confirmedComplaintCount = admin-confirmed violations only
+
+Target:
+- providerUid if complaint is against provider
+- driverUid if complaint is against driver
+
+If target is missing, do not crash. Show warning in admin details.
+
+4. Suspension logic
+
+If provider/driver reaches the configured threshold:
+
+confirmedComplaintCount >= suspensionThreshold
+
+then:
+- accountStatus = "suspended"
+- suspendedAt
+- suspendedReason = "تم إيقاف الحساب بسبب وصوله إلى الحد المحدد من البلاغات المؤكدة"
+- suspendedBy = "system"
+
+5. Manual admin suspension
+
+Add admin action:
+
+"إيقاف الحساب"
+
+Admin must enter reason.
+
+Save:
+- accountStatus = "suspended"
+- suspendedAt
+- suspendedReason
+- suspendedBy = "admin"
+
+6. Mobile behavior
+
+If provider accountStatus is suspended:
+- Prevent creating new offers.
+- Prevent accepting/preparing orders.
+
+If driver accountStatus is suspended:
+- Prevent accepting deliveries.
+
+Show Arabic message:
+"تم إيقاف حسابك مؤقتًا. يمكنك تقديم اعتراض من خلال رابط الاعتراض المرسل لك."
+
+Do not block customers in this phase.
+
+7. Notifications
+
+When account is suspended:
+- Create in-app notification for suspended user.
+- If email system already exists, send email.
+- If email system is not configured, do not build a full email system now. Only prepare safe helper/payload.
+
+8. Admin visibility
+
+Admin should see for providers/drivers:
+- complaintCount
+- confirmedComplaintCount
+- accountStatus
+- suspendedReason
+- suspendedAt
+- current suspensionThreshold
+
+9. Double-count protection
+
+Do not double-count.
+If complaint already has confirmedViolation = true:
+- do not increment again
+- do not re-trigger suspension
+
+10. Testing
+
+Test:
+- Admin changes threshold from 4 to another number.
+- Resolve complaint without confirmed checkbox → no confirmed count.
+- Resolve complaint with checkbox → confirmed count increases.
+- Re-resolving same complaint does not double-count.
+- Reaching threshold suspends provider/driver.
+- Suspended provider cannot create offers or accept/prepare orders.
+- Suspended driver cannot accept deliveries.
+- Customer is not auto-suspended.
+- Existing order/delivery/payment/complaint flows still work.
+
+Return:
+- Files changed
+- Setting storage used
+- Default threshold behavior
+- Counter logic
+- Suspension logic
+- Regression test result
+- Confirm Firestore rules were not touched

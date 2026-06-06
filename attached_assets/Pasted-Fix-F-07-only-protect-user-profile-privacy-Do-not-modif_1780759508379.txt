@@ -1,0 +1,97 @@
+Fix F-07 only — protect user profile privacy.
+
+Do not modify order workflow.
+Do not modify delivery workflow.
+Do not modify payment.
+Do not modify complaints.
+Do not modify appeal flow.
+Do not modify admin dashboard unless strictly required.
+Do not modify Firestore rules yet.
+Do not refactor.
+
+Current confirmed issue:
+Live testing showed that any authenticated user can read any specific users/{uid} document if they know the UID.
+
+This can expose private fields:
+- phone
+- address
+- location
+- expoPushToken
+- vehicle data
+- accountStatus
+- suspendedReason
+- verification data
+- other private profile fields
+
+Goal:
+Reduce privacy exposure without breaking app functionality.
+
+Task:
+1. Audit all places where the app reads other users' profiles.
+2. Identify exactly which public fields are needed by each feature:
+   - customer viewing provider
+   - provider viewing customer
+   - driver viewing customer/provider
+   - offers list
+   - order details
+   - admin panel
+3. Propose and implement the safest minimal fix.
+
+Preferred approach:
+Create sanitized public profile data for cross-user reads, for example:
+- public_users/{uid}
+or
+- users_public/{uid}
+
+Public/sanitized fields only:
+- uid
+- displayName
+- role
+- photoURL/avatar
+- city
+- rating
+- ratingCount
+- verificationStatus / verified badge
+- provider basic kitchen/business name if needed
+- driver vehicle type only if needed, no private plate unless required
+
+Private fields must stay only in users/{uid}:
+- phone
+- email
+- expoPushToken
+- address
+- exact location
+- vehiclePlate
+- suspendedReason
+- accountStatus
+- legal/verifications data
+
+Important:
+If full migration is risky, do not migrate everything at once.
+Start by:
+- adding a safe helper to read public user data
+- updating the most obvious cross-user screens
+- leaving admin and owner profile reads untouched
+
+Do not break:
+- guest browsing
+- offers list
+- order details
+- driver delivery flow
+- provider/customer contact if phone is intentionally needed for WhatsApp after an order
+
+Testing:
+- Customer can still view offers.
+- Customer can still view provider basic info.
+- Provider can still see needed order/customer contact info only when related to the order.
+- Driver can still see needed delivery contact info only when assigned.
+- Users cannot access private fields of unrelated users through normal app flows.
+- Admin still works.
+
+Return:
+- Audit findings
+- Files changed
+- New public fields model
+- What private fields are protected
+- What was intentionally left unchanged
+- Test result

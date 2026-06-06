@@ -1,0 +1,17 @@
+- [MapLibre maps (mobile)](maplibre-maps.md) — Tabbakheen mobile uses MapLibre v11 + MapTiler (no Google Maps); coords are [lng,lat], picker is a center-pin.
+- [Complaint gating (mobile)](complaint-gating.md) — duplicate-complaint prevention is order-level (hasComplaint(orderId) no source); docs carry all UIDs so every actor sees the same complaint.
+- [Delivery completion + complaints](delivery-confirmation-flow.md) — customer-only finalize; split writes to survive Firestore rules; complaints go to `delivery_complaints` (not `complaints`) w/ admin-compatible fields.
+- [Driver delivery routing (mobile)](driver-delivery-routing.md) — my-deliveries has a real `[id].tsx` detail route; cards push `/my-deliveries/<id>`; action buttons live on the tab cards.
+- [GitHub push: tabbakheen-web2](github-push-tabbakheen-web2.md) — push via Git Data API w/ GITHUB_TOKEN (bash only); branches lag local, base off replit-final-mobile-stable, include verification deps or build breaks.
+- [Mobile typecheck baseline](typecheck-baseline.md) — `@workspace/mobile` typecheck always fails on scaffold `hooks/useColors.ts` (colors.light/radius); filter it out, don't fix.
+- [Admin Worker editing](admin-worker-editing.md) — `.local/worker-src/worker.js` is CRLF + one big getAdminHTML template literal; strip/restore CR to edit, escape nested onclick quotes as `\\'`.
+- [Admin unread notifications](admin-unread-notifications.md) — sidebar badges + row highlight = per-section last-view timestamps in Firestore admin_state/main; 30s poll; markViewed on open.
+- [Wathq CR verification (mobile)](wathq-verification.md) — optional provider verification; public users-doc holds only status fields, sensitive CR data goes in verifications/{uid}; Worker-only Wathq via apiKey header + Firebase ID token.
+- [Expo-router tab back-nav](expo-router-tab-back-nav.md) — to keep Back inside a tab, give the tab its own detail route re-exporting a shared screen component.
+- [Expo dev-client on Replit](expo-dev-client-replit.md) — connect physical-phone dev build via `$REPLIT_EXPO_DEV_DOMAIN` (no ngrok `--tunnel`); add `--dev-client` to dev script.
+- [Themed dialogs (mobile)](themed-dialogs.md) — Tabbakheen mobile uses AppAlert.alert (not RN Alert) + single AppDialogHost; new dialogs must go through it for orange/cream theming.
+- [Login error mapping (mobile)](login-error-mapping.md) — Firebase Email Enumeration Protection returns auth/invalid-credential for BOTH wrong password and unknown email; disambiguate via Firestore email lookup.
+- [Safe-area insets (mobile)](safe-area-insets.md) — root had NO SafeAreaProvider; Expo SDK 54 is edge-to-edge so tab bars need inset-based paddingBottom.
+- [Driver available deliveries](driver-available-deliveries.md) — availability = `deliveryStatus=='ready_for_driver' && driverUid==null` only; never also filter by deliveryMethod (it's 'driver' vs 'driver_delivery' inconsistent).
+- [Delivery finalize persistence](delivery-finalize-persistence.md) — customer delivery choice must be written to Firestore by the app (fsUpdateOrder), not solely by the external Worker; Worker is best-effort for fee/notifs only.
+- [Suspension appeals](suspension-appeals.md) — `suspension_appeals` collection; public /appeal routes must precede apiKey gate; accept = reactivate-first-then-mark; lifecycle = in-app notifications only.

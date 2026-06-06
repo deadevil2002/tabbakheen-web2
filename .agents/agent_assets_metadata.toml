@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "sIzagm2J8OmfBBhlRSHKS"
+uri = "file://.local/devclient-qr.png"
+type = "image"
+title = "Tabbakheen dev-client QR (scan with phone camera)"

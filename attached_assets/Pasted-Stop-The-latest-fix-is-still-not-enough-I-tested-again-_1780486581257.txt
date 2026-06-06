@@ -1,0 +1,69 @@
+Stop. The latest fix is still not enough.
+
+I tested again and driver still sees no available orders.
+
+Important analysis:
+Your app-side Firestore write payload does not match current Firestore rules.
+
+Current rules allow the customer to update only these delivery-related fields:
+- deliveryMethod
+- deliveryStatus
+- deliveryQuoteId
+- deliveryPricingVersion
+
+But your reported payload includes:
+- driverUid
+- deliveryFee
+- totalAmount
+- deliveryDistanceKm
+
+Those fields are NOT allowed for customer update by the current rules, so the write can fail with permission-denied or silently not persist if error handling is weak.
+
+Do not guess. Verify in logs.
+
+Required now:
+1. Add clear logs around customer delivery selection:
+   - before calling workerFinalizeDelivery
+   - worker response
+   - exact Firestore payload
+   - fsUpdateOrder success/failure
+   - caught error message/code
+
+2. Make the customer-side Firestore update compatible with current rules.
+
+Preferred safe fix:
+Customer app should only write:
+{
+  deliveryMethod: "driver",
+  deliveryStatus: "ready_for_driver",
+  deliveryQuoteId: <optional>,
+  deliveryPricingVersion: <optional>
+}
+
+Do NOT write:
+- driverUid
+- deliveryFee
+- totalAmount
+- deliveryDistanceKm
+from the customer app unless rules are intentionally updated.
+
+3. If delivery fee / total amount must be updated, that should be handled by the Worker/Admin SDK, not the client, or rules must be updated very carefully with validation.
+
+4. After selecting delivery, immediately re-read the same order doc and assert:
+deliveryMethod == "driver"
+deliveryStatus == "ready_for_driver"
+driverUid == null
+
+If assertion fails, show an error and log the exact reason.
+
+5. Do not loosen rules broadly.
+6. Do not allow customers to set driverUid.
+7. Do not allow customers to change totalAmount freely.
+8. Do not push or deploy until this is proven.
+
+Return:
+1. Exact permission/log result from the failed write
+2. Final payload used
+3. Why it matches current Firestore rules
+4. Firestore document after selection
+5. Driver screen result

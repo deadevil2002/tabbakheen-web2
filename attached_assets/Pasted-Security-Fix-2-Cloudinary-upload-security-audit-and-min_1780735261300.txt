@@ -1,0 +1,78 @@
+Security Fix 2 — Cloudinary upload security audit and minimal safe fix.
+
+Do not modify Firestore rules.
+Do not modify order workflow.
+Do not modify delivery workflow.
+Do not modify payment logic.
+Do not modify complaints logic.
+Do not modify admin dashboard unless needed for a safe upload endpoint.
+Do not refactor.
+Do not break existing image uploads.
+
+Goal:
+Fix or safely reduce the risk from unsigned Cloudinary uploads without breaking the app.
+
+Current confirmed issue:
+The mobile app uses Cloudinary unsigned upload preset.
+Cloudinary cloud name and upload preset are visible in the mobile app bundle.
+This can allow unauthorized uploads to our Cloudinary account.
+
+Task:
+1. Audit every current Cloudinary upload usage:
+   - offer images
+   - avatars
+   - payment proofs
+   - freelance certificates
+   - suspension appeal images
+   - any other upload
+
+2. Identify which uploads are from:
+   - mobile app
+   - Cloudflare Worker
+   - admin dashboard
+   - public appeal page
+
+3. Propose the safest minimal fix.
+
+Preferred secure direction:
+- Mobile app should not upload directly with an unsigned preset for sensitive files.
+- Sensitive uploads should go through Cloudflare Worker or use a signed upload flow.
+- Worker should verify Firebase ID token where the upload belongs to a signed-in user.
+- Worker/public appeal endpoint may handle appeal image upload because appeal page is public, but it must validate file type/size and upload only to a controlled folder.
+
+Important:
+If converting all uploads at once is risky, do not do it.
+Start only with the most sensitive upload:
+- payment proof images
+
+For this task, implement only the safest minimal change you can complete without breaking existing flows.
+
+Minimum required fix:
+- Remove or reduce direct unsigned upload risk for payment proofs first.
+- Keep offer/avatar uploads unchanged if converting them is too risky in this step.
+- Do not break existing image uploads.
+
+Security requirements:
+- Validate file type.
+- Validate file size.
+- Use controlled folder names.
+- Do not expose Cloudinary API secret to the mobile app.
+- Do not store secrets in EXPO_PUBLIC variables.
+- Any Cloudinary secret must remain only in Cloudflare Worker secrets.
+
+Testing:
+- Customer can still upload payment proof.
+- Provider can still view/confirm payment proof.
+- No Cloudinary secret appears in mobile code.
+- If upload fails, user gets a clear Arabic error.
+- Existing offer/avatar uploads still work if not touched.
+
+Return:
+- Audit findings
+- What was changed
+- What was intentionally left unchanged
+- Files changed
+- New Worker endpoint if added
+- Required Cloudflare secrets/env vars
+- Test result
+- Follow-up plan for remaining Cloudinary uploads

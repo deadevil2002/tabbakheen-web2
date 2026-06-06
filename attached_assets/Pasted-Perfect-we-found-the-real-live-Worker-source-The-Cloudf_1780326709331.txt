@@ -1,0 +1,79 @@
+Perfect — we found the real live Worker source.
+
+The Cloudflare Worker tabbakheen-api is open directly in Cloudflare Edit Code and contains the real worker.js that serves /admin.
+
+Important:
+Do NOT create a new admin panel.
+Do NOT create a second Worker.
+Modify the EXISTING live /admin panel only.
+
+You now have confirmation that the real source exists and is accessible.
+
+Next step:
+Please work directly on the existing worker.js and integrate the changes into the current live admin dashboard.
+
+Required admin upgrades:
+
+Verification visibility inside Users page
+Show verification status clearly for providers:
+Wathq Commercial Registration verified
+Pending review
+Freelance certificate uploaded
+Freelance verified
+Unverified
+Add visible badge/chip in Users table and Edit modal.
+Freelance certificate admin review
+When provider uploads freelance certificate:
+Admin must see:
+certificate number
+uploaded image/file
+upload date
+verification status
+Add buttons:
+Verify
+Reject
+Update same Firestore + same live app.
+Quick validation shortcut
+Add button:
+"فتح التحقق من وثيقة العمل الحر"
+
+When clicked:
+
+Open:
+https://freelance.sa/certificate-validation
+in new tab
+So admin can quickly verify using uploaded certificate details.
+Admin notifications
+Integrate with EXISTING notification system only.
+
+Need notifications when:
+
+New CR verification submitted
+Wathq verified automatically
+Freelance certificate uploaded
+Freelance approved
+Freelance rejected
+
+Notifications must appear in:
+
+existing admin notification area
+use current notification settings/toggles
+no parallel system
+Live integration only
+Everything must use:
+same Firestore (tabbakheen-99883)
+same users collection
+same verifications collection
+same existing /admin auth
+same existing Worker
+
+No mock data.
+No second dashboard.
+No separate auth.
+
+Before coding:
+First inspect current /admin routes, auth, notification system, and users page inside worker.js and confirm where each integration point exists.
+
+Then implement.
+
+Do not break existing admin UI or flows.

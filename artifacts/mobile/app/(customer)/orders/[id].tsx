@@ -1,0 +1,861 @@
+import { AppAlert } from '@/components/AppDialog';
+import { ComplaintNoteModal } from '@/components/ComplaintNoteModal';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Platform, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
+import { Linking } from 'react-native';
+import { ArrowLeft, ArrowRight, CreditCard, Banknote, Building2, Truck, Phone, Copy, PackageCheck, MessageCircle, Upload, FileCheck, CheckCircle2, XCircle, ImageIcon, MapPin } from 'lucide-react-native';
+import Colors from '@/constants/colors';
+import { commonStyles as cs } from '@/constants/sharedStyles';
+import { useLocale } from '@/contexts/LocaleContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useData } from '@/contexts/DataContext';
+import { OrderStatusBadge } from '@/components/OrderStatusBadge';
+import { RatingStars } from '@/components/RatingStars';
+import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor, formatSaudiPhoneForWhatsApp } from '@/utils/helpers';
+import MapLocationPicker from '@/components/MapLocationPicker';
+import { pickImageFreeAspect } from '@/utils/imagePicker';
+import { uploadPaymentProofViaWorker } from '@/services/pushApi';
+import { fsGetOrderContactPhone } from '@/services/firestoreUsers';
+import { Image } from 'expo-image';
+
+export default function CustomerOrderDetailScreen() {
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { t, isRTL, locale } = useLocale();
+  const { user } = useAuth();
+  const { orders, getProviderById, getDriverById, submitRating, submitDriverRating, submitPaymentProof, setDeliveryMethod, computeDeliveryFee, fetchDeliveryQuote, markOrderDelivered, raiseDeliveryComplaint, hasComplaint } = useData();
+
+  const order = useMemo(() => orders.find((o) => o.id === id), [orders, id]);
+  const provider = useMemo(() => (order ? getProviderById(order.providerUid) : undefined), [order, getProviderById]);
+
+  const openPickupLocation = useCallback(async () => {
+    const lat = provider?.location?.lat;
+    const lng = provider?.location?.lng;
+    const addr = (provider?.address || provider?.displayName || '').trim();
+    const hasCoords = typeof lat === 'number' && typeof lng === 'number';
+    if (!hasCoords && !addr) {
+      AppAlert.alert('', locale === 'ar' ? 'موقع الطباخ غير متوفر' : "Cook's location is unavailable");
+      return;
+    }
+    const query = hasCoords ? `${lat},${lng}` : encodeURIComponent(addr);
+    let url: string;
+    if (Platform.OS === 'ios') {
+      url = hasCoords
+        ? `http://maps.apple.com/?ll=${query}&q=${encodeURIComponent(addr || 'الموقع')}`
+        : `http://maps.apple.com/?q=${query}`;
+    } else if (Platform.OS === 'android') {
+      url = hasCoords ? `geo:${query}?q=${query}(${encodeURIComponent(addr || '')})` : `geo:0,0?q=${query}`;
+    } else {
+      url = `https://www.google.com/maps/search/?api=1&query=${query}`;
+    }
+    try {
+      await Linking.openURL(url);
+    } catch (err) {
+      console.log('[OrderDetail] Cannot open maps:', err);
+      AppAlert.alert('', locale === 'ar' ? 'موقع الطباخ غير متوفر' : "Cook's location is unavailable");
+    }
+  }, [provider, locale]);
+  const driver = useMemo(() => (order?.driverUid ? getDriverById(order.driverUid) : undefined), [order, getDriverById]);
+
+  const [providerStars, setProviderStars] = useState<number>(0);
+  const [providerComment, setProviderComment] = useState<string>('');
+  const [driverStars, setDriverStars] = useState<number>(0);
+  const [driverComment, setDriverComment] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  const [showPaymentProof, setShowPaymentProof] = useState<boolean>(false);
+  const [proofImageUrl, setProofImageUrl] = useState<string>('');
+  const [proofNote, setProofNote] = useState<string>('');
+  const [paymentRef, setPaymentRef] = useState<string>('');
+  const [isUploadingProof, setIsUploadingProof] = useState<boolean>(false);
+  const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
+  const [showDeliveryConfirm, setShowDeliveryConfirm] = useState<boolean>(false);
+  const [showComplaintModal, setShowComplaintModal] = useState<boolean>(false);
+  const [showGeneralComplaint, setShowGeneralComplaint] = useState<boolean>(false);
+  const [complaintTarget, setComplaintTarget] = useState<'provider' | 'driver'>('provider');
+  const [deliveryQuote, setDeliveryQuote] = useState<{ deliveryFee: number; totalAmount: number; deliveryDistanceKm: number; subtotal: number } | null>(null);
+  const [isLoadingQuote, setIsLoadingQuote] = useState<boolean>(false);
+  const [isFinalizingDelivery, setIsFinalizingDelivery] = useState<boolean>(false);
+  const [providerContactPhone, setProviderContactPhone] = useState<string>('');
+  const [driverContactPhone, setDriverContactPhone] = useState<string>('');
+
+  useEffect(() => {
+    if (!order) return;
+    let cancelled = false;
+    if (order.providerUid) {
+      fsGetOrderContactPhone(order.providerUid).then((p) => { if (!cancelled) setProviderContactPhone(p); });
+    }
+    if (order.driverUid) {
+      fsGetOrderContactPhone(order.driverUid).then((p) => { if (!cancelled) setDriverContactPhone(p); });
+    }
+    return () => { cancelled = true; };
+  }, [order?.id, order?.providerUid, order?.driverUid]);
+
+  const isDelivered = order?.status === 'delivered' || order?.deliveryStatus === 'delivered';
+  const deliveryActive = !!order && order.status !== 'delivered' && order.status !== 'cancelled' && order.status !== 'rejected' && order.deliveryStatus !== 'delivered' && order.deliveryStatus !== 'cancelled';
+  const canRateProvider = isDelivered && !order?.providerHasRating && !order?.ratingSubmitted;
+  const canRateDriver = isDelivered && !order?.driverHasRating && !order?.driverRatingSubmitted && !!order?.driverUid;
+  const driverAccepted = !!order?.driverUid && order?.deliveryStatus !== 'ready_for_driver';
+  const canChooseDelivery = order?.status === 'ready_for_pickup' && !order?.deliveryMethod && !order?.deliveryStatus;
+  const canSubmitProof = order && (order.paymentMethod === 'stc_pay' || order.paymentMethod === 'bank_transfer') && order.paymentStatus !== 'paid' && order.paymentStatus !== 'paid_confirmed' && order.paymentStatus !== 'proof_sent' && order.status !== 'rejected' && order.status !== 'cancelled';
+  const hasProofSent = order?.paymentStatus === 'proof_sent';
+  const isPaymentRejected = order?.paymentStatus === 'payment_rejected';
+
+  const estimatedFee = useMemo(() => {
+    if (!order || !provider) return 0;
+    return computeDeliveryFee(order.providerUid, user?.location?.lat, user?.location?.lng);
+  }, [order, provider, user, computeDeliveryFee]);
+
+  const BackIcon = isRTL ? ArrowRight : ArrowLeft;
+
+  const handleCopy = useCallback(async (text: string) => {
+    try {
+      if (Platform.OS === 'web') { await navigator.clipboard.writeText(text); } else { await Clipboard.setStringAsync(text); }
+      AppAlert.alert(t('success'), t('copied'));
+    } catch { console.log('Copy failed'); }
+  }, [t]);
+
+  const handleSelfPickup = useCallback(async () => {
+    if (!order) return;
+    console.log('[OrderDetail] Customer chose self pickup for order:', order.id);
+    setIsFinalizingDelivery(true);
+    try {
+      await setDeliveryMethod(order.id, 'self_pickup');
+      console.log('[OrderDetail] Self pickup finalized successfully');
+      AppAlert.alert(t('success'), t('selfPickupInfo'));
+    } catch (err: any) {
+      console.log('[OrderDetail] Self pickup error:', err?.message || err);
+      AppAlert.alert(t('error'), t('orderUpdateError'));
+    } finally {
+      setIsFinalizingDelivery(false);
+    }
+  }, [order, setDeliveryMethod, t]);
+
+  const handleRequestDriverQuote = useCallback(async () => {
+    if (!order) return;
+    console.log('[OrderDetail] Requesting delivery quote for order:', order.id);
+    setIsLoadingQuote(true);
+    try {
+      const quote = await fetchDeliveryQuote(order.id);
+      console.log('[OrderDetail] Got delivery quote:', JSON.stringify(quote));
+      setDeliveryQuote(quote);
+      setShowDeliveryConfirm(true);
+    } catch (err: any) {
+      console.log('[OrderDetail] Quote error:', err?.message || err);
+      AppAlert.alert(t('error'), locale === 'ar' ? 'تعذر حساب رسوم التوصيل' : 'Could not calculate delivery fee');
+    } finally {
+      setIsLoadingQuote(false);
+    }
+  }, [order, fetchDeliveryQuote, t, locale]);
+
+  const handleConfirmDriverDelivery = useCallback(async () => {
+    if (!order) return;
+    console.log('[OrderDetail] Customer confirmed driver delivery for order:', order.id);
+    setIsFinalizingDelivery(true);
+    try {
+      await setDeliveryMethod(order.id, 'driver');
+      console.log('[OrderDetail] Driver delivery finalized successfully');
+      setShowDeliveryConfirm(false);
+      setDeliveryQuote(null);
+      AppAlert.alert(t('success'), t('driverDeliveryRequested'));
+    } catch (err: any) {
+      console.log('[OrderDetail] Driver delivery error:', err?.message || err);
+      AppAlert.alert(t('error'), t('orderUpdateError'));
+    } finally {
+      setIsFinalizingDelivery(false);
+    }
+  }, [order, setDeliveryMethod, t]);
+
+  const handleConfirmReceipt = useCallback(async () => {
+    if (!order) return;
+    AppAlert.alert(t('confirmReceipt'), t('confirmReceiptMsg'), [
+      { text: t('cancel'), style: 'cancel' },
+      {
+        text: t('confirm'),
+        onPress: async () => {
+          try {
+            await markOrderDelivered(order.id);
+            console.log('[OrderDetail] Customer confirmed receipt, order finalized:', order.id);
+            AppAlert.alert(t('success'), t('receiptConfirmed'));
+          } catch (err: any) {
+            console.log('[OrderDetail] confirm receipt error:', { orderId: order.id, code: err?.code, message: err?.message });
+            AppAlert.alert(t('error'), t('orderUpdateError'));
+          }
+        },
+      },
+    ]);
+  }, [order, markOrderDelivered, t]);
+
+  const handleRejectReceipt = useCallback(() => {
+    if (!order) return;
+    setShowComplaintModal(true);
+  }, [order]);
+
+  const handleSubmitComplaint = useCallback(
+    async (note: string) => {
+      if (!order) return;
+      try {
+        await raiseDeliveryComplaint(order, { source: 'customer', type: 'customer_rejected_receipt', note });
+        console.log('[OrderDetail] Customer raised delivery complaint:', order.id);
+        setShowComplaintModal(false);
+        AppAlert.alert(t('success'), t('complaintSent'));
+      } catch (err: any) {
+        console.log('[OrderDetail] reject receipt error:', { orderId: order.id, code: err?.code, message: err?.message });
+        setShowComplaintModal(false);
+        AppAlert.alert(t('error'), t('orderUpdateError'));
+      }
+    },
+    [order, raiseDeliveryComplaint, t],
+  );
+
+  const handleOpenGeneralComplaint = useCallback(() => {
+    if (!order) return;
+    if (order.driverUid && driver) {
+      AppAlert.alert(t('complaintAgainstWhom'), undefined, [
+        { text: t('complaintAgainstProvider'), onPress: () => { setComplaintTarget('provider'); setShowGeneralComplaint(true); } },
+        { text: t('complaintAgainstDriver'), onPress: () => { setComplaintTarget('driver'); setShowGeneralComplaint(true); } },
+        { text: t('cancel'), style: 'cancel' },
+      ]);
+    } else {
+      setComplaintTarget('provider');
+      setShowGeneralComplaint(true);
+    }
+  }, [order, driver, t]);
+
+  const handleSubmitGeneralComplaint = useCallback(
+    async (note: string) => {
+      if (!order) return;
+      try {
+        await raiseDeliveryComplaint(order, { source: 'customer', type: 'customer_complaint', target: complaintTarget, note });
+        console.log('[OrderDetail] Customer raised general complaint:', order.id, complaintTarget);
+        setShowGeneralComplaint(false);
+        AppAlert.alert(t('success'), t('complaintSent'));
+      } catch (err: any) {
+        console.log('[OrderDetail] general complaint error:', { orderId: order.id, code: err?.code, message: err?.message });
+        setShowGeneralComplaint(false);
+        AppAlert.alert(t('error'), t('orderUpdateError'));
+      }
+    },
+    [order, complaintTarget, raiseDeliveryComplaint, t],
+  );
+
+  const handlePickProofImage = useCallback(async () => {
+    const result = await pickImageFreeAspect();
+    if (!result) return;
+    setIsUploadingProof(true);
+    try {
+      const url = await uploadPaymentProofViaWorker(result.uri, order!.id);
+      setProofImageUrl(url);
+      console.log('[OrderDetail] Proof image uploaded:', url);
+    } catch (e) {
+      console.log('[OrderDetail] Proof image upload error:', e);
+      AppAlert.alert(t('error'), t('uploadError'));
+    } finally {
+      setIsUploadingProof(false);
+    }
+  }, [t]);
+
+  const handleSubmitPaymentProof = useCallback(async () => {
+    if (!order) return;
+    if (!proofImageUrl.trim() && !proofNote.trim()) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إضافة صورة الإثبات أو ملاحظة' : 'Please add proof image or a note'); return; }
+    setIsSubmitting(true);
+    try { await submitPaymentProof(order.id, proofImageUrl.trim(), proofNote.trim(), paymentRef.trim()); AppAlert.alert(t('success'), t('proofSent')); setShowPaymentProof(false); setProofImageUrl(''); setProofNote(''); setPaymentRef(''); }
+    catch { AppAlert.alert(t('error'), t('error')); }
+    finally { setIsSubmitting(false); }
+  }, [order, proofImageUrl, proofNote, paymentRef, submitPaymentProof, t, locale]);
+
+  const handleWhatsAppProof = useCallback(() => {
+    if (!order || !provider) return;
+    const rawPhone = provider.paymentMethods?.stcPay?.phone || providerContactPhone;
+    const phone = formatSaudiPhoneForWhatsApp(rawPhone);
+    console.log('[OrderDetail] WhatsApp proof - raw:', rawPhone, 'formatted:', phone);
+    const message = locale === 'ar'
+      ? `إثبات دفع - طلب رقم: ${order.orderNumber}\nالمبلغ: ${order.priceSnapshot} ر.س\nطريقة الدفع: ${order.paymentMethod === 'stc_pay' ? 'STC Pay' : 'تحويل بنكي'}`
+      : `Payment Proof - Order: ${order.orderNumber}\nAmount: ${order.priceSnapshot} SAR\nPayment: ${order.paymentMethod === 'stc_pay' ? 'STC Pay' : 'Bank Transfer'}`;
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    console.log('[OrderDetail] Opening WhatsApp URL:', url);
+    Linking.openURL(url).catch((err) => console.log('[OrderDetail] Cannot open WhatsApp:', err));
+  }, [order, provider, locale]);
+
+  const handleContactDriverWhatsApp = useCallback(async (coords?: { lat: number; lng: number }) => {
+    if (!order || !driver) return;
+    const driverPhone = formatSaudiPhoneForWhatsApp(driverContactPhone || '');
+    console.log('[OrderDetail] Contact driver WhatsApp - raw:', driverContactPhone, 'formatted:', driverPhone);
+    if (!driverPhone) {
+      AppAlert.alert(t('error'), t('whatsappNotAvailable'));
+      return;
+    }
+    let message = locale === 'ar'
+      ? `${t('orderRefPrefix')}: ${order.orderRef || order.orderNumber}`
+      : `${t('orderRefPrefix')}: ${order.orderRef || order.orderNumber}`;
+    if (coords) {
+      message += `\n${t('deliveryLocationMsg')}: https://maps.google.com/?q=${coords.lat},${coords.lng}`;
+    }
+    const url = `https://wa.me/${driverPhone}?text=${encodeURIComponent(message)}`;
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        AppAlert.alert(t('error'), t('whatsappNotAvailable'));
+      }
+    } catch (e) {
+      console.log('[OrderDetail] WhatsApp error:', e);
+      AppAlert.alert(t('error'), t('whatsappNotAvailable'));
+    }
+  }, [order, driver, t, locale]);
+
+  const handleShareLocationWithDriver = useCallback(() => {
+    if (!driver) return;
+    AppAlert.alert(
+      t('shareLocationTitle'),
+      '',
+      [
+        {
+          text: t('useMyCurrentLocationOption'),
+          onPress: async () => {
+            try {
+              if (Platform.OS === 'web') {
+                navigator.geolocation.getCurrentPosition(
+                  (position) => {
+                    void handleContactDriverWhatsApp({
+                      lat: position.coords.latitude,
+                      lng: position.coords.longitude,
+                    });
+                  },
+                  () => {
+                    AppAlert.alert(t('error'), t('locationPermissionDenied'));
+                  },
+                );
+                return;
+              }
+              let ExpoLocation: any = null;
+              try { ExpoLocation = require('expo-location'); } catch {}
+              if (!ExpoLocation) {
+                void handleContactDriverWhatsApp();
+                return;
+              }
+              const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+              if (status !== 'granted') {
+                AppAlert.alert(t('error'), t('locationPermissionDenied'));
+                return;
+              }
+              const loc = await ExpoLocation.getCurrentPositionAsync({ accuracy: ExpoLocation.Accuracy.Balanced });
+              void handleContactDriverWhatsApp({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+            } catch (e) {
+              console.log('[OrderDetail] GPS error:', e);
+              AppAlert.alert(t('error'), t('locationError'));
+            }
+          },
+        },
+        {
+          text: t('pickLocationOnMapOption'),
+          onPress: () => setShowLocationPicker(true),
+        },
+        { text: t('cancel'), style: 'cancel' },
+      ],
+    );
+  }, [driver, t, handleContactDriverWhatsApp]);
+
+  const handleLocationPickerSave = useCallback(async (coords: { lat: number; lng: number }) => {
+    void handleContactDriverWhatsApp(coords);
+  }, [handleContactDriverWhatsApp]);
+
+
+
+  const handleSubmitProviderRating = useCallback(async () => {
+    if (!order || !user || providerStars === 0) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى اختيار عدد النجوم' : 'Please select a rating'); return; }
+    setIsSubmitting(true);
+    try { await submitRating({ providerUid: order.providerUid, customerUid: user.uid, orderId: order.id, stars: providerStars, comment: providerComment.trim() }); AppAlert.alert(t('success'), t('ratingSubmitted')); }
+    catch { AppAlert.alert(t('error'), t('error')); }
+    finally { setIsSubmitting(false); }
+  }, [order, user, providerStars, providerComment, submitRating, t, locale]);
+
+  const handleSubmitDriverRating = useCallback(async () => {
+    if (!order || !user || !order.driverUid || driverStars === 0) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى اختيار عدد النجوم' : 'Please select a rating'); return; }
+    setIsSubmitting(true);
+    try { await submitDriverRating({ driverUid: order.driverUid, customerUid: user.uid, orderId: order.id, stars: driverStars, comment: driverComment.trim() }); AppAlert.alert(t('success'), t('ratingSubmitted')); }
+    catch { AppAlert.alert(t('error'), t('error')); }
+    finally { setIsSubmitting(false); }
+  }, [order, user, driverStars, driverComment, submitDriverRating, t, locale]);
+
+  if (!order) {
+    return (<SafeAreaView style={cs.centerSafe}><Text>{t('error')}</Text></SafeAreaView>);
+  }
+
+  const paymentColors = getPaymentMethodColor(order.paymentMethod);
+  const getPaymentLabel = () => {
+    if (order.paymentMethod === 'stc_pay') return t('stcPay');
+    if (order.paymentMethod === 'bank_transfer') return t('bankTransfer');
+    return t('cashOnDelivery');
+  };
+
+  const r = isRTL;
+
+  return (
+    <View style={cs.container}>
+      <SafeAreaView edges={['top']} style={cs.headerSafe}>
+        <View style={[cs.header, r && cs.headerRTL]}>
+          <Pressable style={cs.backBtn} onPress={() => router.back()}><BackIcon size={22} color={Colors.text} /></Pressable>
+          <Text style={[cs.headerTitle, r && cs.rtlText]}>{t('orderDetails')}</Text>
+          <View style={cs.backBtn} />
+        </View>
+      </SafeAreaView>
+
+      <ScrollView style={cs.flex1} showsVerticalScrollIndicator={false}>
+        <View style={cs.card}>
+          {order.orderNumber ? <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('orderNumber')}</Text><Text style={cs.orderNumber}>{order.orderNumber}</Text></View> : null}
+          <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('statusLabel')}</Text><OrderStatusBadge status={order.status} /></View>
+          <View style={cs.divider} />
+          <Text style={[cs.dishTitle, r && cs.rtlText]}>{order.offerTitleSnapshot}</Text>
+          {provider ? <Text style={[s.providerName, r && cs.rtlText]}>{t('orderFrom')}: {provider.displayName}</Text> : null}
+          <View style={cs.divider} />
+          <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('foodPrice')}</Text><Text style={cs.priceValue}>{formatPrice(order.priceSnapshot, locale)}</Text></View>
+          {order.deliveryMethod ? <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('deliveryFee')}</Text><Text style={cs.dateValue}>{order.deliveryFee === 0 ? t('free') : formatPrice(order.deliveryFee, locale)}</Text></View> : null}
+          <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.totalLabel, r && cs.rtlText]}>{t('totalAmount')}</Text><Text style={cs.totalValue}>{formatPrice(order.totalAmount, locale)}</Text></View>
+          <View style={cs.divider} />
+          <View style={[cs.cardRow, r && cs.rowRTL]}>
+            <Text style={[cs.label, r && cs.rtlText]}>{t('paymentMethod')}</Text>
+            <View style={[cs.paymentBadge, { backgroundColor: paymentColors.bg }]}>
+              {order.paymentMethod === 'stc_pay' ? <CreditCard size={14} color={paymentColors.text} /> : order.paymentMethod === 'bank_transfer' ? <Building2 size={14} color={paymentColors.text} /> : <Banknote size={14} color={paymentColors.text} />}
+              <Text style={[cs.paymentBadgeText, { color: paymentColors.text }]}>{getPaymentLabel()}</Text>
+            </View>
+          </View>
+          {order.deliveryMethod ? <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('deliveryMethod')}</Text><Text style={cs.dateValue}>{order.deliveryMethod === 'self_pickup' ? t('selfPickup') : t('driverDelivery')}</Text></View> : null}
+          <View style={[cs.cardRow, r && cs.rowRTL]}><Text style={[cs.label, r && cs.rtlText]}>{t('orderedOn')}</Text><Text style={cs.dateValue}>{formatDate(order.createdAt, locale)}</Text></View>
+          {order.note ? <><View style={cs.divider} /><Text style={[cs.label, r && cs.rtlText]}>{t('noteLabel')}</Text><Text style={[cs.noteText, r && cs.rtlText]}>{order.note}</Text></> : null}
+          {order.providerComment ? <><View style={cs.divider} /><Text style={[cs.label, r && cs.rtlText]}>{t('providerNote')}</Text><Text style={[cs.noteText, r && cs.rtlText]}>{order.providerComment}</Text></> : null}
+        </View>
+
+        {order.paymentStatus !== 'unpaid' && order.paymentStatus !== 'paid' && (
+          <View style={cs.sectionCard}>
+            <View style={[cs.cardRow, r && cs.rowRTL]}>
+              <Text style={[cs.label, r && cs.rtlText]}>{t('paymentStatus')}</Text>
+              {(() => { const psC = getPaymentStatusColor(order.paymentStatus); return (
+                <View style={[cs.statusBadge, { backgroundColor: psC.bg }]}>
+                  {order.paymentStatus === 'proof_sent' && <FileCheck size={14} color={psC.text} />}
+                  {order.paymentStatus === 'paid_confirmed' && <CheckCircle2 size={14} color={psC.text} />}
+                  {order.paymentStatus === 'payment_rejected' && <XCircle size={14} color={psC.text} />}
+                  <Text style={[cs.statusBadgeText, { color: psC.text }]}>{t(order.paymentStatus as any)}</Text>
+                </View>); })()}
+            </View>
+            {hasProofSent && <Text style={[s.proofDesc, { color: Colors.info }]}>{t('proofSentDesc')}</Text>}
+            {isPaymentRejected && <Text style={[s.proofDesc, { color: Colors.error }]}>{locale === 'ar' ? 'تم رفض الإثبات من الطباخ. يرجى إعادة الإرسال.' : 'Proof rejected by the chef. Please resend.'}</Text>}
+          </View>
+        )}
+
+        {(canSubmitProof || isPaymentRejected) && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('paymentProof')}</Text>
+            <Pressable style={({ pressed }) => [s.whatsappBtn, pressed && cs.btnPressed]} onPress={handleWhatsAppProof}>
+              <MessageCircle size={20} color="#FFFFFF" /><Text style={s.whatsappText}>{t('sendProofViaWhatsapp')}</Text>
+            </Pressable>
+            <Pressable style={({ pressed }) => [s.uploadToggle, pressed && cs.btnPressed]} onPress={() => setShowPaymentProof(!showPaymentProof)}>
+              <Upload size={18} color={Colors.primary} /><Text style={s.uploadText}>{t('sendPaymentProof')}</Text>
+            </Pressable>
+            {showPaymentProof && (
+              <View style={s.proofForm}>
+                <Text style={[cs.formLabel, r && cs.rtlText]}>{t('proofImage')}</Text>
+                <Pressable style={s.proofImagePicker} onPress={handlePickProofImage} disabled={isUploadingProof}>
+                  {isUploadingProof ? (
+                    <ActivityIndicator color={Colors.primary} />
+                  ) : proofImageUrl ? (
+                    <Image source={{ uri: proofImageUrl }} style={s.proofImagePreview} contentFit="cover" />
+                  ) : (
+                    <View style={s.proofImagePlaceholder}>
+                      <ImageIcon size={24} color={Colors.textTertiary} />
+                      <Text style={s.proofImageText}>{t('chooseProofImage')}</Text>
+                    </View>
+                  )}
+                </Pressable>
+                <Text style={[cs.formLabel, r && cs.rtlText]}>{t('proofNote')}</Text>
+                <TextInput style={[cs.formInput, r && cs.inputRTL]} placeholder={t('proofNoteHint')} placeholderTextColor={Colors.textTertiary} value={proofNote} onChangeText={setProofNote} textAlign={r ? 'right' : 'left'} multiline numberOfLines={2} textAlignVertical="top" />
+                <Text style={[cs.formLabel, r && cs.rtlText]}>{t('paymentReferenceLabel')}</Text>
+                <TextInput style={[cs.formInput, r && cs.inputRTL]} placeholder={t('paymentReferenceHint')} placeholderTextColor={Colors.textTertiary} value={paymentRef} onChangeText={setPaymentRef} textAlign={r ? 'right' : 'left'} />
+                <Pressable style={({ pressed }) => [cs.primaryBtn, { marginTop: 12 }, pressed && cs.btnPressed]} onPress={handleSubmitPaymentProof} disabled={isSubmitting}>
+                  <Text style={cs.primaryBtnText}>{t('sendPaymentProof')}</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
+
+        {(order.paymentMethod === 'stc_pay' || order.paymentMethod === 'bank_transfer') && provider && order.status !== 'rejected' && order.status !== 'cancelled' && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('paymentInstructions')}</Text>
+            {order.paymentMethod === 'stc_pay' && provider.paymentMethods?.stcPay?.enabled && (
+              <View style={s.payDetail}>
+                <Text style={[s.payDetailLabel, r && cs.rtlText]}>{t('stcPayPhone')}</Text>
+                <View style={[s.copyRow, r && cs.rowRTL]}>
+                  <Text style={s.payDetailValue}>{provider.paymentMethods.stcPay.phone}</Text>
+                  <Pressable style={s.copyBtn} onPress={() => handleCopy(provider.paymentMethods?.stcPay?.phone ?? '')}>
+                    <Copy size={14} color={Colors.primary} /><Text style={s.copyText}>{t('copyToClipboard')}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+            {order.paymentMethod === 'bank_transfer' && provider.paymentMethods?.bankTransfer?.enabled && (
+              <>
+                <View style={s.payDetail}><Text style={[s.payDetailLabel, r && cs.rtlText]}>{t('bankName')}</Text><Text style={[s.payDetailValue, r && cs.rtlText]}>{provider.paymentMethods.bankTransfer.bankName}</Text></View>
+                <View style={s.payDetail}><Text style={[s.payDetailLabel, r && cs.rtlText]}>{t('accountName')}</Text><Text style={[s.payDetailValue, r && cs.rtlText]}>{provider.paymentMethods.bankTransfer.accountName}</Text></View>
+                <View style={s.payDetail}>
+                  <Text style={[s.payDetailLabel, r && cs.rtlText]}>{t('iban')}</Text>
+                  <View style={[s.copyRow, r && cs.rowRTL]}>
+                    <Text style={s.payDetailValue} numberOfLines={1}>{provider.paymentMethods.bankTransfer.iban}</Text>
+                    <Pressable style={s.copyBtn} onPress={() => handleCopy(provider.paymentMethods?.bankTransfer?.iban ?? '')}>
+                      <Copy size={14} color={Colors.primary} /><Text style={s.copyText}>{t('copyToClipboard')}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </>
+            )}
+            <Text style={[s.payNote, r && cs.rtlText]}>{t('paymentNote')}</Text>
+          </View>
+        )}
+
+        {canChooseDelivery && !showDeliveryConfirm && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('orderReadyChooseDelivery')}</Text>
+            <Pressable style={({ pressed }) => [s.deliveryOpt, pressed && cs.btnPressed, isFinalizingDelivery && { opacity: 0.6 }]} onPress={handleSelfPickup} disabled={isFinalizingDelivery || isLoadingQuote}>
+              <View style={[s.deliveryContent, r && cs.rowRTL]}>
+                <View style={[s.deliveryIcon, { backgroundColor: Colors.deliveredBg }]}><PackageCheck size={22} color={Colors.delivered} /></View>
+                <View style={cs.flex1}><Text style={[s.deliveryTitle, r && cs.rtlText]}>{t('selfPickup')}</Text><Text style={[s.deliveryDesc, r && cs.rtlText]}>{t('selfPickupDesc')}</Text></View>
+                {isFinalizingDelivery ? <ActivityIndicator size="small" color={Colors.primary} /> : <Text style={s.deliveryFee}>{t('free')}</Text>}
+              </View>
+            </Pressable>
+            <Pressable style={({ pressed }) => [s.deliveryOpt, pressed && cs.btnPressed, isLoadingQuote && { opacity: 0.6 }]} onPress={handleRequestDriverQuote} disabled={isFinalizingDelivery || isLoadingQuote}>
+              <View style={[s.deliveryContent, r && cs.rowRTL]}>
+                <View style={[s.deliveryIcon, { backgroundColor: Colors.assignedToDriverBg }]}><Truck size={22} color={Colors.assignedToDriver} /></View>
+                <View style={cs.flex1}><Text style={[s.deliveryTitle, r && cs.rtlText]}>{t('driverDelivery')}</Text><Text style={[s.deliveryDesc, r && cs.rtlText]}>{t('driverDeliveryDesc')}</Text></View>
+                {isLoadingQuote ? <ActivityIndicator size="small" color={Colors.primary} /> : <Text style={s.deliveryFee}>~{formatPrice(estimatedFee, locale)}</Text>}
+              </View>
+            </Pressable>
+          </View>
+        )}
+
+        {showDeliveryConfirm && deliveryQuote && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>
+              {locale === 'ar' ? 'اختيار طريقة الاستلام' : 'Choose Pickup Method'}
+            </Text>
+            <Text style={[s.deliveryDesc, r && cs.rtlText]}>
+              {locale === 'ar'
+                ? 'اختر التوصيل عبر مندوب وسيتم عرض الطلب على السائقين المتاحين'
+                : 'Choose driver delivery and your order will be shown to available drivers'}
+            </Text>
+            <View style={s.quoteCard}>
+              <View style={[s.quoteRow, r && cs.rowRTL]}>
+                <Text style={[s.quoteLabel, r && cs.rtlText]}>{t('foodPrice')}</Text>
+                <Text style={s.quoteValue}>{formatPrice(deliveryQuote.subtotal, locale)}</Text>
+              </View>
+              <View style={[s.quoteRow, r && cs.rowRTL]}>
+                <Text style={[s.quoteLabel, r && cs.rtlText]}>{t('deliveryFee')}</Text>
+                <Text style={s.quoteValue}>{formatPrice(deliveryQuote.deliveryFee, locale)}</Text>
+              </View>
+              {deliveryQuote.deliveryDistanceKm > 0 && (
+                <View style={[s.quoteRow, r && cs.rowRTL]}>
+                  <Text style={[s.quoteLabel, r && cs.rtlText]}>
+                    {locale === 'ar' ? 'المسافة' : 'Distance'}
+                  </Text>
+                  <Text style={s.quoteValue}>
+                    {locale === 'ar' ? `${deliveryQuote.deliveryDistanceKm} كم` : `${deliveryQuote.deliveryDistanceKm} km`}
+                  </Text>
+                </View>
+              )}
+              <View style={s.quoteDivider} />
+              <View style={[s.quoteRow, r && cs.rowRTL]}>
+                <Text style={[s.quoteTotalLabel, r && cs.rtlText]}>{t('totalAmount')}</Text>
+                <Text style={s.quoteTotalValue}>{formatPrice(deliveryQuote.totalAmount, locale)}</Text>
+              </View>
+            </View>
+            <Pressable
+              style={({ pressed }) => [s.confirmDeliveryBtn, pressed && cs.btnPressed, isFinalizingDelivery && { opacity: 0.6 }]}
+              onPress={handleConfirmDriverDelivery}
+              disabled={isFinalizingDelivery}
+            >
+              {isFinalizingDelivery ? (
+                <ActivityIndicator color={Colors.white} />
+              ) : (
+                <>
+                  <Truck size={20} color={Colors.white} />
+                  <Text style={s.confirmDeliveryText}>
+                    {locale === 'ar' ? 'طلب مندوب توصيل' : 'Request a Driver'}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [s.cancelQuoteBtn, pressed && cs.btnPressed]}
+              onPress={() => { setShowDeliveryConfirm(false); setDeliveryQuote(null); }}
+              disabled={isFinalizingDelivery}
+            >
+              <Text style={s.cancelQuoteText}>
+                {locale === 'ar' ? 'سأستلم الطلب بنفسي' : "I'll pick it up myself"}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
+        {order.deliveryMethod === 'self_pickup' && order.status === 'ready_for_pickup' && !driverAccepted && (
+          <View style={cs.sectionCard}>
+            <View style={s.selfPickupInfo}>
+              <PackageCheck size={28} color={Colors.delivered} />
+              <Text style={[s.selfPickupTitle, r && cs.rtlText]}>{t('selfPickup')}</Text>
+              <Text style={[s.selfPickupDesc, r && cs.rtlText]}>{t('selfPickupInfo')}</Text>
+              {provider && <Text style={[s.selfPickupAddress, r && cs.rtlText]}>{provider.address || provider.displayName}</Text>}
+              <Pressable style={({ pressed }) => [s.openMapBtn, pressed && cs.btnPressed]} onPress={openPickupLocation}>
+                <MapPin size={18} color="#fff" />
+                <Text style={s.openMapBtnText}>{locale === 'ar' ? 'فتح موقع الطباخ في الخريطة' : "Open cook's location on map"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {order.deliveryMethod === 'driver' && !driverAccepted && order.status === 'ready_for_pickup' && (
+          <View style={cs.sectionCard}>
+            <View style={s.waitingDriverInfo}>
+              <Truck size={28} color={Colors.assignedToDriver} />
+              <Text style={[s.waitingDriverTitle, r && cs.rtlText]}>{t('waitingForDriver')}</Text>
+              <Text style={[s.waitingDriverDesc, r && cs.rtlText]}>{t('driverDeliveryDesc')}</Text>
+            </View>
+          </View>
+        )}
+
+        {driverAccepted && !driver && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('driverAcceptedYourOrder')}</Text>
+          </View>
+        )}
+
+        {(order.deliveryStatus === 'delivered_pending_confirmation' || order.deliveryStatus === 'arrived') && (
+          <View style={cs.sectionCard}>
+            <View style={s.confirmReceiptInfo}>
+              <PackageCheck size={28} color={Colors.success} />
+              <Text style={[s.confirmReceiptTitle, r && cs.rtlText]}>{t('confirmReceipt')}</Text>
+              <Text style={[s.confirmReceiptDesc, r && cs.rtlText]}>{t('awaitingYourConfirmation')}</Text>
+            </View>
+            <Pressable
+              style={({ pressed }) => [s.confirmReceiptBtn, pressed && cs.btnPressed]}
+              onPress={handleConfirmReceipt}
+            >
+              <PackageCheck size={20} color={Colors.white} />
+              <Text style={s.confirmReceiptBtnText}>{t('confirmReceipt')}</Text>
+            </Pressable>
+            {hasComplaint(order.id) ? (
+              <View style={[s.complaintRaisedBox, r && s.complaintRaisedBoxRTL]}>
+                <XCircle size={18} color={Colors.textSecondary} />
+                <Text style={[s.complaintRaisedText, r && cs.rtlText]}>{t('complaintRaisedLabel')}</Text>
+              </View>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [s.rejectReceiptBtn, pressed && cs.btnPressed]}
+                onPress={handleRejectReceipt}
+              >
+                <XCircle size={20} color={Colors.error} />
+                <Text style={s.rejectReceiptBtnText}>{t('rejectReceipt')}</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {order.driverUid && order.deliveryStatus && order.deliveryStatus !== 'ready_for_driver' && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('deliveryStatusLabel')}</Text>
+            <View style={s.trackingSteps}>
+              {(['driver_assigned', 'picked_up', 'arrived', 'delivered'] as const).map((step, idx) => {
+                const stepLabels: Record<string, string> = {
+                  driver_assigned: t('driver_assigned'),
+                  picked_up: t('picked_up'),
+                  arrived: t('arrived'),
+                  delivered: t('delivered'),
+                };
+                const stepOrder = ['driver_assigned', 'picked_up', 'arrived', 'delivered'];
+                const effectiveDs = order.deliveryStatus === 'delivered_pending_confirmation' ? 'arrived' : (order.deliveryStatus ?? '');
+                const currentIdx = stepOrder.indexOf(effectiveDs);
+                const isCompleted = idx <= currentIdx;
+                const isCurrent = idx === currentIdx;
+                return (
+                  <View key={step} style={s.trackingStep}>
+                    <View style={[s.trackingDot, isCompleted && s.trackingDotActive, isCurrent && s.trackingDotCurrent]} />
+                    {idx < 3 && <View style={[s.trackingLine, isCompleted && idx < currentIdx && s.trackingLineActive]} />}
+                    <Text style={[s.trackingLabel, isCompleted && s.trackingLabelActive, isCurrent && s.trackingLabelCurrent]}>{stepLabels[step]}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {driver && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('driverInfoSection')}</Text>
+            <View style={[cs.driverRow, r && cs.rowRTL]}>
+              <View style={cs.driverIconWrap}><Truck size={20} color={Colors.primary} /></View>
+              <View style={cs.flex1}>
+                <Text style={[s.driverName, r && cs.rtlText]}>{driver.displayName}</Text>
+                <View style={[s.driverMeta, r && cs.rowRTL]}><Phone size={12} color={Colors.textTertiary} /><Text style={s.driverDist}>{driverContactPhone}</Text></View>
+              </View>
+              <View style={{ alignItems: 'center' as const }}><Text style={s.driverRatingBig}>{driver.ratingAverage?.toFixed(1) || '0.0'}</Text><Text style={{ fontSize: 12 }}>⭐</Text></View>
+            </View>
+            {deliveryActive && (
+              <Pressable
+                style={({ pressed }) => [s.whatsappDriverBtn, pressed && cs.btnPressed]}
+                onPress={handleShareLocationWithDriver}
+              >
+                <MessageCircle size={20} color="#FFFFFF" />
+                <Text style={s.whatsappText}>{t('contactDriverWhatsapp')}</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+
+
+        {['accepted', 'preparing', 'ready_for_pickup', 'searching_driver', 'assigned_to_driver', 'picked_up'].includes(order.status) && order.deliveryStatus !== 'delivered_pending_confirmation' && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('haveAnIssue')}</Text>
+            {hasComplaint(order.id) ? (
+              <View style={[s.complaintRaisedBox, r && s.complaintRaisedBoxRTL]}>
+                <XCircle size={18} color={Colors.textSecondary} />
+                <Text style={[s.complaintRaisedText, r && cs.rtlText]}>{t('complaintRaisedLabel')}</Text>
+              </View>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [s.rejectReceiptBtn, pressed && cs.btnPressed]}
+                onPress={handleOpenGeneralComplaint}
+              >
+                <XCircle size={20} color={Colors.error} />
+                <Text style={s.rejectReceiptBtnText}>{t('raiseComplaint')}</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {canRateProvider && (
+          <View style={cs.sectionCard}>
+            <Text style={[s.ratingTitle, r && cs.rtlText]}>{t('rateProvider')}</Text>
+            <View style={s.starsRow}><RatingStars rating={providerStars} size={32} interactive onRate={setProviderStars} /></View>
+            <TextInput style={[s.ratingInput, r && cs.inputRTL]} placeholder={t('ratingCommentHint')} placeholderTextColor={Colors.textTertiary} value={providerComment} onChangeText={setProviderComment} multiline numberOfLines={3} textAlignVertical="top" textAlign={r ? 'right' : 'left'} />
+            <Pressable style={({ pressed }) => [cs.primaryBtn, pressed && cs.btnPressed]} onPress={handleSubmitProviderRating} disabled={isSubmitting}><Text style={cs.primaryBtnText}>{t('submitRating')}</Text></Pressable>
+          </View>
+        )}
+
+        {canRateDriver && (
+          <View style={cs.sectionCard}>
+            <Text style={[s.ratingTitle, r && cs.rtlText]}>{t('rateDriver')}</Text>
+            <View style={s.starsRow}><RatingStars rating={driverStars} size={32} interactive onRate={setDriverStars} /></View>
+            <TextInput style={[s.ratingInput, r && cs.inputRTL]} placeholder={t('ratingCommentHint')} placeholderTextColor={Colors.textTertiary} value={driverComment} onChangeText={setDriverComment} multiline numberOfLines={3} textAlignVertical="top" textAlign={r ? 'right' : 'left'} />
+            <Pressable style={({ pressed }) => [cs.primaryBtn, { backgroundColor: Colors.info }, pressed && cs.btnPressed]} onPress={handleSubmitDriverRating} disabled={isSubmitting}><Text style={cs.primaryBtnText}>{t('submitRating')}</Text></Pressable>
+          </View>
+        )}
+
+        <View style={cs.bottomSpacer} />
+      </ScrollView>
+      <MapLocationPicker
+        visible={showLocationPicker}
+        onClose={() => setShowLocationPicker(false)}
+        onSave={handleLocationPickerSave}
+        initialLocation={user?.location}
+      />
+      <ComplaintNoteModal
+        visible={showComplaintModal}
+        title={t('rejectReceipt')}
+        message={t('rejectReceiptMsg')}
+        onCancel={() => setShowComplaintModal(false)}
+        onSubmit={handleSubmitComplaint}
+      />
+      <ComplaintNoteModal
+        visible={showGeneralComplaint}
+        title={t('raiseComplaint')}
+        message={complaintTarget === 'driver' ? t('complaintAgainstDriverMsg') : t('complaintAgainstProviderMsg')}
+        onCancel={() => setShowGeneralComplaint(false)}
+        onSubmit={handleSubmitGeneralComplaint}
+      />
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  providerName: { fontSize: 14, color: Colors.textSecondary },
+  proofDesc: { fontSize: 13, marginTop: 10, lineHeight: 18 },
+  whatsappBtn: { flexDirection: 'row', backgroundColor: '#25D366', height: 50, borderRadius: 14, justifyContent: 'center', alignItems: 'center', gap: 10, marginBottom: 12 },
+  whatsappText: { color: Colors.white, fontSize: 16, fontWeight: '700' as const },
+  uploadToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 14, borderWidth: 2, borderColor: Colors.primary },
+  uploadText: { fontSize: 15, fontWeight: '600' as const, color: Colors.primary },
+  proofForm: { marginTop: 16 },
+  proofImagePicker: { backgroundColor: Colors.background, borderRadius: 12, borderWidth: 1, borderColor: Colors.borderLight, overflow: 'hidden' as const, minHeight: 100, justifyContent: 'center' as const, alignItems: 'center' as const, marginBottom: 12 },
+  proofImagePreview: { width: '100%' as any, height: 160, borderRadius: 12 },
+  proofImagePlaceholder: { paddingVertical: 24, alignItems: 'center' as const, gap: 8 },
+  proofImageText: { fontSize: 13, color: Colors.textTertiary },
+  payDetail: { marginBottom: 12 },
+  payDetailLabel: { fontSize: 12, color: Colors.textTertiary, marginBottom: 4 },
+  payDetailValue: { fontSize: 15, fontWeight: '600' as const, color: Colors.text, flex: 1 },
+  copyRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  copyBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.primaryFaded, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  copyText: { fontSize: 12, color: Colors.primary, fontWeight: '600' as const },
+  payNote: { fontSize: 12, color: Colors.textTertiary, marginTop: 4, lineHeight: 18 },
+  deliveryOpt: { backgroundColor: Colors.background, borderRadius: 16, padding: 16, marginBottom: 10, borderWidth: 2, borderColor: Colors.borderLight },
+  deliveryContent: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  deliveryIcon: { width: 48, height: 48, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+  deliveryTitle: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, marginBottom: 2 },
+  deliveryDesc: { fontSize: 12, color: Colors.textTertiary },
+  deliveryFee: { fontSize: 14, fontWeight: '700' as const, color: Colors.primary },
+  emptyText: { fontSize: 14, color: Colors.textTertiary, textAlign: 'center', paddingVertical: 20 },
+  driverCard: { backgroundColor: Colors.background, borderRadius: 14, padding: 14, marginBottom: 10 },
+  driverName: { fontSize: 16, fontWeight: '700' as const, color: Colors.text, marginBottom: 4 },
+  driverMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  driverRating: { fontSize: 12, color: Colors.textSecondary, fontWeight: '600' as const },
+  driverDist: { fontSize: 12, color: Colors.textTertiary },
+  driverRatingBig: { fontSize: 16, fontWeight: '700' as const, color: Colors.text },
+  selectBtn: { backgroundColor: Colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  selectText: { color: Colors.white, fontSize: 13, fontWeight: '700' as const },
+  whatsappDriverBtn: { flexDirection: 'row', backgroundColor: '#25D366', height: 48, borderRadius: 14, justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 14 },
+  deliveryStatusText: { fontSize: 14, fontWeight: '700' as const, color: Colors.primary },
+  pickupBtn: { flexDirection: 'row', backgroundColor: Colors.delivered, height: 54, borderRadius: 16, justifyContent: 'center', alignItems: 'center', gap: 10, marginHorizontal: 20, marginBottom: 16 },
+  ratingTitle: { fontSize: 18, fontWeight: '700' as const, color: Colors.text, marginBottom: 16 },
+  starsRow: { alignItems: 'center', marginBottom: 16 },
+  ratingInput: { backgroundColor: Colors.background, borderRadius: 14, padding: 16, fontSize: 14, color: Colors.text, minHeight: 80, marginBottom: 16, borderWidth: 1, borderColor: Colors.borderLight },
+  trackingSteps: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: 4 },
+  trackingStep: { alignItems: 'center', flex: 1, position: 'relative' as const },
+  trackingDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: Colors.border, marginBottom: 6 },
+  trackingDotActive: { backgroundColor: Colors.success },
+  trackingDotCurrent: { backgroundColor: Colors.primary, borderWidth: 3, borderColor: Colors.primaryFaded, width: 18, height: 18, borderRadius: 9 },
+  trackingLine: { position: 'absolute' as const, top: 7, left: '57%' as any, right: '-43%' as any, height: 2, backgroundColor: Colors.border },
+  trackingLineActive: { backgroundColor: Colors.success },
+  trackingLabel: { fontSize: 10, color: Colors.textTertiary, textAlign: 'center' as const, maxWidth: 70 },
+  trackingLabelActive: { color: Colors.success, fontWeight: '600' as const },
+  trackingLabelCurrent: { color: Colors.primary, fontWeight: '700' as const },
+  selfPickupInfo: { alignItems: 'center' as const, paddingVertical: 16, gap: 10 },
+  selfPickupTitle: { fontSize: 17, fontWeight: '700' as const, color: Colors.delivered },
+  selfPickupDesc: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' as const, lineHeight: 20 },
+  selfPickupAddress: { fontSize: 15, fontWeight: '600' as const, color: Colors.text, marginTop: 4 },
+  openMapBtn: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, backgroundColor: Colors.delivered, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 12, marginTop: 12, alignSelf: 'stretch' as const },
+  openMapBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' as const },
+  waitingDriverInfo: { alignItems: 'center' as const, paddingVertical: 16, gap: 10 },
+  waitingDriverTitle: { fontSize: 17, fontWeight: '700' as const, color: Colors.assignedToDriver },
+  waitingDriverDesc: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' as const, lineHeight: 20 },
+  quoteCard: { backgroundColor: Colors.background, borderRadius: 14, padding: 16, marginBottom: 16 },
+  quoteRow: { flexDirection: 'row' as const, justifyContent: 'space-between' as const, alignItems: 'center' as const, paddingVertical: 6 },
+  quoteLabel: { fontSize: 14, color: Colors.textSecondary },
+  quoteValue: { fontSize: 14, fontWeight: '600' as const, color: Colors.text },
+  quoteDivider: { height: 1, backgroundColor: Colors.divider, marginVertical: 8 },
+  quoteTotalLabel: { fontSize: 16, fontWeight: '700' as const, color: Colors.text },
+  quoteTotalValue: { fontSize: 18, fontWeight: '800' as const, color: Colors.primary },
+  confirmDeliveryBtn: { flexDirection: 'row' as const, backgroundColor: Colors.success, height: 52, borderRadius: 14, justifyContent: 'center' as const, alignItems: 'center' as const, gap: 10, marginBottom: 10 },
+  confirmDeliveryText: { color: Colors.white, fontSize: 16, fontWeight: '700' as const },
+  confirmReceiptInfo: { alignItems: 'center' as const, paddingVertical: 12, gap: 8 },
+  confirmReceiptTitle: { fontSize: 17, fontWeight: '700' as const, color: Colors.success },
+  confirmReceiptDesc: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' as const, lineHeight: 20 },
+  confirmReceiptBtn: { flexDirection: 'row' as const, backgroundColor: Colors.success, height: 52, borderRadius: 14, justifyContent: 'center' as const, alignItems: 'center' as const, gap: 10, marginTop: 8 },
+  confirmReceiptBtnText: { color: Colors.white, fontSize: 16, fontWeight: '700' as const },
+  rejectReceiptBtn: { flexDirection: 'row' as const, backgroundColor: 'transparent', height: 48, borderRadius: 14, justifyContent: 'center' as const, alignItems: 'center' as const, gap: 8, marginTop: 10, borderWidth: 1, borderColor: Colors.error },
+  rejectReceiptBtnText: { color: Colors.error, fontSize: 15, fontWeight: '700' as const },
+  complaintRaisedBox: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, height: 48, borderRadius: 14, marginTop: 10, backgroundColor: Colors.surfaceSecondary },
+  complaintRaisedBoxRTL: { flexDirection: 'row-reverse' as const },
+  complaintRaisedText: { color: Colors.textSecondary, fontSize: 14, fontWeight: '600' as const },
+  cancelQuoteBtn: { alignItems: 'center' as const, paddingVertical: 12 },
+  cancelQuoteText: { fontSize: 14, fontWeight: '600' as const, color: Colors.textSecondary },
+});
