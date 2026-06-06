@@ -1,0 +1,146 @@
+Security Audit Before Store Release
+
+Do not modify code.
+Do not deploy.
+Do not refactor.
+Do not change Firestore rules.
+Do not fix anything yet.
+
+Audit only.
+
+Goal:
+Perform a production-readiness security audit for Tabbakheen before Google Play and Apple Store release.
+
+Focus on real-world vulnerabilities that commonly appear in AI-assisted projects.
+
+Check and report:
+
+1. Authentication Security
+
+* Firebase Auth configuration
+* Unauthorized account access risks
+* Password reset flow security
+* Account enumeration risks
+* Suspended account bypass possibilities
+
+2. Firestore Security
+
+* Firestore rules review
+* Horizontal privilege escalation
+* Access to other users' orders
+* Access to other users' complaints
+* Access to other users' payment proofs
+* Access to admin-only data
+* Collection permissions consistency
+
+3. Role Security
+
+* Customer → Provider privilege escalation
+* Customer → Driver privilege escalation
+* User → Admin privilege escalation
+* Direct Firestore write attacks
+* Client-side role trust issues
+
+4. Payment Security
+
+* Payment proof manipulation
+* Payment status manipulation
+* Order completion bypass
+* Delivery completion bypass
+* Fake approval scenarios
+
+5. Cloudinary Security
+
+* Public file exposure
+* Predictable URLs
+* Unauthorized deletion
+* Unauthorized uploads
+* Sensitive document exposure
+
+6. Cloudflare Worker Security
+
+* Admin endpoint protection
+* Missing authentication checks
+* Missing authorization checks
+* Direct API abuse possibilities
+* Rate limiting gaps
+* Public endpoint exposure
+
+7. Admin Dashboard Security
+
+* Admin impersonation risks
+* Unprotected admin actions
+* Complaint manipulation
+* Suspension manipulation
+* Appeal manipulation
+* Missing audit logging
+
+8. Data Privacy
+
+* Exposure of phone numbers
+* Exposure of addresses
+* Exposure of customer/provider data
+* GDPR-style privacy concerns
+* Excessive data visibility
+
+9. Mobile App Security
+
+* Hardcoded secrets
+* API keys
+* Firebase credentials misuse
+* Sensitive logs
+* Debug code left in production
+* Unsafe local storage
+
+10. Push Notification Security
+
+* Token exposure
+* Notification spoofing
+* Unauthorized notification sending
+
+11. Abuse Scenarios
+    Simulate realistic attacker behavior:
+
+* Malicious customer
+* Malicious provider
+* Malicious driver
+* Authenticated attacker
+* Unauthenticated attacker
+
+12. Store Compliance
+    Review for:
+
+* Apple App Store
+* Google Play
+
+Security-related rejection risks only.
+
+Important:
+Do not change code.
+
+Return:
+
+A. Critical Issues
+Issues that can expose data, money, accounts, or admin access.
+
+B. High Issues
+Issues that should be fixed before release.
+
+C. Medium Issues
+Issues that can wait until after release.
+
+D. Low Issues
+
+E. False Positives
+Things that look risky but are actually safe.
+
+F. Release Recommendation
+
+* Safe to release
+* Release after critical fixes
+* Release after high fixes
+
+G. Exact file locations involved for every finding.
+
+Do not implement fixes.
+Audit only.
