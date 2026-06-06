@@ -54,7 +54,9 @@ export function fsSubscribeOffers(
 
 export async function fsCreateOffer(
   data: Omit<Offer, 'id' | 'createdAt'>,
+  callerAccountStatus?: string,
 ): Promise<string> {
+  if (callerAccountStatus === 'suspended') throw new Error('ACCOUNT_SUSPENDED');
   const db = getFirebaseFirestore();
   const { providerUid, ...rest } = data;
   const ref = await addDoc(collection(db, COLLECTION), {

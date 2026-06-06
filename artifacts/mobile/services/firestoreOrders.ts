@@ -223,7 +223,9 @@ export async function fsUpdateDeliveryStatus(
 export async function fsDriverAcceptOrder(
   orderId: string,
   driverUid: string,
+  callerAccountStatus?: string,
 ): Promise<void> {
+  if (callerAccountStatus === 'suspended') throw new Error('ACCOUNT_SUSPENDED');
   const db = getFirebaseFirestore();
   console.log('[fsOrders] driver accepting order', orderId, 'driverUid:', driverUid);
   await updateDoc(doc(db, COLLECTION, orderId), {
@@ -231,6 +233,20 @@ export async function fsDriverAcceptOrder(
     deliveryStatus: 'driver_assigned',
   });
   console.log('[fsOrders] driver accepted order:', orderId);
+}
+
+export async function fsUpdateOrderStatus(
+  orderId: string,
+  status: 'accepted' | 'rejected' | 'preparing' | 'ready_for_pickup' | 'cancelled',
+  callerAccountStatus?: string,
+): Promise<void> {
+  if ((status === 'accepted' || status === 'preparing') && callerAccountStatus === 'suspended') {
+    throw new Error('ACCOUNT_SUSPENDED');
+  }
+  const db = getFirebaseFirestore();
+  console.log('[fsOrders] updating order status', orderId, '->', status);
+  await updateDoc(doc(db, COLLECTION, orderId), { status });
+  console.log('[fsOrders] order status updated:', orderId);
 }
 
 export async function fsSubmitProviderRating(
