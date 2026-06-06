@@ -238,3 +238,36 @@ export async function aggregateRatingViaWorker(
     console.log(`[PushAPI] Error aggregating ${type} rating:`, e);
   }
 }
+
+export async function uploadPaymentProofViaWorker(
+  fileUri: string,
+  orderId: string,
+): Promise<string> {
+  const currentUser = getFirebaseAuth().currentUser;
+  if (!currentUser) throw new Error('فشل التحقق من الهوية');
+  const idToken = await currentUser.getIdToken();
+
+  const formData = new FormData();
+  formData.append('file', {
+    uri: fileUri,
+    type: 'image/jpeg',
+    name: 'payment_proof.jpg',
+  } as unknown as Blob);
+  formData.append('orderId', orderId);
+
+  const response = await fetch(`${PUSH_API_URL}/upload/payment-proof`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!response.ok || !data.success) {
+    const msg = data?.error || 'فشل رفع صورة إثبات الدفع';
+    throw new Error(msg);
+  }
+  if (!data.url) throw new Error('لم يتم استلام رابط الصورة');
+  return data.url as string;
+}
