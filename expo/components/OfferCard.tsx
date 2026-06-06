@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { Star, MapPin } from 'lucide-react-native';
 import Colors from '@/constants/colors';
+import { VerifiedBadge } from '@/components/VerifiedBadge';
 import { Offer, User } from '@/types';
 import { useLocale } from '@/contexts/LocaleContext';
 import { formatPrice } from '@/utils/helpers';
@@ -34,9 +35,12 @@ function OfferCardComponent({ offer, provider, onPress, compact }: OfferCardProp
             {offer.title}
           </Text>
           {provider && (
-            <Text style={[styles.compactProvider, isRTL && styles.rtlText]} numberOfLines={1}>
-              {provider.displayName}
-            </Text>
+            <View style={[styles.compactProviderRow, isRTL && styles.rowRTL]}>
+              <Text style={[styles.compactProvider, { marginBottom: 0, flexShrink: 1 }, isRTL && styles.rtlText]} numberOfLines={1}>
+                {provider.displayName}
+              </Text>
+              <VerifiedBadge status={provider.verificationStatus} size={12} />
+            </View>
           )}
           <Text style={[styles.compactPrice, isRTL && styles.rtlText]}>
             {formatPrice(offer.price, locale)}
@@ -82,6 +86,7 @@ function OfferCardComponent({ offer, provider, onPress, compact }: OfferCardProp
             <Text style={[styles.providerName, isRTL && styles.rtlText]} numberOfLines={1}>
               {provider.displayName}
             </Text>
+            <VerifiedBadge status={provider.verificationStatus} size={14} />
             <View style={[styles.ratingContainer, isRTL && styles.rowRTL]}>
               <Star size={12} color={Colors.star} fill={Colors.star} />
               <Text style={styles.ratingText}>{provider.ratingAverage.toFixed(1)}</Text>
@@ -221,6 +226,12 @@ const styles = StyleSheet.create({
   compactProvider: {
     fontSize: 11,
     color: Colors.textTertiary,
+    marginBottom: 4,
+  },
+  compactProviderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     marginBottom: 4,
   },
   compactPrice: {

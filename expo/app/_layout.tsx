@@ -1,11 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import {
+  SafeAreaProvider,
+  initialWindowMetrics,
+} from "react-native-safe-area-context";
 import { LocaleProvider } from "@/contexts/LocaleContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { DataProvider } from "@/contexts/DataContext";
+import { AppDialogHost } from "@/components/AppDialog";
 import {
   requestNotificationPermissions,
   getAndStorePushToken,
@@ -61,6 +67,7 @@ function NotificationInitializer() {
 function RootLayoutNav() {
   return (
     <>
+      <StatusBar style="dark" />
       <NotificationInitializer />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
@@ -83,13 +90,16 @@ export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <LocaleProvider>
-          <AuthProvider>
-            <DataProvider>
-              <RootLayoutNav />
-            </DataProvider>
-          </AuthProvider>
-        </LocaleProvider>
+        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+          <LocaleProvider>
+            <AuthProvider>
+              <DataProvider>
+                <RootLayoutNav />
+                <AppDialogHost />
+              </DataProvider>
+            </AuthProvider>
+          </LocaleProvider>
+        </SafeAreaProvider>
       </GestureHandlerRootView>
     </QueryClientProvider>
   );

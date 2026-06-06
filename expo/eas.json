@@ -1,43 +1,73 @@
 {
   "cli": {
-    "version": ">= 15.0.0",
-    "appVersionSource": "local"
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "channel": "development",
+      "environment": "development",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
+      },
       "ios": {
-        "simulator": false
+        "simulator": false,
+        "buildConfiguration": "Debug"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyC_IOoaskS-CO6oupaTlJmTKAO5iQwZTpk",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "tabbakheen-99883.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "tabbakheen-99883",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "tabbakheen-99883.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "869616884436",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:869616884436:web:998ce15115d8c9cb5ff941"
+      }
+    },
+    "development-simulator": {
+      "extends": "development",
+      "ios": {
+        "simulator": true,
+        "buildConfiguration": "Debug"
       }
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "android": {
         "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyC_IOoaskS-CO6oupaTlJmTKAO5iQwZTpk",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "tabbakheen-99883.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "tabbakheen-99883",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "tabbakheen-99883.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "869616884436",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:869616884436:web:998ce15115d8c9cb5ff941"
       }
     },
     "production": {
-      "autoIncrement": false,
+      "channel": "production",
+      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
       },
-      "ios": {
-        "autoIncrement": false
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyC_IOoaskS-CO6oupaTlJmTKAO5iQwZTpk",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "tabbakheen-99883.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "tabbakheen-99883",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "tabbakheen-99883.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "869616884436",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:869616884436:web:998ce15115d8c9cb5ff941"
       }
     }
   },
   "submit": {
-    "production": {
-      "android": {
-        "serviceAccountKeyPath": "./google-services.json",
-        "track": "internal"
-      },
-      "ios": {
-        "appleId": "",
-        "ascAppId": "",
-        "appleTeamId": ""
-      }
-    }
+    "production": {}
   }
 }

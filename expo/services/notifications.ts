@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { getFirebaseFirestore } from './firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { isFirebaseConfigured } from './firebase';
@@ -54,8 +55,19 @@ export async function getExpoPushToken(): Promise<string | null> {
   }
 
   try {
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      (Constants as any).easConfig?.projectId;
+
+    if (!projectId) {
+      console.log(
+        '[Notifications] No EAS projectId found (extra.eas.projectId). Cannot get push token.',
+      );
+      return null;
+    }
+
     const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: process.env.EXPO_PUBLIC_PROJECT_ID,
+      projectId,
     });
     const token = tokenData.data;
     console.log('[Notifications] Expo push token:', token);

@@ -1,8 +1,9 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Switch, TextInput, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Mail, Phone, MapPin, Star, LogOut, Globe, Truck, HelpCircle, Info, Car, Bike, Hash, Navigation, Save, Camera, ImageIcon, Check, Crosshair } from 'lucide-react-native';
+import { Mail, Phone, MapPin, Star, LogOut, Globe, Truck, HelpCircle, Info, Car, Bike, Hash, Navigation, Save, Camera, ImageIcon, Check, Crosshair, FileText } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -37,7 +38,7 @@ export default function DriverProfileScreen() {
   const handleSaveLocation = useCallback(async (coords: { lat: number; lng: number }) => {
     await updateUser({ location: coords });
     console.log('[DriverProfile] Location saved:', coords);
-    Alert.alert(t('success'), t('locationSaved'));
+    AppAlert.alert(t('success'), t('locationSaved'));
   }, [updateUser, t]);
 
   const handleToggleAvailability = useCallback(async (value: boolean) => {
@@ -54,10 +55,10 @@ export default function DriverProfileScreen() {
     try {
       const url = await uploadProviderAvatar(result.uri);
       await updateUser({ photoUrl: url });
-      Alert.alert(t('success'), t('profilePictureUpdated'));
+      AppAlert.alert(t('success'), t('profilePictureUpdated'));
     } catch (e) {
       console.log('[DriverProfile] Avatar upload error:', e);
-      Alert.alert(t('error'), t('uploadError'));
+      AppAlert.alert(t('error'), t('uploadError'));
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -72,23 +73,23 @@ export default function DriverProfileScreen() {
       setVehicleImageUrl(url);
     } catch (e) {
       console.log('[DriverProfile] Vehicle image upload error:', e);
-      Alert.alert(t('error'), t('uploadError'));
+      AppAlert.alert(t('error'), t('uploadError'));
     } finally {
       setIsUploadingVehicle(false);
     }
   }, [t]);
 
   const handleSaveVehicle = useCallback(async () => {
-    if (!plateNumber.trim()) { Alert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال رقم اللوحة' : 'Please enter plate number'); return; }
+    if (!plateNumber.trim()) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال رقم اللوحة' : 'Please enter plate number'); return; }
     await updateUser({ vehicleType, vehiclePlateNumber: plateNumber.trim(), vehicleImageUrl: vehicleImageUrl.trim(), city: city.trim(), maxDistanceKm: parseInt(maxDistance, 10) || 20 });
-    Alert.alert(t('success'), locale === 'ar' ? 'تم حفظ بيانات المركبة' : 'Vehicle info saved');
+    AppAlert.alert(t('success'), locale === 'ar' ? 'تم حفظ بيانات المركبة' : 'Vehicle info saved');
     setShowEditVehicle(false);
   }, [vehicleType, plateNumber, vehicleImageUrl, city, maxDistance, updateUser, t, locale]);
 
   const handleLogout = useCallback(() => {
-    Alert.alert(t('logout'), locale === 'ar' ? 'هل تريد تسجيل الخروج؟' : 'Do you want to logout?', [
+    AppAlert.alert(t('logout'), locale === 'ar' ? 'هل تريد تسجيل الخروج؟' : 'Do you want to logout?', [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('confirm'), style: 'destructive', onPress: async () => { await logout(); router.replace('/auth/login' as any); } },
+      { text: t('logoutShort'), style: 'destructive', onPress: async () => { await logout(); router.replace('/auth/login' as any); } },
     ]);
   }, [logout, t, locale]);
 
@@ -207,6 +208,7 @@ export default function DriverProfileScreen() {
         <View style={cs.menuSection}>
           <Pressable style={[cs.menuRow, r && cs.rowRTL]} onPress={toggleLocale}><Globe size={20} color={Colors.textSecondary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('language')}</Text><Text style={cs.menuValue}>{t('switchLang')}</Text></Pressable>
           <Pressable style={[cs.menuRow, r && cs.rowRTL]} onPress={() => setShowSupport(true)}><HelpCircle size={20} color={Colors.textSecondary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('supportTitle')}</Text></Pressable>
+          <Pressable style={[cs.menuRow, r && cs.rowRTL]} onPress={() => router.push('/(driver)/profile/my-complaints' as any)}><FileText size={20} color={Colors.textSecondary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('myComplaints')}</Text></Pressable>
           <Pressable style={[cs.menuRow, r && cs.rowRTL, { borderBottomWidth: 0 }]} onPress={() => router.push('/(driver)/profile/about' as any)}><Info size={20} color={Colors.textSecondary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('aboutTitle')}</Text></Pressable>
         </View>
 

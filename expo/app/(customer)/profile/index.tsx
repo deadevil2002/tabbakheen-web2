@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useCallback, useState } from 'react';
 import {
   View,
@@ -26,6 +27,7 @@ import {
   Camera,
   Edit3,
   Save,
+  FileText,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -56,10 +58,10 @@ export default function CustomerProfileScreen() {
     try {
       const url = await uploadProviderAvatar(result.uri);
       await updateUser({ photoUrl: url });
-      Alert.alert(t('success'), t('profilePictureUpdated'));
+      AppAlert.alert(t('success'), t('profilePictureUpdated'));
     } catch (e) {
       console.log('[Profile] Avatar upload error:', e);
-      Alert.alert(t('error'), t('uploadError'));
+      AppAlert.alert(t('error'), t('uploadError'));
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -87,24 +89,24 @@ export default function CustomerProfileScreen() {
       }
       console.log('[CustomerProfile] Saving profile updates:', JSON.stringify(updates));
       await updateUser(updates);
-      Alert.alert(t('success'), t('profileUpdated'));
+      AppAlert.alert(t('success'), t('profileUpdated'));
       setIsEditing(false);
     } catch (e) {
       console.log('[CustomerProfile] Save profile error:', e);
-      Alert.alert(t('error'), t('profileUpdateError'));
+      AppAlert.alert(t('error'), t('profileUpdateError'));
     } finally {
       setIsSaving(false);
     }
   }, [editName, editPhone, editCity, editAddress, user, updateUser, t]);
 
   const handleLogout = useCallback(() => {
-    Alert.alert(
+    AppAlert.alert(
       t('logout'),
       locale === 'ar' ? 'هل أنت متأكد من تسجيل الخروج؟' : 'Are you sure you want to logout?',
       [
         { text: t('cancel'), style: 'cancel' },
         {
-          text: t('logout'),
+          text: t('logoutShort'),
           style: 'destructive',
           onPress: async () => {
             await logout();
@@ -228,6 +230,15 @@ export default function CustomerProfileScreen() {
             <Globe size={20} color={Colors.primary} />
             <Text style={[styles.menuText, isRTL && styles.rtlText, styles.menuTextFlex]}>{t('language')}</Text>
             <Text style={styles.menuValue}>{locale === 'ar' ? t('arabic') : t('english')}</Text>
+            <Arrow size={18} color={Colors.textTertiary} />
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.menuItem, isRTL && styles.rowRTL, pressed && styles.menuPressed]}
+            onPress={() => router.push('/(customer)/profile/my-complaints' as any)}
+          >
+            <FileText size={20} color={Colors.primary} />
+            <Text style={[styles.menuText, isRTL && styles.rtlText, styles.menuTextFlex]}>{t('myComplaints')}</Text>
             <Arrow size={18} color={Colors.textTertiary} />
           </Pressable>
 

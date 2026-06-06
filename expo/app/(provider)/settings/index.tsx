@@ -1,9 +1,10 @@
-import React, { useCallback, useState, useMemo } from 'react';
+import { AppAlert } from '@/components/AppDialog';
+import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, TextInput, Switch, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { LogOut, Globe, Mail, Phone, MapPin, ChevronLeft, ChevronRight, UserCircle, Shield, Info, CreditCard, Building2, Crown, AlertTriangle, Check, Camera, Navigation } from 'lucide-react-native';
+import { LogOut, Globe, Mail, Phone, MapPin, ChevronLeft, ChevronRight, UserCircle, Shield, Info, CreditCard, Building2, Crown, AlertTriangle, Check, Camera, Navigation, BadgeCheck, FileText } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -15,8 +16,12 @@ import { RatingStars } from '@/components/RatingStars';
 import { ProviderPaymentMethods, SAUDI_BANKS } from '@/types';
 import { formatPrice, formatDateOnly, daysRemaining, getSubscriptionStatusColor } from '@/utils/helpers';
 import { SUBSCRIPTION_PRICE } from '@/mocks/data';
-import { pickImageFromGallery } from '@/utils/imagePicker';
-import { uploadProviderAvatar } from '@/services/cloudinary';
+import { pickImageFromGallery, pickImageFreeAspect } from '@/utils/imagePicker';
+import { uploadProviderAvatar, uploadFreelanceCertificate } from '@/services/cloudinary';
+import { verifyCommercialRegistration, submitFreelanceCertificate } from '@/services/pushApi';
+import { fsGetVerificationCrNumber, fsSubscribeToFreelanceCertificate } from '@/services/firestoreUsers';
+import type { FreelanceCertReview } from '@/services/firestoreUsers';
+import { VERIFIED_BLUE } from '@/components/VerifiedBadge';
 
 export default function ProviderSettingsScreen() {
   const router = useRouter();
@@ -40,6 +45,41 @@ export default function ProviderSettingsScreen() {
   const [showSupport, setShowSupport] = useState<boolean>(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState<boolean>(false);
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
+  const [crNumber, setCrNumber] = useState<string>('');
+  const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const [showVerifyForm, setShowVerifyForm] = useState<boolean>(false);
+  const [verifiedCr, setVerifiedCr] = useState<string | null>(null);
+  const [verifyType, setVerifyType] = useState<'cr' | 'freelance'>('cr');
+  const [certNumber, setCertNumber] = useState<string>('');
+  const [certImageUri, setCertImageUri] = useState<string | null>(null);
+  const [isSubmittingCert, setIsSubmittingCert] = useState<boolean>(false);
+  const [freelanceCert, setFreelanceCert] = useState<FreelanceCertReview | null>(null);
+  const verificationStatus = user?.verificationStatus;
+  const flReviewStatus = freelanceCert?.reviewStatus;
+
+  useEffect(() => {
+    let active = true;
+    if (user?.uid && verificationStatus === 'verified') {
+      fsGetVerificationCrNumber(user.uid).then((cr) => { if (active) setVerifiedCr(cr); });
+    } else {
+      setVerifiedCr(null);
+    }
+    return () => { active = false; };
+  }, [user?.uid, verificationStatus]);
+
+  // Live-subscribe to the provider's own freelance certificate review state so
+  // approve/reject decisions reflect immediately without logout/login.
+  useEffect(() => {
+    if (!user?.uid) { setFreelanceCert(null); return; }
+    const unsub = fsSubscribeToFreelanceCertificate(user.uid, setFreelanceCert);
+    return () => unsub();
+  }, [user?.uid]);
+
+  // After a rejection, default the form to the freelance tab so the provider can
+  // resubmit a new certificate right away.
+  useEffect(() => {
+    if (flReviewStatus === 'rejected') setVerifyType('freelance');
+  }, [flReviewStatus]);
 
   const handleChangeAvatar = useCallback(async () => {
     const result = await pickImageFromGallery();
@@ -48,10 +88,10 @@ export default function ProviderSettingsScreen() {
     try {
       const url = await uploadProviderAvatar(result.uri);
       await updateUser({ photoUrl: url });
-      Alert.alert(t('success'), t('profilePictureUpdated'));
+      AppAlert.alert(t('success'), t('profilePictureUpdated'));
     } catch (e) {
       console.log('[ProviderSettings] Avatar upload error:', e);
-      Alert.alert(t('error'), t('uploadError'));
+      AppAlert.alert(t('error'), t('uploadError'));
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -60,24 +100,100 @@ export default function ProviderSettingsScreen() {
   const handleSaveLocation = useCallback(async (coords: { lat: number; lng: number }) => {
     await updateUser({ location: coords });
     console.log('[ProviderSettings] Location saved:', coords);
-    Alert.alert(t('success'), t('locationSaved'));
+    AppAlert.alert(t('success'), t('locationSaved'));
   }, [updateUser, t]);
 
   const handleSavePaymentSettings = useCallback(async () => {
     if (!user) return;
-    if (stcEnabled && !stcPhone.trim()) { Alert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال رقم STC Pay' : 'Please enter STC Pay number'); return; }
-    if (bankEnabled && (!bankIban.trim() || !bankAccountName.trim() || !bankName.trim())) { Alert.alert(t('error'), locale === 'ar' ? 'يرجى إكمال بيانات التحويل البنكي' : 'Please complete bank transfer details'); return; }
+    if (stcEnabled && !stcPhone.trim()) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال رقم STC Pay' : 'Please enter STC Pay number'); return; }
+    if (bankEnabled && (!bankIban.trim() || !bankAccountName.trim() || !bankName.trim())) { AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إكمال بيانات التحويل البنكي' : 'Please complete bank transfer details'); return; }
     const paymentMethods: ProviderPaymentMethods = { stcPay: { enabled: stcEnabled, phone: stcPhone.trim() }, bankTransfer: { enabled: bankEnabled, iban: bankIban.trim(), accountName: bankAccountName.trim(), bankName } };
     await updateProviderPaymentMethods(user.uid, paymentMethods);
     await updateUser({ paymentMethods });
-    Alert.alert(t('success'), t('paymentSettingsSaved'));
+    AppAlert.alert(t('success'), t('paymentSettingsSaved'));
     setShowPaymentSettings(false);
   }, [user, stcEnabled, stcPhone, bankEnabled, bankIban, bankAccountName, bankName, updateProviderPaymentMethods, updateUser, t, locale]);
 
-  const handleLogout = useCallback(() => {
-    Alert.alert(t('logout'), locale === 'ar' ? 'هل أنت متأكد من تسجيل الخروج؟' : 'Are you sure you want to logout?', [
+  const handleVerifyCr = useCallback(async () => {
+    if (!user) return;
+    const cr = crNumber.trim();
+    if (!/^\d{10}$/.test(cr)) {
+      AppAlert.alert(t('error'), t('crNumberInvalid'));
+      return;
+    }
+    setIsVerifying(true);
+    try {
+      const result = await verifyCommercialRegistration(user.uid, cr);
+      if (result.verificationStatus === 'verified') {
+        AppAlert.alert(t('verified'), t('verificationSuccessMsg'));
+      } else {
+        AppAlert.alert(t('verifyBusiness'), t('verificationPendingMsg'));
+      }
+      setCrNumber('');
+      setShowVerifyForm(false);
+    } catch {
+      AppAlert.alert(t('verifyBusiness'), t('verificationPendingMsg'));
+      setCrNumber('');
+      setShowVerifyForm(false);
+    } finally {
+      setIsVerifying(false);
+    }
+  }, [user, crNumber, t]);
+
+  const handleChangeNumber = useCallback(() => {
+    AppAlert.alert(t('changeVerificationTitle'), t('changeVerificationMsg'), [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('logout'), style: 'destructive', onPress: async () => { await logout(); router.replace('/auth/login' as any); } },
+      { text: t('continueAction'), style: 'default', onPress: () => { setCrNumber(''); setShowVerifyForm(true); } },
+    ]);
+  }, [t]);
+
+  const handlePickCertImage = useCallback(async () => {
+    const result = await pickImageFreeAspect();
+    if (!result) return;
+    setCertImageUri(result.uri);
+  }, []);
+
+  const handleSubmitFreelance = useCallback(async () => {
+    if (!user) return;
+    const num = certNumber.trim();
+    if (num.length === 0) {
+      AppAlert.alert(t('error'), t('freelanceCertNumberInvalid'));
+      return;
+    }
+    if (!certImageUri) {
+      AppAlert.alert(t('error'), t('certImageRequired'));
+      return;
+    }
+    setIsSubmittingCert(true);
+    try {
+      const asset = await uploadFreelanceCertificate(certImageUri);
+      const result = await submitFreelanceCertificate(user.uid, {
+        certificateNumber: num,
+        fileUrl: asset.url,
+        publicId: asset.publicId,
+        mimeType: 'image/jpeg',
+        filename: 'certificate.jpg',
+      });
+      if (!result.success) {
+        AppAlert.alert(t('error'), t('uploadError'));
+        return;
+      }
+      AppAlert.alert(t('verifyBusiness'), t('freelanceSubmittedMsg'));
+      setCertNumber('');
+      setCertImageUri(null);
+      setShowVerifyForm(false);
+    } catch (e) {
+      console.log('[ProviderSettings] Freelance submit error');
+      AppAlert.alert(t('error'), t('uploadError'));
+    } finally {
+      setIsSubmittingCert(false);
+    }
+  }, [user, certNumber, certImageUri, t]);
+
+  const handleLogout = useCallback(() => {
+    AppAlert.alert(t('logout'), locale === 'ar' ? 'هل أنت متأكد من تسجيل الخروج؟' : 'Are you sure you want to logout?', [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('logoutShort'), style: 'destructive', onPress: async () => { await logout(); router.replace('/auth/login' as any); } },
     ]);
   }, [logout, t, locale]);
 
@@ -129,6 +245,142 @@ export default function ProviderSettingsScreen() {
           <View style={[cs.infoRow, r && cs.rowRTL, { borderBottomWidth: 0, paddingHorizontal: 0, paddingVertical: 0 }]}><Mail size={18} color={Colors.textTertiary} /><Text style={[cs.infoText, r && cs.rtlText]}>{user?.email}</Text></View>
           {user?.phone ? <View style={[cs.infoRow, r && cs.rowRTL, { borderBottomWidth: 0, paddingHorizontal: 0, paddingVertical: 0 }]}><Phone size={18} color={Colors.textTertiary} /><Text style={[cs.infoText, r && cs.rtlText]}>{user.phone}</Text></View> : null}
           {user?.address ? <View style={[cs.infoRow, r && cs.rowRTL, { borderBottomWidth: 0, paddingHorizontal: 0, paddingVertical: 0 }]}><MapPin size={18} color={Colors.textTertiary} /><Text style={[cs.infoText, r && cs.rtlText]}>{user.address}</Text></View> : null}
+        </View>
+
+        <View style={cs.sectionCard}>
+          <View style={[s.subHeader, r && cs.rowRTL]}>
+            <BadgeCheck size={22} color={verificationStatus === 'verified' ? VERIFIED_BLUE : Colors.primary} />
+            <Text style={[s.subTitle, r && cs.rtlText]}>{t('verifyBusiness')}</Text>
+            {verificationStatus === 'verified' && (
+              <View style={[s.subBadge, { backgroundColor: Colors.primaryFaded }]}>
+                <Text style={[s.subBadgeText, { color: VERIFIED_BLUE }]}>{t('verified')}</Text>
+              </View>
+            )}
+          </View>
+          {flReviewStatus === 'pending' && (
+            <View style={[s.flBanner, s.flBannerPending]}>
+              <Text style={[s.flBannerText, r && cs.rtlText]}>{t('freelanceUnderReview')}</Text>
+            </View>
+          )}
+          {flReviewStatus === 'approved' && (
+            <View style={[s.flBanner, s.flBannerApproved]}>
+              <Text style={[s.flBannerText, r && cs.rtlText]}>{t('freelanceApproved')}</Text>
+            </View>
+          )}
+          {flReviewStatus === 'rejected' && (
+            <View style={[s.flBanner, s.flBannerRejected]}>
+              <Text style={[s.flBannerTitle, r && cs.rtlText]}>{t('freelanceRejected')}</Text>
+              {freelanceCert?.internalReviewNote ? (
+                <Text style={[s.flBannerText, r && cs.rtlText, { marginTop: 4 }]}>{t('freelanceRejectionReason')}: {freelanceCert.internalReviewNote}</Text>
+              ) : null}
+              <Text style={[s.flBannerText, r && cs.rtlText, { marginTop: 4 }]}>{t('freelanceResubmitNote')}</Text>
+            </View>
+          )}
+          {verificationStatus === 'verified' && !showVerifyForm ? (
+            <>
+              <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verificationSuccessMsg')}</Text>
+              {verifiedCr ? (
+                <View style={s.verifyCrBox}>
+                  <Text style={[s.verifyCrLabel, r && cs.rtlText]}>{t('verifiedCrLabel')}</Text>
+                  <Text style={[s.verifyCrValue, r && cs.rtlText]}>{verifiedCr}</Text>
+                </View>
+              ) : null}
+              <Pressable
+                style={({ pressed }) => [s.changeNumberBtn, r && cs.rowRTL, pressed && { opacity: 0.6 }]}
+                onPress={handleChangeNumber}
+              >
+                <Text style={[s.changeNumberText, r && cs.rtlText]}>{t('changeNumber')}</Text>
+              </Pressable>
+            </>
+          ) : verificationStatus === 'pending_review' && !showVerifyForm && flReviewStatus !== 'rejected' ? (
+            <>
+              {flReviewStatus !== 'pending' && (
+                <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verificationPendingDesc')}</Text>
+              )}
+              <Pressable
+                style={({ pressed }) => [s.changeNumberBtn, r && cs.rowRTL, pressed && { opacity: 0.6 }]}
+                onPress={() => { setCrNumber(''); setShowVerifyForm(true); }}
+              >
+                <Text style={[s.changeNumberText, r && cs.rtlText]}>{t('changeNumber')}</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              {verificationStatus !== 'verified' && verificationStatus !== 'pending_review' && (
+                <Text style={[s.verifyNote, r && cs.rtlText]}>{t('verifyOptionalNote')}</Text>
+              )}
+              <Text style={[s.verifyTypeLabel, r && cs.rtlText]}>{t('verificationTypeLabel')}</Text>
+              <View style={[s.typeSelector, r && cs.rowRTL]}>
+                <Pressable
+                  style={[s.typeBtn, verifyType === 'cr' && s.typeBtnActive]}
+                  onPress={() => setVerifyType('cr')}
+                  disabled={isVerifying || isSubmittingCert}
+                >
+                  <Text style={[s.typeBtnText, verifyType === 'cr' && s.typeBtnTextActive]} numberOfLines={1}>{t('commercialRegistration')}</Text>
+                </Pressable>
+                <Pressable
+                  style={[s.typeBtn, verifyType === 'freelance' && s.typeBtnActive]}
+                  onPress={() => setVerifyType('freelance')}
+                  disabled={isVerifying || isSubmittingCert}
+                >
+                  <Text style={[s.typeBtnText, verifyType === 'freelance' && s.typeBtnTextActive]} numberOfLines={1}>{t('freelanceCertificate')}</Text>
+                </Pressable>
+              </View>
+              {verifyType === 'cr' ? (
+                <>
+                  <TextInput
+                    style={[cs.formInput, r && cs.inputRTL, { marginTop: 12 }]}
+                    placeholder={t('crNumberHint')}
+                    placeholderTextColor={Colors.textTertiary}
+                    value={crNumber}
+                    onChangeText={setCrNumber}
+                    keyboardType="number-pad"
+                    maxLength={10}
+                    textAlign={r ? 'right' : 'left'}
+                    editable={!isVerifying}
+                  />
+                  <Pressable
+                    style={({ pressed }) => [cs.primaryBtn, { marginTop: 12 }, pressed && { opacity: 0.9 }, isVerifying && { opacity: 0.7 }]}
+                    onPress={handleVerifyCr}
+                    disabled={isVerifying}
+                  >
+                    {isVerifying ? <ActivityIndicator size="small" color={Colors.white} /> : <Text style={cs.primaryBtnText}>{t('verify')}</Text>}
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <TextInput
+                    style={[cs.formInput, r && cs.inputRTL, { marginTop: 12 }]}
+                    placeholder={t('freelanceCertNumberHint')}
+                    placeholderTextColor={Colors.textTertiary}
+                    value={certNumber}
+                    onChangeText={setCertNumber}
+                    textAlign={r ? 'right' : 'left'}
+                    editable={!isSubmittingCert}
+                  />
+                  <Pressable
+                    style={({ pressed }) => [s.uploadBtn, r && cs.rowRTL, pressed && { opacity: 0.8 }]}
+                    onPress={handlePickCertImage}
+                    disabled={isSubmittingCert}
+                  >
+                    <Camera size={18} color={Colors.primary} />
+                    <Text style={[s.uploadBtnText, r && cs.rtlText]}>{certImageUri ? t('certImageSelected') : t('uploadCertificate')}</Text>
+                    {certImageUri ? <Check size={18} color={Colors.success} /> : null}
+                  </Pressable>
+                  {certImageUri ? (
+                    <Image source={{ uri: certImageUri }} style={s.certPreview} contentFit="cover" />
+                  ) : null}
+                  <Pressable
+                    style={({ pressed }) => [cs.primaryBtn, { marginTop: 12 }, pressed && { opacity: 0.9 }, isSubmittingCert && { opacity: 0.7 }]}
+                    onPress={handleSubmitFreelance}
+                    disabled={isSubmittingCert}
+                  >
+                    {isSubmittingCert ? <ActivityIndicator size="small" color={Colors.white} /> : <Text style={cs.primaryBtnText}>{t('submitForReview')}</Text>}
+                  </Pressable>
+                </>
+              )}
+            </>
+          )}
         </View>
 
         <Pressable style={({ pressed }) => [s.paySettingsBtn, pressed && { backgroundColor: Colors.background }]} onPress={() => setShowLocationPicker(true)}>
@@ -194,6 +446,9 @@ export default function ProviderSettingsScreen() {
           <Pressable style={({ pressed }) => [cs.menuRow, r && cs.rowRTL, pressed && { backgroundColor: Colors.background }]} onPress={toggleLocale}>
             <Globe size={20} color={Colors.primary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('language')}</Text><Text style={cs.menuValue}>{locale === 'ar' ? t('arabic') : t('english')}</Text><Arrow size={18} color={Colors.textTertiary} />
           </Pressable>
+          <Pressable style={({ pressed }) => [cs.menuRow, r && cs.rowRTL, pressed && { backgroundColor: Colors.background }]} onPress={() => router.push('/(provider)/settings/my-complaints' as any)}>
+            <FileText size={20} color={Colors.primary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('myComplaints')}</Text><Arrow size={18} color={Colors.textTertiary} />
+          </Pressable>
           <Pressable style={({ pressed }) => [cs.menuRow, r && cs.rowRTL, pressed && { backgroundColor: Colors.background }]} onPress={() => router.push('/(provider)/settings/about' as any)}>
             <Info size={20} color={Colors.primary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('aboutTitle')}</Text><Arrow size={18} color={Colors.textTertiary} />
           </Pressable>
@@ -240,6 +495,27 @@ const s = StyleSheet.create({
   renewInfo: { marginTop: 12, backgroundColor: Colors.warningLight, borderRadius: 10, padding: 12 },
   renewText: { fontSize: 13, color: Colors.warning, lineHeight: 18 },
   freeNote: { fontSize: 12, color: Colors.textTertiary, marginTop: 12, textAlign: 'center' },
+  verifyNote: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
+  flBanner: { borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1 },
+  flBannerPending: { backgroundColor: 'rgba(234, 88, 12, 0.08)', borderColor: 'rgba(234, 88, 12, 0.35)' },
+  flBannerApproved: { backgroundColor: 'rgba(22, 163, 74, 0.08)', borderColor: 'rgba(22, 163, 74, 0.35)' },
+  flBannerRejected: { backgroundColor: 'rgba(220, 38, 38, 0.08)', borderColor: 'rgba(220, 38, 38, 0.35)' },
+  flBannerTitle: { fontSize: 14, fontWeight: '700' as const, color: Colors.error },
+  flBannerText: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
+  verifyCrBox: { marginTop: 12, backgroundColor: Colors.primaryFaded, borderRadius: 12, padding: 12 },
+  verifyCrLabel: { fontSize: 12, color: Colors.textSecondary, marginBottom: 4 },
+  verifyCrValue: { fontSize: 16, fontWeight: '700' as const, color: Colors.text, letterSpacing: 1 },
+  changeNumberBtn: { marginTop: 12, alignSelf: 'flex-start' as const, paddingVertical: 6 },
+  changeNumberText: { fontSize: 14, fontWeight: '700' as const, color: Colors.primary },
+  verifyTypeLabel: { fontSize: 13, fontWeight: '600' as const, color: Colors.textSecondary, marginTop: 12, marginBottom: 8 },
+  typeSelector: { flexDirection: 'row', gap: 8 },
+  typeBtn: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1, borderColor: Colors.borderLight, backgroundColor: Colors.background, alignItems: 'center' as const },
+  typeBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryFaded },
+  typeBtnText: { fontSize: 13, fontWeight: '600' as const, color: Colors.textSecondary },
+  typeBtnTextActive: { color: Colors.primary, fontWeight: '700' as const },
+  uploadBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 12, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed' as const, borderColor: Colors.primary, backgroundColor: Colors.primaryFaded },
+  uploadBtnText: { fontSize: 14, fontWeight: '600' as const, color: Colors.primary },
+  certPreview: { width: '100%', height: 160, borderRadius: 12, marginTop: 12, backgroundColor: Colors.background },
   paySettingsBtn: { backgroundColor: Colors.surface, borderRadius: 16, marginHorizontal: 20, padding: 16, marginBottom: 4 },
   paySettingsHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   paySettingsTitle: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, marginBottom: 2 },

@@ -1,6 +1,20 @@
 const { getDefaultConfig } = require("expo/metro-config");
-const { withRorkMetro } = require("@rork-ai/toolkit-sdk/metro");
 
 const config = getDefaultConfig(__dirname);
 
-module.exports = withRorkMetro(config);
+const originalResolver = config.resolver.resolveRequest;
+
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (platform === "web" && moduleName === "@maplibre/maplibre-react-native") {
+    return {
+      type: "sourceFile",
+      filePath: require.resolve("./shims/maplibre.web.js"),
+    };
+  }
+  if (originalResolver) {
+    return originalResolver(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
+module.exports = config;

@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useState, useCallback } from 'react';
 import {
   View,
@@ -31,7 +32,7 @@ export default function LoginScreen() {
 
   const handleLogin = useCallback(async () => {
     if (!email.trim()) {
-      Alert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال البريد الإلكتروني' : 'Please enter your email');
+      AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال البريد الإلكتروني' : 'Please enter your email');
       return;
     }
     setIsSubmitting(true);
@@ -45,10 +46,27 @@ export default function LoginScreen() {
         router.replace('/(provider)/dashboard' as any);
       }
     } catch (e: any) {
-      const msg = e?.message === 'USER_NOT_FOUND'
-        ? (locale === 'ar' ? 'لم يتم العثور على حساب بهذا البريد' : 'No account found with this email')
-        : t('error');
-      Alert.alert(t('error'), msg);
+      let msg: string;
+      switch (e?.message) {
+        case 'USER_NOT_FOUND':
+          msg = t('userNotFound');
+          break;
+        case 'WRONG_PASSWORD':
+          msg = t('wrongPassword');
+          break;
+        case 'INVALID_CREDENTIALS':
+          msg = t('loginInvalidCredentials');
+          break;
+        case 'INVALID_EMAIL':
+          msg = t('invalidEmail');
+          break;
+        case 'TOO_MANY_REQUESTS':
+          msg = t('tooManyRequests');
+          break;
+        default:
+          msg = t('error');
+      }
+      AppAlert.alert(t('error'), msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -328,6 +346,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600' as const,
     color: Colors.textSecondary,
+    textAlign: 'center' as const,
   },
   powered: {
     textAlign: 'center',

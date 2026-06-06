@@ -1,21 +1,32 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import React, { useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, Platform, Dimensions, Pressable, Linking } from 'react-native';
 import { MapPin, Navigation } from 'lucide-react-native';
 
-let MapView: any = null;
-let Marker: any = null;
-let Polyline: any = null;
+let MapLibreMap: any = null;
+let MapLibreCamera: any = null;
+let MapLibreMarker: any = null;
+let MapLibreGeoJSONSource: any = null;
+let MapLibreLayer: any = null;
 
 try {
-  const maps = require('react-native-maps');
-  MapView = maps.default;
-  Marker = maps.Marker;
-  Polyline = maps.Polyline;
+  const ml = require('@maplibre/maplibre-react-native');
+  MapLibreMap = ml.Map;
+  MapLibreCamera = ml.Camera;
+  MapLibreMarker = ml.Marker;
+  MapLibreGeoJSONSource = ml.GeoJSONSource;
+  MapLibreLayer = ml.Layer;
 } catch {
-  console.log('[DeliveryRouteMap] react-native-maps not available');
+  console.log('[DeliveryRouteMap] @maplibre/maplibre-react-native not available');
 }
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
+import { MAPTILER_STYLE_URL, fitZoom } from '@/constants/maptiler';
+import { AppAlert } from '@/components/AppDialog';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// Visible map area: container marginHorizontal (20*2) + wrapper margin (14*2).
+const ROUTE_MAP_WIDTH = SCREEN_WIDTH - 68;
+const ROUTE_MAP_HEIGHT = 200;
 
 interface Props {
   originLat: number | null;
@@ -37,6 +48,41 @@ function DeliveryRouteMapInner({
   phase,
 }: Props) {
   const { t, isRTL } = useLocale();
+
+  const openNavigation = useCallback(async () => {
+    if (destLat === null || destLng === null) {
+      AppAlert.alert(
+        isRTL ? 'الإحداثيات غير متوفرة' : 'Coordinates unavailable',
+        isRTL
+          ? 'لا تتوفر إحداثيات الوجهة لفتح الملاحة.'
+          : 'Destination coordinates are not available to open navigation.',
+      );
+      return;
+    }
+    const latlng = `${destLat},${destLng}`;
+    try {
+      if (Platform.OS === 'web') {
+        await Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${latlng}`);
+        return;
+      }
+      if (Platform.OS === 'ios') {
+        const googleUrl = `comgooglemaps://?daddr=${latlng}&directionsmode=driving`;
+        const canGoogle = await Linking.canOpenURL(googleUrl);
+        await Linking.openURL(
+          canGoogle ? googleUrl : `http://maps.apple.com/?daddr=${latlng}&dirflg=d`,
+        );
+        return;
+      }
+      // Android: launch Google Maps turn-by-turn navigation.
+      try {
+        await Linking.openURL(`google.navigation:q=${latlng}`);
+      } catch {
+        await Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${latlng}`);
+      }
+    } catch (err) {
+      console.log('[DeliveryRouteMap] Failed to open navigation:', err);
+    }
+  }, [destLat, destLng, isRTL]);
 
   const region = useMemo(() => {
     if (originLat && originLng && destLat && destLng) {
@@ -66,52 +112,81 @@ function DeliveryRouteMapInner({
     );
   }
 
-  const isNativeMap = MapView && Platform.OS !== 'web';
+  const isNativeMap = MapLibreMap && Platform.OS !== 'web' && !!MAPTILER_STYLE_URL;
 
   const phaseLabel = phase === 'to_provider' ? t('goingToProvider') : t('goingToCustomer');
 
   return (
-    <View style={styles.container}>
+    <Pressable
+      style={({ pressed }) => [styles.container, pressed && styles.containerPressed]}
+      onPress={openNavigation}
+      accessibilityRole="button"
+      accessibilityLabel={isRTL ? 'افتح الملاحة في الخرائط' : 'Open navigation in maps'}
+    >
       <View style={[styles.phaseRow, isRTL && styles.rowRTL]}>
         <Navigation size={16} color={Colors.primary} />
         <Text style={[styles.phaseText, isRTL && styles.rtlText]}>{phaseLabel}</Text>
       </View>
-      <View style={styles.mapWrapper}>
+      <View style={styles.mapWrapper} pointerEvents="none">
         {isNativeMap ? (
-          <MapView
+          <MapLibreMap
             style={styles.map}
-            initialRegion={region}
-            scrollEnabled={true}
-            zoomEnabled={true}
-            pitchEnabled={false}
-            rotateEnabled={false}
+            mapStyle={MAPTILER_STYLE_URL}
+            compass={false}
+            dragPan={false}
+            touchZoom={false}
+            touchPitch={false}
+            touchRotate={false}
           >
-            {hasOrigin && Marker && (
-              <Marker
-                coordinate={{ latitude: originLat!, longitude: originLng! }}
-                title={originLabel}
-                pinColor={Colors.primary}
-              />
+            <MapLibreCamera
+              initialViewState={{
+                center: [region.longitude, region.latitude],
+                zoom: fitZoom(
+                  region.latitudeDelta,
+                  region.longitudeDelta,
+                  ROUTE_MAP_WIDTH,
+                  ROUTE_MAP_HEIGHT,
+                ),
+              }}
+            />
+            {hasOrigin && MapLibreMarker && (
+              <MapLibreMarker lngLat={[originLng!, originLat!]}>
+                <View style={[styles.routeDot, { backgroundColor: Colors.primary }]} />
+              </MapLibreMarker>
             )}
-            {hasDest && Marker && (
-              <Marker
-                coordinate={{ latitude: destLat!, longitude: destLng! }}
-                title={destLabel}
-                pinColor={Colors.success}
-              />
+            {hasDest && MapLibreMarker && (
+              <MapLibreMarker lngLat={[destLng!, destLat!]}>
+                <View style={[styles.routeDot, { backgroundColor: Colors.success }]} />
+              </MapLibreMarker>
             )}
-            {hasOrigin && hasDest && Polyline && (
-              <Polyline
-                coordinates={[
-                  { latitude: originLat!, longitude: originLng! },
-                  { latitude: destLat!, longitude: destLng! },
-                ]}
-                strokeColor={Colors.primary}
-                strokeWidth={3}
-                lineDashPattern={[6, 4]}
-              />
+            {hasOrigin && hasDest && MapLibreGeoJSONSource && MapLibreLayer && (
+              <MapLibreGeoJSONSource
+                id="delivery-route"
+                data={{
+                  type: 'Feature',
+                  properties: {},
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                      [originLng!, originLat!],
+                      [destLng!, destLat!],
+                    ],
+                  },
+                }}
+              >
+                <MapLibreLayer
+                  id="delivery-route-line"
+                  type="line"
+                  layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                  paint={{
+                    'line-color': Colors.primary,
+                    'line-width': 3,
+                    'line-dasharray': [6, 4],
+                  }}
+                />
+              </MapLibreGeoJSONSource>
             )}
-          </MapView>
+          </MapLibreMap>
         ) : (
           <View style={styles.webMapFallback}>
             <Navigation size={32} color={Colors.primary} />
@@ -129,7 +204,15 @@ function DeliveryRouteMapInner({
           <Text style={styles.legendText}>{destLabel}</Text>
         </View>
       </View>
-    </View>
+      {hasDest && (
+        <View style={[styles.navCta, isRTL && styles.rowRTL]}>
+          <Navigation size={16} color={Colors.white} />
+          <Text style={styles.navCtaText}>
+            {isRTL ? 'ابدأ الملاحة' : 'Start navigation'}
+          </Text>
+        </View>
+      )}
+    </Pressable>
   );
 }
 
@@ -149,12 +232,31 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
+  containerPressed: {
+    opacity: 0.92,
+  },
   phaseRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     padding: 14,
     paddingBottom: 0,
+  },
+  navCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    marginHorizontal: 14,
+    marginBottom: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  navCtaText: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.white,
   },
   rowRTL: {
     flexDirection: 'row-reverse',
@@ -177,6 +279,18 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  routeDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: Colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 3,
   },
   legendRow: {
     flexDirection: 'row',

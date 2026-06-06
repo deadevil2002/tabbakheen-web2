@@ -1,5 +1,11 @@
 import { User } from '@/types';
 
+export function throwIfSuspended(callerStatus?: string): void {
+  if (callerStatus === 'suspended') {
+    throw new Error('ACCOUNT_SUSPENDED');
+  }
+}
+
 const TRIAL_DAYS = 30;
 
 export function getTrialEndDate(createdAt: string): Date {

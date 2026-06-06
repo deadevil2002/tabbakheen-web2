@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React from 'react';
 import {
   View,
@@ -32,10 +33,10 @@ export default function SupportDialog({ visible, onClose }: SupportDialogProps) 
         await Linking.openURL(url);
         onClose();
       } else {
-        Alert.alert(t('error'), t('whatsappError'));
+        AppAlert.alert(t('error'), t('whatsappError'));
       }
     } catch {
-      Alert.alert(t('error'), t('whatsappError'));
+      AppAlert.alert(t('error'), t('whatsappError'));
     }
   };
 
@@ -53,10 +54,10 @@ export default function SupportDialog({ visible, onClose }: SupportDialogProps) 
         await Linking.openURL(url);
         onClose();
       } else {
-        Alert.alert(t('error'), t('emailError'));
+        AppAlert.alert(t('error'), t('emailError'));
       }
     } catch {
-      Alert.alert(t('error'), t('emailError'));
+      AppAlert.alert(t('error'), t('emailError'));
     }
   };
 

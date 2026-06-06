@@ -29,7 +29,7 @@ import {
 } from '@/mocks/data';
 import { generateId, generateOrderNumber, generateOrderRef, calculateDeliveryFee } from '@/utils/helpers';
 import { isFirebaseConfigured } from '@/services/firebase';
-import { sendPushNotification, aggregateRatingViaWorker, getDeliveryQuote, finalizeDeliveryMethod as workerFinalizeDelivery } from '@/services/pushApi';
+import { sendPushNotification, aggregateRatingViaWorker, getDeliveryQuote, finalizeDeliveryMethod as workerFinalizeDelivery, type DeliveryFinalizeResult } from '@/services/pushApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { fsSubscribeByRole, fsUpdateUser } from '@/services/firestoreUsers';
 import { fsSubscribeOffers, fsCreateOffer, fsUpdateOffer } from '@/services/firestoreOffers';
@@ -37,6 +37,7 @@ import {
   fsSubscribeOrders,
   fsCreateOrder,
   fsUpdateOrder,
+  fsGetOrder,
   fsUpdateDeliveryStatus,
   fsSubscribeAvailableDeliveries,
   fsDriverAcceptOrder,
@@ -44,6 +45,11 @@ import {
   fsSubmitDriverRating,
   fsSubscribeAppSettings,
 } from '@/services/firestoreOrders';
+import {
+  fsCreateComplaint,
+  fsSubscribeMyComplaints,
+  type ComplaintRef,
+} from '@/services/firestoreComplaints';
 
 const OFFERS_KEY = 'tabbakheen_offers';
 const ORDERS_KEY = 'tabbakheen_orders';
@@ -53,12 +59,19 @@ const USERS_KEY = 'tabbakheen_users';
 const SUBSCRIPTIONS_KEY = 'tabbakheen_subscriptions';
 const APP_SETTINGS_KEY = 'tabbakheen_app_settings';
 
+const SUSPENDED_ACCOUNT_MESSAGE =
+  'تم إيقاف حسابك مؤقتًا. يمكنك تقديم اعتراض من خلال رابط الاعتراض المرسل لك.';
+
+const isComplaintActive = (complaintStatus?: string): boolean =>
+  complaintStatus !== 'resolved' && complaintStatus !== 'closed';
+
 export const [DataProvider, useData] = createContextHook(() => {
   const { user: authUser } = useAuth();
   const fb = isFirebaseConfigured();
 
   const [offers, setOffers] = useState<Offer[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [myComplaints, setMyComplaints] = useState<ComplaintRef[]>([]);
   const [ratings, setRatings] = useState<ProviderRating[]>([]);
   const [driverRatings, setDriverRatings] = useState<DriverRating[]>([]);
   const [providers, setProviders] = useState<User[]>([]);
@@ -233,11 +246,20 @@ export const [DataProvider, useData] = createContextHook(() => {
 
     if (!authUser) {
       setOrders([]);
+      setMyComplaints([]);
       return;
     }
 
     console.log('[DataContext] Setting up order subscriptions for', authUser.role, authUser.uid);
     const unsubs: (() => void)[] = [];
+
+    const complaintField =
+      authUser.role === 'driver'
+        ? 'driverUid'
+        : authUser.role === 'provider'
+          ? 'providerUid'
+          : 'customerUid';
+    unsubs.push(fsSubscribeMyComplaints(complaintField, authUser.uid, setMyComplaints));
 
     if (authUser.role === 'driver') {
       unsubs.push(
@@ -261,6 +283,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       unsubs.forEach((fn) => fn());
       driverAssigned.current = [];
       driverAvailable.current = [];
+      setMyComplaints([]);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fb, authUser?.uid, authUser?.role, mergeDriverOrders]);
@@ -269,6 +292,9 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const createOffer = useCallback(
     async (offer: Omit<Offer, 'id' | 'createdAt'>) => {
+      if (authUser?.accountStatus === 'suspended') {
+        throw new Error(SUSPENDED_ACCOUNT_MESSAGE);
+      }
       if (fb) {
         const id = await fsCreateOffer(offer);
         const newOffer: Offer = { ...offer, id, createdAt: new Date().toISOString() };
@@ -279,7 +305,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       await saveOffers([newOffer, ...offers]);
       return newOffer;
     },
-    [offers, fb],
+    [offers, fb, authUser],
   );
 
   const updateOffer = useCallback(
@@ -419,6 +445,9 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const updateOrderStatus = useCallback(
     async (orderId: string, status: OrderStatus, comment?: string, reason?: string) => {
+      if ((status === 'accepted' || status === 'preparing') && authUser?.accountStatus === 'suspended') {
+        throw new Error(SUSPENDED_ACCOUNT_MESSAGE);
+      }
       const now = new Date().toISOString();
 
       if (fb) {
@@ -461,7 +490,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       await saveOrders(updated);
       console.log('[DataContext] Order status updated:', orderId, '->', status);
     },
-    [orders, fb],
+    [orders, fb, authUser],
   );
 
   const submitPaymentProof = useCallback(
@@ -547,10 +576,95 @@ export const [DataProvider, useData] = createContextHook(() => {
   const setDeliveryMethod = useCallback(
     async (orderId: string, method: DeliveryMethod, deliveryNotes?: string) => {
       if (fb) {
-        console.log('[DataContext] Finalizing delivery via Worker: orderId=' + orderId + ' method=' + method);
-        const result = await workerFinalizeDelivery(orderId, method === 'self_pickup' ? 'self_pickup' : 'driver');
-        console.log('[DataContext] Worker finalize result:', JSON.stringify(result));
-        return result;
+        const isPickup = method === 'self_pickup';
+        const expectedStatus = isPickup ? 'self_pickup_selected' : 'ready_for_driver';
+        console.log(
+          '[setDeliveryMethod] START orderId=' + orderId + ' method=' + method +
+            ' (isPickup=' + isPickup + ')',
+        );
+
+        // Best-effort: the external Worker (Admin SDK) owns the privileged fields —
+        // deliveryFee, totalAmount, deliveryDistanceKm, driverUid — and fires push
+        // notifications. The customer client is NOT allowed by Firestore rules to
+        // write those fields, so we never include them in the client write. We only
+        // call the Worker to compute the quote/notify and use its quote id (if any).
+        let result: DeliveryFinalizeResult | undefined;
+        try {
+          console.log('[setDeliveryMethod] calling workerFinalizeDelivery...');
+          result = await workerFinalizeDelivery(orderId, isPickup ? 'self_pickup' : 'driver');
+          console.log('[setDeliveryMethod] worker response:', JSON.stringify(result));
+        } catch (e: any) {
+          console.log(
+            '[setDeliveryMethod] worker FAILED (continuing with client write):',
+            e?.code || '',
+            e?.message || e,
+          );
+        }
+
+        // Client write restricted to ONLY the fields the customer is allowed to
+        // update per current Firestore rules: deliveryMethod, deliveryStatus,
+        // deliveryQuoteId, deliveryPricingVersion. Do NOT write driverUid /
+        // deliveryFee / totalAmount / deliveryDistanceKm — those are rejected with
+        // permission-denied and belong to the Worker/Admin SDK.
+        const fields: Record<string, any> = {
+          deliveryMethod: isPickup ? 'self_pickup' : 'driver',
+          deliveryStatus: expectedStatus,
+        };
+        if (result?.deliveryQuoteId) fields.deliveryQuoteId = result.deliveryQuoteId;
+        console.log('[setDeliveryMethod] exact Firestore payload:', JSON.stringify(fields));
+
+        // Authoritative persistence. This is the success gate: if the Firestore
+        // write throws (e.g. permission-denied), the error propagates and the UI
+        // shows an error instead of a false "success".
+        try {
+          await fsUpdateOrder(orderId, fields);
+          console.log('[setDeliveryMethod] fsUpdateOrder SUCCESS for', orderId);
+        } catch (e: any) {
+          console.log(
+            '[setDeliveryMethod] fsUpdateOrder FAILED:',
+            'code=' + (e?.code || 'unknown'),
+            'message=' + (e?.message || String(e)),
+          );
+          throw e;
+        }
+
+        // Read-back assertion: re-read the same doc and confirm the selection
+        // actually landed. Guards against silent non-persistence.
+        const saved = await fsGetOrder(orderId);
+        console.log(
+          '[setDeliveryMethod] read-back:',
+          JSON.stringify({
+            deliveryMethod: saved?.deliveryMethod ?? null,
+            deliveryStatus: saved?.deliveryStatus ?? null,
+            driverUid: saved?.driverUid ?? null,
+          }),
+        );
+        if (
+          !saved ||
+          saved.deliveryMethod !== fields.deliveryMethod ||
+          saved.deliveryStatus !== expectedStatus ||
+          saved.driverUid != null
+        ) {
+          const reason =
+            'read-back mismatch: expected deliveryMethod=' + fields.deliveryMethod +
+            ', deliveryStatus=' + expectedStatus + ', driverUid=null; got ' +
+            JSON.stringify({
+              deliveryMethod: saved?.deliveryMethod ?? null,
+              deliveryStatus: saved?.deliveryStatus ?? null,
+              driverUid: saved?.driverUid ?? null,
+            });
+          console.log('[setDeliveryMethod] ASSERTION FAILED:', reason);
+          throw new Error(reason);
+        }
+        console.log('[setDeliveryMethod] DONE — selection persisted & verified for', orderId);
+
+        return (
+          result ?? {
+            deliveryFee: saved.deliveryFee,
+            totalAmount: saved.totalAmount,
+            deliveryDistanceKm: saved.deliveryDistanceKm,
+          }
+        );
       }
 
       const now = new Date().toISOString();
@@ -624,6 +738,9 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const driverAcceptDelivery = useCallback(
     async (orderId: string, driverUid: string) => {
+      if (authUser?.accountStatus === 'suspended') {
+        throw new Error(SUSPENDED_ACCOUNT_MESSAGE);
+      }
       if (fb) {
         await fsDriverAcceptOrder(orderId, driverUid);
         console.log('[DataContext] Driver self-accepted delivery via Firestore:', driverUid, 'order:', orderId);
@@ -644,7 +761,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       await saveOrders(updated);
       console.log('[DataContext] Driver self-accepted delivery:', driverUid, 'order:', orderId);
     },
-    [orders, fb],
+    [orders, fb, authUser],
   );
 
   const updateDriverStatus = useCallback(
@@ -681,14 +798,65 @@ export const [DataProvider, useData] = createContextHook(() => {
     async (orderId: string) => {
       const now = new Date().toISOString();
 
+      const existing = orders.find((o) => o.id === orderId);
+      // A self-pickup order (no assigned driver) is completed by the owning
+      // provider at handover — there is no driver/customer confirmation step.
+      // Driver deliveries remain customer-finalized only.
+      const isOwnerProviderSelfPickup =
+        !!existing && !!authUser && existing.providerUid === authUser.uid && !existing.driverUid;
+      // Only the order's customer may finalize the order (defense-in-depth,
+      // independent of UI gating) — except the self-pickup case above.
+      if (existing && authUser && authUser.uid !== existing.customerUid && !isOwnerProviderSelfPickup) {
+        console.log('[DataContext] markOrderDelivered BLOCKED: only the customer can finalize the order:', orderId, authUser.role);
+        throw new Error('Only the customer can confirm receipt of the order');
+      }
+      if (existing?.driverUid && existing.deliveryStatus !== 'delivered_pending_confirmation' && existing.deliveryStatus !== 'arrived') {
+        console.log('[DataContext] markOrderDelivered BLOCKED: driver-delivery order not awaiting customer confirmation:', orderId, existing.deliveryStatus);
+        throw new Error('Cannot finalize a driver delivery before customer confirmation');
+      }
+
       if (fb) {
         const order = orders.find((o) => o.id === orderId);
-        const changes: Record<string, any> = { status: 'delivered', deliveryStatus: 'delivered' };
-        if (order?.paymentMethod === 'cod') {
-          changes.paymentStatus = 'paid_confirmed';
+        // Primary write: the field the customer is permitted to change. The UI
+        // treats deliveryStatus === 'delivered' as a finalized order, so this
+        // alone completes the order for the customer.
+        console.log('[DataContext] confirmReceipt primary write', {
+          orderId,
+          payloadKeys: ['deliveryStatus'],
+        });
+        try {
+          await fsUpdateOrder(orderId, { deliveryStatus: 'delivered' });
+        } catch (e: any) {
+          console.log('[DataContext] confirmReceipt primary write FAILED', {
+            orderId,
+            code: e?.code,
+            message: e?.message,
+          });
+          throw e;
         }
-        await fsUpdateOrder(orderId, changes);
-        console.log('[DataContext] Order marked delivered via Firestore (provider action):', orderId);
+        // Best-effort: richer completion fields, written only if Firestore rules
+        // allow the customer to change them. Never blocks confirmation.
+        const extra: Record<string, any> = {
+          status: 'delivered',
+          customerConfirmedAt: now,
+          completedAt: now,
+          updatedAt: now,
+        };
+        if (order?.paymentMethod === 'cod') {
+          extra.paymentStatus = 'paid_confirmed';
+        }
+        try {
+          await fsUpdateOrder(orderId, extra);
+          console.log('[DataContext] confirmReceipt completion fields written:', orderId);
+        } catch (e: any) {
+          console.log('[DataContext] confirmReceipt completion fields skipped (rules?)', {
+            orderId,
+            code: e?.code,
+            message: e?.message,
+            payloadKeys: Object.keys(extra),
+          });
+        }
+        console.log('[DataContext] Order confirmed delivered by customer:', orderId);
         void sendPushNotification('delivered', orderId);
         return;
       }
@@ -710,6 +878,74 @@ export const [DataProvider, useData] = createContextHook(() => {
       console.log('[DataContext] Order marked delivered:', orderId);
     },
     [orders, fb],
+  );
+
+  const raiseDeliveryComplaint = useCallback(
+    async (
+      order: Order,
+      opts?: { source?: 'customer' | 'driver' | 'provider'; note?: string; type?: string; target?: 'provider' | 'driver' | 'customer' },
+    ) => {
+      const source = opts?.source ?? 'driver';
+      const type =
+        opts?.type ??
+        (source === 'customer' ? 'customer_rejected_receipt' : 'delivery_not_confirmed');
+      const payload = {
+        orderId: order.id,
+        orderNumber: order.orderNumber ?? '',
+        orderRef: order.orderRef ?? '',
+        customerUid: order.customerUid,
+        providerUid: order.providerUid,
+        driverUid: order.driverUid ?? '',
+        status: order.status,
+        deliveryStatus: order.deliveryStatus ?? '',
+        type,
+        note: opts?.note ?? '',
+        source,
+        target: opts?.target ?? '',
+      };
+      console.log('[DataContext] raiseDeliveryComplaint', {
+        orderId: order.id,
+        source,
+        type,
+        fb,
+        payloadKeys: Object.keys(payload),
+      });
+      const alreadyActive = myComplaints.some(
+        (c) => c.orderId === order.id && isComplaintActive(c.complaintStatus),
+      );
+      if (alreadyActive) {
+        console.log('[DataContext] Active complaint already exists for order, skipping:', order.id);
+        return;
+      }
+      if (fb) {
+        await fsCreateComplaint(payload);
+        setMyComplaints((prev) =>
+          prev.some((c) => c.orderId === order.id && c.source === source)
+            ? prev
+            : [...prev, { orderId: order.id, source, complaintStatus: 'pending' }],
+        );
+        console.log('[DataContext] Delivery complaint created in delivery_complaints:', order.id);
+        return;
+      }
+      setMyComplaints((prev) =>
+        prev.some((c) => c.orderId === order.id && c.source === source)
+          ? prev
+          : [...prev, { orderId: order.id, source, complaintStatus: 'pending' }],
+      );
+      console.log('[DataContext] Delivery complaint (local, not persisted):', JSON.stringify(payload));
+    },
+    [fb, myComplaints],
+  );
+
+  const hasComplaint = useCallback(
+    (orderId: string, source?: 'customer' | 'driver' | 'provider') =>
+      myComplaints.some(
+        (c) =>
+          c.orderId === orderId &&
+          isComplaintActive(c.complaintStatus) &&
+          (!source || c.source === source),
+      ),
+    [myComplaints],
   );
 
   // ======= CRUD: Ratings =======
@@ -956,11 +1192,16 @@ export const [DataProvider, useData] = createContextHook(() => {
   );
 
   const getAvailableDeliveries = useCallback((): Order[] => {
+    // Match the exact, secure query used by fsSubscribeAvailableDeliveries and the
+    // Firestore rules: an order is available to drivers iff it is ready for a driver
+    // and not yet claimed. We deliberately do NOT also require deliveryMethod ===
+    // 'driver' here: the server Worker that finalizes delivery may persist the method
+    // as 'driver_delivery' (or leave it unset), and a strict equality check silently
+    // hid every available order from drivers. deliveryStatus === 'ready_for_driver' is
+    // only ever set for driver deliveries (self-pickup uses 'self_pickup_selected'), so
+    // these two conditions are sufficient and cannot surface pickup orders.
     return orders.filter(
-      (o) =>
-        o.deliveryMethod === 'driver' &&
-        o.deliveryStatus === 'ready_for_driver' &&
-        !o.driverUid,
+      (o) => o.deliveryStatus === 'ready_for_driver' && !o.driverUid,
     );
   }, [orders]);
 
@@ -1117,6 +1358,8 @@ export const [DataProvider, useData] = createContextHook(() => {
     assignDriver,
     updateDriverStatus,
     markOrderDelivered,
+    raiseDeliveryComplaint,
+    hasComplaint,
     submitRating,
     submitDriverRating,
     getProviderById,
@@ -1144,7 +1387,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     activeProviders, availableOffers, isLoading,
     createOffer, updateOffer, deleteOffer, createOrder, updateOrderStatus,
     submitPaymentProof, confirmPayment, rejectPayment, setDeliveryMethod,
-    assignDriver, updateDriverStatus, markOrderDelivered, submitRating, submitDriverRating,
+    assignDriver, updateDriverStatus, markOrderDelivered, raiseDeliveryComplaint, hasComplaint, submitRating, submitDriverRating,
     getProviderById, getDriverById, getOffersByProvider, getOrdersByCustomer,
     getOrdersByProvider, getOrdersByDriver, getAvailableDeliveries, getAvailableDrivers,
     getRatingsByProvider, getRatingsByDriver, getSubscription, isProviderSubscriptionValid,

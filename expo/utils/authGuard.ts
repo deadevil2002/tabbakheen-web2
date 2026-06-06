@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import { Alert } from 'react-native';
 import { Router } from 'expo-router';
 import { User } from '@/types';
@@ -16,7 +17,7 @@ export function requireAuth(
 
   console.log('[AuthGuard] User not authenticated, prompting login');
 
-  Alert.alert(title, message, [
+  AppAlert.alert(title, message, [
     { text: cancelLabel, style: 'cancel' },
     {
       text: loginLabel,

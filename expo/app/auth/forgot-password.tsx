@@ -1,3 +1,4 @@
+import { AppAlert } from '@/components/AppDialog';
 import React, { useState, useCallback } from 'react';
 import {
   View,
@@ -32,37 +33,38 @@ export default function ForgotPasswordScreen() {
   const handleResetPassword = useCallback(async () => {
     const trimmed = email.trim();
     if (!trimmed) {
-      Alert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال البريد الإلكتروني' : 'Please enter your email');
+      AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال البريد الإلكتروني' : 'Please enter your email');
       return;
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(trimmed)) {
-      Alert.alert(t('error'), t('invalidEmail'));
+      AppAlert.alert(t('error'), t('invalidEmail'));
       return;
     }
 
     if (!isFirebaseConfigured()) {
-      Alert.alert(t('error'), t('networkError'));
+      AppAlert.alert(t('error'), t('networkError'));
       return;
     }
 
     setIsSubmitting(true);
     try {
       const auth = getFirebaseAuth();
+      auth.languageCode = locale === 'ar' ? 'ar' : 'en';
       await sendPasswordResetEmail(auth, trimmed);
       console.log('[ForgotPassword] Reset email sent to:', trimmed);
       setEmailSent(true);
     } catch (error: any) {
       console.log('[ForgotPassword] Error:', error.code, error.message);
       if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-        Alert.alert(t('error'), t('userNotFound'));
+        AppAlert.alert(t('error'), t('userNotFound'));
       } else if (error.code === 'auth/invalid-email') {
-        Alert.alert(t('error'), t('invalidEmail'));
+        AppAlert.alert(t('error'), t('invalidEmail'));
       } else if (error.code === 'auth/too-many-requests') {
-        Alert.alert(t('error'), t('tooManyRequests'));
+        AppAlert.alert(t('error'), t('tooManyRequests'));
       } else {
-        Alert.alert(t('error'), t('authError'));
+        AppAlert.alert(t('error'), t('authError'));
       }
     } finally {
       setIsSubmitting(false);

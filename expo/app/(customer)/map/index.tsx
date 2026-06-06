@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { AppAlert } from '@/components/AppDialog';
+import React, { useMemo, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +10,7 @@ import {
   Dimensions,
   Alert,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -20,16 +22,23 @@ import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { calculateDistance, formatDistance } from '@/utils/helpers';
 import { User } from '@/types';
+import { MAPTILER_STYLE_URL, deltaToZoom } from '@/constants/maptiler';
+import LoginRequired from '@/components/LoginRequired';
+import { VerifiedBadge } from '@/components/VerifiedBadge';
 
-let MapView: any = null;
-let Marker: any = null;
+let MapLibreMap: any = null;
+let MapLibreCamera: any = null;
+let MapLibreMarker: any = null;
+let MapLibreUserLocation: any = null;
 
 try {
-  const maps = require('react-native-maps');
-  MapView = maps.default;
-  Marker = maps.Marker;
+  const ml = require('@maplibre/maplibre-react-native');
+  MapLibreMap = ml.Map;
+  MapLibreCamera = ml.Camera;
+  MapLibreMarker = ml.Marker;
+  MapLibreUserLocation = ml.UserLocation;
 } catch {
-  console.log('react-native-maps not available');
+  console.log('@maplibre/maplibre-react-native not available');
 }
 
 let Location: any = null;
@@ -44,21 +53,33 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const RIYADH_LAT = 24.7136;
 const RIYADH_LNG = 46.6753;
 
+function hasValidCoords(p: User): boolean {
+  const loc = p.location;
+  if (!loc) return false;
+  const { lat, lng } = loc;
+  if (typeof lat !== 'number' || typeof lng !== 'number') return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  // Reject the "null island" (0,0) placeholder, but allow a single legitimate 0 axis.
+  if (lat === 0 && lng === 0) return false;
+  return true;
+}
+
 export default function CustomerMapScreen() {
   const router = useRouter();
   const { t, isRTL, locale } = useLocale();
   const { providers } = useData();
   const { user } = useAuth();
 
-  const [selectedProvider, setSelectedProvider] = useState<User | null>(null);
+  const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState<boolean>(false);
-  const mapRef = useRef<any>(null);
+  const cameraRef = useRef<any>(null);
 
   const currentLocation = userCoords ?? user?.location ?? { lat: RIYADH_LAT, lng: RIYADH_LNG };
 
   const providersWithLocation = useMemo(() => {
-    return providers.filter((p) => p.location && p.location.lat && p.location.lng);
+    return providers.filter(hasValidCoords);
   }, [providers]);
 
   const sortedProviders = useMemo(() => {
@@ -72,23 +93,52 @@ export default function CustomerMapScreen() {
       .sort((a, b) => a.distance - b.distance);
   }, [providersWithLocation, currentLocation]);
 
-  const handleProviderPress = useCallback((provider: User) => {
-    setSelectedProvider(provider);
-    if (mapRef.current && provider.location) {
-      mapRef.current.animateToRegion({
-        latitude: provider.location.lat,
-        longitude: provider.location.lng,
-        latitudeDelta: 0.02,
-        longitudeDelta: 0.02,
-      }, 500);
+  const centerOnProvider = useCallback((provider: User) => {
+    setSelectedUid(provider.uid);
+    if (cameraRef.current && provider.location) {
+      cameraRef.current.easeTo({
+        center: [provider.location.lng, provider.location.lat],
+        zoom: deltaToZoom(0.02),
+        duration: 500,
+      });
     }
   }, []);
 
   const handleViewProfile = useCallback(
     (uid: string) => {
-      router.push(`/(customer)/home/provider/${uid}` as any);
+      router.push(`/(customer)/map/provider/${uid}` as any);
     },
-    [],
+    [router],
+  );
+
+  const handleOpenRoute = useCallback(
+    (provider: User) => {
+      const loc = provider.location;
+      if (!loc) return;
+      const { lat, lng } = loc;
+      const label = encodeURIComponent(provider.displayName || t('viewProviderPage'));
+      const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+
+      if (Platform.OS === 'web') {
+        Linking.openURL(webUrl).catch(() => {});
+        return;
+      }
+
+      const nativeUrl =
+        Platform.OS === 'ios'
+          ? `maps://?daddr=${lat},${lng}&q=${label}`
+          : `geo:${lat},${lng}?q=${lat},${lng}(${label})`;
+
+      Linking.canOpenURL(nativeUrl)
+        .then((supported) => {
+          const target = supported ? nativeUrl : webUrl;
+          return Linking.openURL(target);
+        })
+        .catch(() => {
+          Linking.openURL(webUrl).catch(() => {});
+        });
+    },
+    [t],
   );
 
   const locateMe = useCallback(async () => {
@@ -102,22 +152,21 @@ export default function CustomerMapScreen() {
                 lng: position.coords.longitude,
               };
               setUserCoords(coords);
-              if (mapRef.current) {
-                mapRef.current.animateToRegion({
-                  latitude: coords.lat,
-                  longitude: coords.lng,
-                  latitudeDelta: 0.04,
-                  longitudeDelta: 0.04,
-                }, 500);
+              if (cameraRef.current) {
+                cameraRef.current.easeTo({
+                  center: [coords.lng, coords.lat],
+                  zoom: deltaToZoom(0.04),
+                  duration: 500,
+                });
               }
               console.log('[Map] Web geolocation:', coords);
             },
             () => {
-              Alert.alert(t('error'), t('locationError'));
+              AppAlert.alert(t('error'), t('locationError'));
             },
           );
         } catch {
-          Alert.alert(t('error'), t('locationError'));
+          AppAlert.alert(t('error'), t('locationError'));
         }
       }
       return;
@@ -127,7 +176,7 @@ export default function CustomerMapScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(t('error'), t('locationPermissionDenied'));
+        AppAlert.alert(t('error'), t('locationPermissionDenied'));
         setLocating(false);
         return;
       }
@@ -142,28 +191,26 @@ export default function CustomerMapScreen() {
       setUserCoords(coords);
       console.log('[Map] Device location:', coords);
 
-      if (mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude: coords.lat,
-          longitude: coords.lng,
-          latitudeDelta: 0.04,
-          longitudeDelta: 0.04,
-        }, 500);
+      if (cameraRef.current) {
+        cameraRef.current.easeTo({
+          center: [coords.lng, coords.lat],
+          zoom: deltaToZoom(0.04),
+          duration: 500,
+        });
       }
     } catch (e) {
       console.log('[Map] Location error:', e);
-      Alert.alert(t('error'), t('locationError'));
+      AppAlert.alert(t('error'), t('locationError'));
     } finally {
       setLocating(false);
     }
   }, [t]);
 
-  const initialRegion = {
-    latitude: currentLocation.lat,
-    longitude: currentLocation.lng,
-    latitudeDelta: 0.08,
-    longitudeDelta: 0.08,
-  };
+  const isNativeMap = MapLibreMap && Platform.OS !== 'web' && !!MAPTILER_STYLE_URL;
+
+  if (!user) {
+    return <LoginRequired message={t('mapGuestMsg')} headerTitle={t('nearbyProviders')} />;
+  }
 
   return (
     <View style={styles.container}>
@@ -172,29 +219,31 @@ export default function CustomerMapScreen() {
       </SafeAreaView>
 
       <View style={styles.mapContainer}>
-        {MapView && Platform.OS !== 'web' ? (
+        {isNativeMap ? (
           <>
-            <MapView
-              ref={mapRef}
+            <MapLibreMap
               style={styles.map}
-              initialRegion={initialRegion}
-              showsUserLocation
-              showsMyLocationButton={false}
+              mapStyle={MAPTILER_STYLE_URL}
+              compass={false}
             >
+              <MapLibreCamera
+                ref={cameraRef}
+                initialViewState={{
+                  center: [currentLocation.lng, currentLocation.lat],
+                  zoom: deltaToZoom(0.08),
+                }}
+              />
+              <MapLibreUserLocation />
               {sortedProviders.map((provider) =>
                 provider.location ? (
-                  <Marker
+                  <MapLibreMarker
                     key={provider.uid}
-                    coordinate={{
-                      latitude: provider.location.lat,
-                      longitude: provider.location.lng,
-                    }}
-                    title={provider.displayName}
-                    onPress={() => handleProviderPress(provider)}
+                    lngLat={[provider.location.lng, provider.location.lat]}
+                    onPress={() => centerOnProvider(provider)}
                   >
                     <View style={[
                       styles.markerContainer,
-                      selectedProvider?.uid === provider.uid && styles.markerSelected,
+                      selectedUid === provider.uid && styles.markerSelected,
                     ]}>
                       {provider.photoUrl ? (
                         <Image
@@ -206,10 +255,10 @@ export default function CustomerMapScreen() {
                         <ChefHat size={18} color={Colors.white} />
                       )}
                     </View>
-                  </Marker>
+                  </MapLibreMarker>
                 ) : null,
               )}
-            </MapView>
+            </MapLibreMap>
             <Pressable
               style={({ pressed }) => [styles.locateBtn, pressed && styles.locateBtnPressed]}
               onPress={locateMe}
@@ -252,50 +301,6 @@ export default function CustomerMapScreen() {
         )}
       </View>
 
-      {selectedProvider && (
-        <View style={styles.selectedCard}>
-          <Pressable
-            style={({ pressed }) => [styles.selectedCardInner, pressed && styles.cardPressed]}
-            onPress={() => handleViewProfile(selectedProvider.uid)}
-          >
-            <Image
-              source={{ uri: selectedProvider.photoUrl }}
-              style={styles.selectedAvatar}
-              contentFit="cover"
-            />
-            <View style={styles.selectedInfo}>
-              <Text style={[styles.selectedName, isRTL && styles.rtlText]} numberOfLines={1}>
-                {selectedProvider.displayName}
-              </Text>
-              <View style={[styles.metaRow, isRTL && styles.rowRTL]}>
-                <Star size={13} color={Colors.star} fill={Colors.star} />
-                <Text style={styles.metaText}>{selectedProvider.ratingAverage.toFixed(1)}</Text>
-                {selectedProvider.location && (
-                  <>
-                    <View style={styles.metaDot} />
-                    <MapPin size={13} color={Colors.textTertiary} />
-                    <Text style={styles.metaText}>
-                      {formatDistance(
-                        calculateDistance(
-                          currentLocation.lat,
-                          currentLocation.lng,
-                          selectedProvider.location.lat,
-                          selectedProvider.location.lng,
-                        ),
-                        locale,
-                      )}
-                    </Text>
-                  </>
-                )}
-              </View>
-            </View>
-            <View style={styles.viewBtn}>
-              <Text style={styles.viewBtnText}>{t('viewProviderPage')}</Text>
-            </View>
-          </Pressable>
-        </View>
-      )}
-
       <View style={styles.listContainer}>
         <ScrollView
           horizontal
@@ -311,36 +316,66 @@ export default function CustomerMapScreen() {
                   provider.location.lng,
                 )
               : 0;
+            const isSelected = selectedUid === provider.uid;
             return (
               <Pressable
                 key={provider.uid}
                 style={({ pressed }) => [
                   styles.providerCard,
-                  selectedProvider?.uid === provider.uid && styles.providerCardSelected,
+                  isSelected && styles.providerCardSelected,
                   pressed && styles.cardPressed,
                 ]}
-                onPress={() => {
-                  handleProviderPress(provider);
-                  handleViewProfile(provider.uid);
-                }}
+                onPress={() => centerOnProvider(provider)}
               >
-                <Image
-                  source={{ uri: provider.photoUrl }}
-                  style={styles.providerAvatar}
-                  contentFit="cover"
-                />
-                <View style={styles.providerInfo}>
-                  <Text style={[styles.providerName, isRTL && styles.rtlText]} numberOfLines={1}>
-                    {provider.displayName}
-                  </Text>
-                  <View style={[styles.metaRow, isRTL && styles.rowRTL]}>
-                    <Star size={12} color={Colors.star} fill={Colors.star} />
-                    <Text style={styles.metaText}>{provider.ratingAverage.toFixed(1)}</Text>
+                <View style={[styles.cardTopRow, isRTL && styles.rowRTL]}>
+                  <Image
+                    source={{ uri: provider.photoUrl }}
+                    style={styles.providerAvatar}
+                    contentFit="cover"
+                  />
+                  <View style={styles.providerInfo}>
+                    <View style={[styles.nameRow, isRTL && styles.rowRTL]}>
+                      <Text style={[styles.providerName, { marginBottom: 0, flexShrink: 1 }, isRTL && styles.rtlText]} numberOfLines={1}>
+                        {provider.displayName}
+                      </Text>
+                      <VerifiedBadge status={provider.verificationStatus} size={14} />
+                    </View>
+                    <View style={[styles.metaRow, isRTL && styles.rowRTL]}>
+                      <Star size={12} color={Colors.star} fill={Colors.star} />
+                      <Text style={styles.metaText}>{provider.ratingAverage.toFixed(1)}</Text>
+                      <View style={styles.metaDot} />
+                      <MapPin size={12} color={Colors.textTertiary} />
+                      <Text style={styles.metaText}>{formatDistance(dist, locale)}</Text>
+                    </View>
                   </View>
-                  <View style={[styles.metaRow, isRTL && styles.rowRTL]}>
-                    <MapPin size={12} color={Colors.textTertiary} />
-                    <Text style={styles.metaText}>{formatDistance(dist, locale)}</Text>
-                  </View>
+                </View>
+
+                <View style={[styles.cardActions, isRTL && styles.rowRTL]}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.actionBtn,
+                      styles.actionBtnPrimary,
+                      pressed && styles.actionBtnPressed,
+                    ]}
+                    onPress={() => handleViewProfile(provider.uid)}
+                  >
+                    <Text style={styles.actionBtnPrimaryText} numberOfLines={1}>
+                      {t('viewProviderPage')}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.actionBtn,
+                      styles.actionBtnOutline,
+                      pressed && styles.actionBtnPressed,
+                    ]}
+                    onPress={() => handleOpenRoute(provider)}
+                  >
+                    <Navigation size={14} color={Colors.primary} />
+                    <Text style={styles.actionBtnOutlineText} numberOfLines={1}>
+                      {t('openRoute')}
+                    </Text>
+                  </Pressable>
                 </View>
               </Pressable>
             );
@@ -461,53 +496,6 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
     color: Colors.white,
   },
-  selectedCard: {
-    position: 'absolute',
-    bottom: 110,
-    left: 16,
-    right: 16,
-    zIndex: 20,
-  },
-  selectedCardInner: {
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  selectedAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 2,
-    borderColor: Colors.primaryFaded,
-  },
-  selectedInfo: {
-    flex: 1,
-  },
-  selectedName: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    color: Colors.text,
-    marginBottom: 4,
-  },
-  viewBtn: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  viewBtnText: {
-    fontSize: 12,
-    fontWeight: '600' as const,
-    color: Colors.white,
-  },
   metaDot: {
     width: 3,
     height: 3,
@@ -530,23 +518,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   providerCard: {
-    width: SCREEN_WIDTH * 0.55,
+    width: SCREEN_WIDTH * 0.72,
     backgroundColor: Colors.background,
     borderRadius: 16,
     padding: 14,
     marginRight: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     borderWidth: 1.5,
     borderColor: Colors.border,
+    gap: 12,
   },
   providerCardSelected: {
     borderColor: Colors.primary,
     backgroundColor: Colors.primaryFaded,
   },
   cardPressed: {
-    opacity: 0.9,
+    opacity: 0.95,
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   providerAvatar: {
     width: 50,
@@ -557,16 +548,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   providerName: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700' as const,
     color: Colors.text,
+    marginBottom: 4,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     marginBottom: 4,
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginBottom: 2,
   },
   rowRTL: {
     flexDirection: 'row-reverse',
@@ -574,6 +570,41 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: 12,
     color: Colors.textSecondary,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+  },
+  actionBtnPrimary: {
+    backgroundColor: Colors.primary,
+  },
+  actionBtnPrimaryText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: Colors.white,
+  },
+  actionBtnOutline: {
+    backgroundColor: Colors.surface,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+  },
+  actionBtnOutlineText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: Colors.primary,
+  },
+  actionBtnPressed: {
+    opacity: 0.8,
   },
   emptyListItem: {
     width: SCREEN_WIDTH - 64,
