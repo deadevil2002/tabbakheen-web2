@@ -21,6 +21,17 @@ Cloned from GitHub repo `deadevil2002/tabbakheen-api-worker`. Single esbuild-bun
 Deploy from `.local/worker-src` with `npx wrangler deploy` (needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets). The live URL `tabbakheen-api.tabbakheen.workers.dev` is the **default workers.dev subdomain**, served by `workers_dev = true` in `wrangler.toml` — NOT a custom domain. A `routes` entry with `custom_domain = true` pointing at the `*.workers.dev` host fails deploy ("Wildcard operators / Paths not allowed in Custom Domains"). `wrangler.toml` is also CRLF.
 **Why:** the cloned `wrangler.toml` shipped an invalid custom_domain route that blocks every deploy until replaced with `workers_dev = true`.
 
+## Admin login diagnosis (complete)
+
+Full static + runtime analysis of the admin JS boot sequence confirms:
+- **Browser-delivered script**: syntactically valid (`node --check` passes after processing `\\` → `\`)
+- **Full boot sequence simulation** (`FULL BOOT SEQUENCE: OK`): no crashes with proper DOM stubs
+- **Root cause of production login breakage**: **stale Cloudflare deployment** — the live Worker differs from the restored `worker.js`. The code itself is correct. Fix = `wrangler deploy`.
+
+Two false positives encountered during investigation:
+1. `node --check /tmp/admin-script.js` (raw extraction) → "Unexpected string" at `\\'` — false positive caused by extraction NOT processing template literal escapes. Process `\\` → `\` first.
+2. `initSidebar()` crash in simulation → false positive from incomplete DOM stub (plain object missing `.classList`). Real browser has full DOM.
+
 ## Admin badges = unread notifications (NOT static)
 - Sidebar badges + `tr.row-new` highlight are driven by per-section last-view timestamps in Firestore `admin_state/main`, NOT by status/age heuristics. See `admin-unread-notifications.md`.
 - Invoice Pending/Issued STATUS CELL still uses `isPendingInvoice` (legitimate column) — do not confuse it with the badge/highlight logic.
