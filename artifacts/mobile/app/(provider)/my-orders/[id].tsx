@@ -1,6 +1,6 @@
 import { AppAlert } from '@/components/AppDialog';
 import { ComplaintNoteModal } from '@/components/ComplaintNoteModal';
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -14,6 +14,7 @@ import { useData } from '@/contexts/DataContext';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor } from '@/utils/helpers';
 import { sendLocalNotification } from '@/services/notifications';
+import { fsGetOrderContactPhone } from '@/services/firestoreUsers';
 
 export default function ProviderOrderDetailScreen() {
   const router = useRouter();
@@ -30,6 +31,14 @@ export default function ProviderOrderDetailScreen() {
   const [showRejectInput, setShowRejectInput] = useState<boolean>(false);
   const [showComplaintModal, setShowComplaintModal] = useState<boolean>(false);
   const [complaintTarget, setComplaintTarget] = useState<'customer' | 'driver'>('customer');
+  const [driverContactPhone, setDriverContactPhone] = useState<string>('');
+
+  useEffect(() => {
+    if (!order?.driverUid) return;
+    let cancelled = false;
+    fsGetOrderContactPhone(order.driverUid).then((p) => { if (!cancelled) setDriverContactPhone(p); });
+    return () => { cancelled = true; };
+  }, [order?.id, order?.driverUid]);
 
   const hasPaymentProof = order?.paymentStatus === 'proof_sent';
   const canConfirmPayment = order?.paymentStatus === 'proof_sent';
@@ -230,7 +239,7 @@ export default function ProviderOrderDetailScreen() {
             <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('deliveryInfo')}</Text>
             <View style={[cs.driverRow, r && cs.rowRTL]}>
               <View style={cs.driverIconWrap}><Truck size={20} color={Colors.primary} /></View>
-              <View style={cs.flex1}><Text style={[s.driverName, r && cs.rtlText]}>{driver.displayName}</Text><Text style={s.driverPhone}>{driver.phone}</Text></View>
+              <View style={cs.flex1}><Text style={[s.driverName, r && cs.rtlText]}>{driver.displayName}</Text><Text style={s.driverPhone}>{driverContactPhone}</Text></View>
               <Text style={s.driverRating}>{driver.ratingAverage?.toFixed(1) || '0.0'} ⭐</Text>
             </View>
           </View>

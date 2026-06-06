@@ -210,6 +210,43 @@ export async function fsUpdateUser(
   console.log('[fsUsers] updated successfully:', uid);
 }
 
+/**
+ * Maps a Firestore users/{uid} document to a sanitised PUBLIC profile.
+ * Used for cross-user reads (fsSubscribeByRole) — private fields are intentionally
+ * omitted. Self-profile reads (fsGetUser / fsSubscribeToUser) still use toUser().
+ *
+ * Stripped: phone, email, fcmToken, expoPushToken, accountStatus, suspendedReason/At/By,
+ *   disabledReason, vehiclePlateNumber, vehicleImageUrl, hasAcceptedTerms, lastLoginAt,
+ *   maxDistanceKm, subscriptionStatus/Plan, trialEndsAt, subscriptionEndsAt, activatedByAdmin.
+ * Kept intentionally public: displayName, role, photoUrl, location, address, city,
+ *   ratingAverage/Count, isAvailable, verificationStatus/Source/At, vehicleType (type only),
+ *   paymentMethods (provider exposes deliberately for payment), socialLink.
+ */
+function toPublicUser(id: string, data: Record<string, any>): User {
+  return {
+    uid: id,
+    email: '',
+    displayName: data.displayName ?? '',
+    phone: '',
+    role: data.role ?? 'customer',
+    photoUrl: data.photoUrl ?? '',
+    socialLink: data.socialLink ?? '',
+    location: data.location ?? null,
+    address: data.address ?? '',
+    ratingAverage: data.ratingAverage ?? 0,
+    ratingCount: data.ratingCount ?? 0,
+    fcmToken: '',
+    createdAt: data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? new Date().toISOString(),
+    paymentMethods: data.paymentMethods,
+    vehicleType: data.vehicleType,
+    city: data.city,
+    isAvailable: data.isAvailable,
+    verificationStatus: data.verificationStatus,
+    verificationSource: data.verificationSource,
+    verifiedAt: data.verifiedAt?.toDate?.()?.toISOString?.() ?? data.verifiedAt,
+  };
+}
+
 export function fsSubscribeByRole(
   role: string,
   cb: (users: User[]) => void,
@@ -218,10 +255,28 @@ export function fsSubscribeByRole(
   const q = query(collection(db, COLLECTION), where('role', '==', role));
   return onSnapshot(
     q,
-    (snap) => cb(snap.docs.map((d) => toUser(d.id, d.data()))),
+    (snap) => cb(snap.docs.map((d) => toPublicUser(d.id, d.data()))),
     (err) => {
       console.log('[fsUsers] byRole error:', err);
       cb([]);
     },
   );
+}
+
+/**
+ * Fetch the contact phone number for a user who is a party to an active order.
+ * MUST only be called when the caller has a confirmed order relationship with targetUid
+ * (e.g. order.providerUid, order.driverUid, order.customerUid).
+ * Full server-side enforcement (Firestore rules) is a follow-up task.
+ */
+export async function fsGetOrderContactPhone(targetUid: string): Promise<string> {
+  try {
+    const db = getFirebaseFirestore();
+    const snap = await getDoc(doc(db, COLLECTION, targetUid));
+    if (!snap.exists()) return '';
+    return snap.data()?.phone ?? '';
+  } catch (e) {
+    console.log('[fsUsers] getOrderContactPhone error:', e);
+    return '';
+  }
 }

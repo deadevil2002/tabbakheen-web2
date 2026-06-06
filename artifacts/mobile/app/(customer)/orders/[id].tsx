@@ -1,6 +1,6 @@
 import { AppAlert } from '@/components/AppDialog';
 import { ComplaintNoteModal } from '@/components/ComplaintNoteModal';
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -18,6 +18,7 @@ import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor, 
 import MapLocationPicker from '@/components/MapLocationPicker';
 import { pickImageFreeAspect } from '@/utils/imagePicker';
 import { uploadPaymentProofViaWorker } from '@/services/pushApi';
+import { fsGetOrderContactPhone } from '@/services/firestoreUsers';
 import { Image } from 'expo-image';
 
 export default function CustomerOrderDetailScreen() {
@@ -78,6 +79,20 @@ export default function CustomerOrderDetailScreen() {
   const [deliveryQuote, setDeliveryQuote] = useState<{ deliveryFee: number; totalAmount: number; deliveryDistanceKm: number; subtotal: number } | null>(null);
   const [isLoadingQuote, setIsLoadingQuote] = useState<boolean>(false);
   const [isFinalizingDelivery, setIsFinalizingDelivery] = useState<boolean>(false);
+  const [providerContactPhone, setProviderContactPhone] = useState<string>('');
+  const [driverContactPhone, setDriverContactPhone] = useState<string>('');
+
+  useEffect(() => {
+    if (!order) return;
+    let cancelled = false;
+    if (order.providerUid) {
+      fsGetOrderContactPhone(order.providerUid).then((p) => { if (!cancelled) setProviderContactPhone(p); });
+    }
+    if (order.driverUid) {
+      fsGetOrderContactPhone(order.driverUid).then((p) => { if (!cancelled) setDriverContactPhone(p); });
+    }
+    return () => { cancelled = true; };
+  }, [order?.id, order?.providerUid, order?.driverUid]);
 
   const isDelivered = order?.status === 'delivered' || order?.deliveryStatus === 'delivered';
   const deliveryActive = !!order && order.status !== 'delivered' && order.status !== 'cancelled' && order.status !== 'rejected' && order.deliveryStatus !== 'delivered' && order.deliveryStatus !== 'cancelled';
@@ -254,7 +269,7 @@ export default function CustomerOrderDetailScreen() {
 
   const handleWhatsAppProof = useCallback(() => {
     if (!order || !provider) return;
-    const rawPhone = provider.paymentMethods?.stcPay?.phone || provider.phone;
+    const rawPhone = provider.paymentMethods?.stcPay?.phone || providerContactPhone;
     const phone = formatSaudiPhoneForWhatsApp(rawPhone);
     console.log('[OrderDetail] WhatsApp proof - raw:', rawPhone, 'formatted:', phone);
     const message = locale === 'ar'
@@ -267,8 +282,8 @@ export default function CustomerOrderDetailScreen() {
 
   const handleContactDriverWhatsApp = useCallback(async (coords?: { lat: number; lng: number }) => {
     if (!order || !driver) return;
-    const driverPhone = formatSaudiPhoneForWhatsApp(driver.phone || '');
-    console.log('[OrderDetail] Contact driver WhatsApp - raw:', driver.phone, 'formatted:', driverPhone);
+    const driverPhone = formatSaudiPhoneForWhatsApp(driverContactPhone || '');
+    console.log('[OrderDetail] Contact driver WhatsApp - raw:', driverContactPhone, 'formatted:', driverPhone);
     if (!driverPhone) {
       AppAlert.alert(t('error'), t('whatsappNotAvailable'));
       return;
@@ -681,7 +696,7 @@ export default function CustomerOrderDetailScreen() {
               <View style={cs.driverIconWrap}><Truck size={20} color={Colors.primary} /></View>
               <View style={cs.flex1}>
                 <Text style={[s.driverName, r && cs.rtlText]}>{driver.displayName}</Text>
-                <View style={[s.driverMeta, r && cs.rowRTL]}><Phone size={12} color={Colors.textTertiary} /><Text style={s.driverDist}>{driver.phone}</Text></View>
+                <View style={[s.driverMeta, r && cs.rowRTL]}><Phone size={12} color={Colors.textTertiary} /><Text style={s.driverDist}>{driverContactPhone}</Text></View>
               </View>
               <View style={{ alignItems: 'center' as const }}><Text style={s.driverRatingBig}>{driver.ratingAverage?.toFixed(1) || '0.0'}</Text><Text style={{ fontSize: 12 }}>⭐</Text></View>
             </View>
