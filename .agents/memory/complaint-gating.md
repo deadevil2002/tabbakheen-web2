@@ -1,23 +1,38 @@
 ---
-name: Delivery complaint gating (mobile)
-description: How duplicate-complaint prevention works across customer/driver in the Tabbakheen mobile app.
+name: Complaint gating (mobile)
+description: How complaint creation, deduplication, and My Complaints subscription work across roles.
 ---
 
-# Delivery complaint gating
+## Complaint creation (raiseDeliveryComplaint in DataContext)
 
-Complaints live in Firestore `delivery_complaints`. Each doc carries BOTH `customerUid`
-and `driverUid` (plus `providerUid`), so every actor's per-UID subscription
-(`fsSubscribeMyComplaints`) sees the same complaint for a shared order.
+- source type: `'customer' | 'driver' | 'provider'`
+- target type: `'provider' | 'driver' | 'customer'`
+- Customer raises with source:'customer', target:'provider'|'driver'
+- Driver raises with source:'driver', target is not used (type:'delivery_not_confirmed')
+- Provider raises with source:'provider', type:'provider_complaint', target:'customer'|'driver'
 
-**Rule:** complaint button gating must be ORDER-LEVEL, not actor-level. Call
-`hasComplaint(orderId)` WITHOUT a source argument so any existing active complaint
-hides the button for all actors and shows "تم رفع بلاغ لهذا الطلب".
+## hasComplaint (DataContext)
 
-**Why:** spec requires "one active complaint per order" and "hide for all users". Passing
-a `source` made gating actor-scoped, letting a second actor file a duplicate on the same order.
+- Reads from `myComplaints` state (populated via fsSubscribeMyComplaints by role UID field)
+- `hasComplaint(orderId)` — no source filter — returns true if ANY complaint exists on that order
+- `hasComplaint(orderId, 'provider')` — scoped to provider-created complaints
+- Both driver and customer buttons use `hasComplaint(orderId)` (no source) to block double complaints per order
 
-**Active only:** `ComplaintRef.complaintStatus` is read from the doc; `isComplaintActive()`
-treats anything except `resolved`/`closed` as active (legacy docs with no status = active).
-`raiseDeliveryComplaint` also pre-checks `myComplaints` for an active match and bails before write.
+## My Complaints subscription (MyComplaintsView)
 
-Provider has NO complaint button in this app (only customer + driver raise complaints).
+- Uses `fsSubscribeComplaintsByCreator(role, uid, cb)` from firestoreComplaints.ts
+- Queries Firestore: `where('${role}Uid', '==', uid)`
+- Client-side filter: `!c.source || c.source === role`
+  - `!c.source` catches old complaints with empty/missing source field
+  - `c.source === role` handles new complaints with correct source
+- Shows ALL statuses (no status filter) — resolved/closed/old all shown
+
+**Why:** Old complaints in Firestore may have been created before `source` was consistently set. Strict `source === role` filter would hide them. The `!c.source` fallback includes them without leaking other parties' complaints (source is non-empty for complaints from other parties).
+
+## Complaint document fields (delivery_complaints collection)
+
+Stored: orderId, orderNumber, orderRef, customerUid, providerUid, driverUid,
+status, deliveryStatus, complaintStatus (always 'pending' on create), source,
+target, type, note, createdAt, updatedAt, adminNote (set by admin)
+
+No `creatorUid` field — ownership determined entirely by source + roleUid.

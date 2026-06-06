@@ -15,11 +15,13 @@ const TYPE_LABELS: Record<'ar' | 'en', Record<string, string>> = {
     customer_rejected_receipt: 'العميل رفض الاستلام',
     delivery_not_confirmed: 'لم يتم تأكيد التوصيل',
     customer_complaint: 'شكوى عميل',
+    provider_complaint: 'شكوى مقدم خدمة',
   },
   en: {
     customer_rejected_receipt: 'Customer Rejected Receipt',
     delivery_not_confirmed: 'Delivery Not Confirmed',
     customer_complaint: 'Customer Complaint',
+    provider_complaint: 'Provider Complaint',
   },
 };
 

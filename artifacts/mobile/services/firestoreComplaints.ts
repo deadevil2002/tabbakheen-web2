@@ -80,7 +80,7 @@ export function fsSubscribeComplaintsByCreator(
     (snap) => {
       const items = snap.docs
         .map((d) => mapComplaintDoc(d.id, d.data() as Record<string, unknown>))
-        .filter((c) => c.source === role);
+        .filter((c) => !c.source || c.source === role);
       items.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
       cb(items);
     },

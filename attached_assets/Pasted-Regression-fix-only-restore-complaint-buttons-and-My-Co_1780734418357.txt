@@ -1,0 +1,96 @@
+Regression fix only — restore complaint buttons and My Complaints exactly like before.
+
+Do not modify security changes.
+Do not modify Firebase token authorization.
+Do not modify Firestore rules.
+Do not modify admin dashboard.
+Do not modify password reset.
+Do not modify payment.
+Do not refactor.
+Do not invent a new complaint UI.
+Do not change complaint workflow.
+
+Current issue:
+After recent changes, complaint/report behavior was broken.
+
+Before:
+- Customer could raise a complaint from order details.
+- Provider could raise a complaint from order details.
+- Driver could raise a complaint from delivery/order screens.
+- Each role had the complaint/report button in the correct places.
+- Account → بلاغاتي showed only complaints created by the signed-in user.
+- It showed all complaints created by that user, including old/resolved/closed complaints.
+
+Now:
+- Complaint/report buttons are missing in some screens.
+- Driver delivery card/detail behavior changed.
+- My Complaints no longer shows all complaints created by the current user.
+
+Required:
+Restore the old working behavior exactly.
+
+1. Complaint buttons
+
+Restore complaint/report button for all roles where it existed before:
+- Customer order details
+- Provider order details
+- Driver delivery card
+- Driver delivery details
+
+Do not hide the complaint button unless the order is fully completed/closed and complaint creation is intentionally not allowed.
+
+2. Driver delivery actions
+
+Restore the old driver delivery step buttons exactly:
+- تم الاستلام من الطباخ
+- وصلت للعميل
+- تم التسليم
+
+The card and the detail screen should both behave consistently.
+
+3. My Complaints
+
+Restore Account → بلاغاتي behavior:
+
+Each signed-in user sees only complaints they created.
+
+But they must see all their own complaints:
+- open
+- pending
+- resolved
+- closed
+- old complaints
+- new complaints
+
+Do not filter by current role tab only if it hides old records.
+
+Use creator ownership logic:
+- if complaint has creatorUid, use creatorUid
+- otherwise fallback:
+  - source == customer → customerUid
+  - source == provider → providerUid
+  - source == driver → driverUid
+
+Never show complaints created by other users.
+
+4. Do not change admin complaints.
+
+Admin already works. Leave it untouched.
+
+5. Verification
+
+Test:
+- Customer can see complaint button and create complaint.
+- Provider can see complaint button and create complaint.
+- Driver can see complaint button and create complaint.
+- Driver sees delivery action buttons correctly.
+- My Complaints shows only current user's complaints.
+- My Complaints includes old resolved/closed complaints.
+- No security rollback.
+- No Firebase token authorization rollback.
+
+Return:
+- Root cause
+- Files changed
+- Exact conditions restored
+- Test result
