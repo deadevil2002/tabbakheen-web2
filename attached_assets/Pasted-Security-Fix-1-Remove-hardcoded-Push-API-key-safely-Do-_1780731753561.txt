@@ -1,0 +1,62 @@
+Security Fix 1 — Remove hardcoded Push API key safely.
+
+Do not modify Firestore rules.
+Do not modify order workflow.
+Do not modify delivery workflow.
+Do not modify payment workflow.
+Do not modify complaint workflow.
+Do not refactor unrelated code.
+Do not deploy unless needed for Worker secret validation.
+Do not commit.
+Do not push.
+
+Goal:
+Remove the hardcoded API key from the mobile app binary.
+
+Current confirmed issue:
+artifacts/mobile/services/pushApi.ts contains a hardcoded key:
+PUSH_API_KEY = "..."
+
+This key will be compiled into APK/IPA and can be extracted.
+
+Required:
+1. Remove the hardcoded secret from mobile source code.
+2. Do not replace it with EXPO_PUBLIC_* because that is also public in the app bundle.
+3. Audit which Worker endpoints currently depend on this key:
+   - /notify
+   - /aggregate-rating
+   - /delivery-quote
+   - /finalize-delivery
+   - any other endpoint using x-api-key
+4. Propose and implement the safest minimal replacement.
+
+Preferred secure approach:
+- Mobile app should not hold a shared secret.
+- For endpoints called by logged-in users, send Firebase ID token instead.
+- Worker must verify the Firebase ID token and authorize the action based on the authenticated user and order ownership/role.
+- Keep x-api-key only for server-to-server/internal calls if truly needed, stored as Cloudflare Worker secret only.
+
+For this task:
+- Convert mobile-called endpoints to Firebase ID token authorization where safe.
+- Add server-side authorization checks:
+  - caller must be authenticated
+  - caller must be related to the order where applicable
+  - caller role must be correct for the action
+- Do not break existing push notifications.
+
+Important:
+If this is too large for one safe change, implement only /notify first and return a follow-up plan for the remaining endpoints.
+
+Testing:
+- Notification after order status update still works.
+- Unauthorized request without Firebase token fails.
+- Request with unrelated user token fails.
+- Request with related user token succeeds.
+- No hardcoded API key remains in mobile source.
+
+Return:
+- Files changed
+- Endpoints updated
+- Authorization model
+- Remaining endpoints still using x-api-key, if any
+- Test result
