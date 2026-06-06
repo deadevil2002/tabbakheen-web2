@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { AppAlert } from '@/components/AppDialog';
 import {
   Truck,
   Clock,
@@ -211,7 +212,16 @@ export default function DriverDashboardScreen() {
               <Pressable
                 key={order.id}
                 style={({ pressed }) => [styles.recentCard, pressed && styles.cardPressed]}
-                onPress={() => router.push(`/(driver)/my-deliveries/${order.id}` as any)}
+                onPress={() => {
+                  if (!order.id) {
+                    AppAlert.alert(
+                      isRTL ? 'خطأ' : 'Error',
+                      isRTL ? 'معرف الطلب غير متوفر.' : 'Order ID is missing.',
+                    );
+                    return;
+                  }
+                  router.push(`/(driver)/my-deliveries/${order.id}` as any);
+                }}
               >
                 <View style={[styles.recentRow, isRTL && styles.rowRTL]}>
                   <View style={styles.recentInfo}>

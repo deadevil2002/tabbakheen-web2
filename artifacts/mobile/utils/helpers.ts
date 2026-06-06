@@ -4,11 +4,10 @@ export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
 }
 
-let orderCounter = 10005;
-
 export function generateOrderNumber(): string {
-  const num = orderCounter++;
-  return `TB-${num}`;
+  const ts = Date.now().toString(36).toUpperCase().slice(-5);
+  const rand = Math.random().toString(36).toUpperCase().slice(2, 5);
+  return `TB-${ts}${rand}`;
 }
 
 export function generateOrderRef(): string {

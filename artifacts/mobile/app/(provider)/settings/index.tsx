@@ -4,7 +4,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Alert, TextInput, Switch
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { LogOut, Globe, Mail, Phone, MapPin, ChevronLeft, ChevronRight, UserCircle, Shield, Info, CreditCard, Building2, Crown, AlertTriangle, Check, Camera, Navigation, BadgeCheck } from 'lucide-react-native';
+import { LogOut, Globe, Mail, Phone, MapPin, ChevronLeft, ChevronRight, UserCircle, Shield, Info, CreditCard, Building2, Crown, AlertTriangle, Check, Camera, Navigation, BadgeCheck, FileText } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -193,7 +193,7 @@ export default function ProviderSettingsScreen() {
   const handleLogout = useCallback(() => {
     AppAlert.alert(t('logout'), locale === 'ar' ? 'هل أنت متأكد من تسجيل الخروج؟' : 'Are you sure you want to logout?', [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('logout'), style: 'destructive', onPress: async () => { await logout(); router.replace('/auth/login' as any); } },
+      { text: t('logoutShort'), style: 'destructive', onPress: async () => { await logout(); router.replace('/auth/login' as any); } },
     ]);
   }, [logout, t, locale]);
 
@@ -445,6 +445,9 @@ export default function ProviderSettingsScreen() {
         <View style={cs.menuSection}>
           <Pressable style={({ pressed }) => [cs.menuRow, r && cs.rowRTL, pressed && { backgroundColor: Colors.background }]} onPress={toggleLocale}>
             <Globe size={20} color={Colors.primary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('language')}</Text><Text style={cs.menuValue}>{locale === 'ar' ? t('arabic') : t('english')}</Text><Arrow size={18} color={Colors.textTertiary} />
+          </Pressable>
+          <Pressable style={({ pressed }) => [cs.menuRow, r && cs.rowRTL, pressed && { backgroundColor: Colors.background }]} onPress={() => router.push('/(provider)/settings/my-complaints' as any)}>
+            <FileText size={20} color={Colors.primary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('myComplaints')}</Text><Arrow size={18} color={Colors.textTertiary} />
           </Pressable>
           <Pressable style={({ pressed }) => [cs.menuRow, r && cs.rowRTL, pressed && { backgroundColor: Colors.background }]} onPress={() => router.push('/(provider)/settings/about' as any)}>
             <Info size={20} color={Colors.primary} /><Text style={[cs.menuText, r && cs.rtlText]}>{t('aboutTitle')}</Text><Arrow size={18} color={Colors.textTertiary} />

@@ -1,9 +1,11 @@
 import { AppAlert } from '@/components/AppDialog';
+import { ComplaintNoteModal } from '@/components/ComplaintNoteModal';
 import React, { useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, ArrowRight, Check, X, ChefHat, PackageCheck, CreditCard, Banknote, Building2, Truck, FileCheck, CheckCircle2, XCircle, CircleCheckBig } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight, Check, X, ChefHat, PackageCheck, CreditCard, Banknote, Building2, Truck, FileCheck, CheckCircle2, XCircle, CircleCheckBig, AlertTriangle } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -18,7 +20,7 @@ export default function ProviderOrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { orders, updateOrderStatus, confirmPayment, rejectPayment, isProviderSubscriptionValid, getDriverById, markOrderReady, markOrderDelivered } = useData();
+  const { orders, updateOrderStatus, confirmPayment, rejectPayment, isProviderSubscriptionValid, getDriverById, markOrderReady, markOrderDelivered, raiseDeliveryComplaint, hasComplaint } = useData();
 
   const order = useMemo(() => orders.find((o) => o.id === id), [orders, id]);
   const driver = useMemo(() => (order?.driverUid ? getDriverById(order.driverUid) : undefined), [order, getDriverById]);
@@ -26,6 +28,8 @@ export default function ProviderOrderDetailScreen() {
 
   const [rejectComment, setRejectComment] = useState<string>('');
   const [showRejectInput, setShowRejectInput] = useState<boolean>(false);
+  const [showComplaintModal, setShowComplaintModal] = useState<boolean>(false);
+  const [complaintTarget, setComplaintTarget] = useState<'customer' | 'driver'>('customer');
 
   const hasPaymentProof = order?.paymentStatus === 'proof_sent';
   const canConfirmPayment = order?.paymentStatus === 'proof_sent';
@@ -51,7 +55,15 @@ export default function ProviderOrderDetailScreen() {
     if (!order) return;
     AppAlert.alert(t('confirmPayment'), t('confirmPaymentMsg'), [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('confirm'), onPress: async () => { await confirmPayment(order.id); AppAlert.alert(t('success'), t('paymentConfirmed')); } },
+      { text: t('confirm'), onPress: async () => {
+        try {
+          await confirmPayment(order.id);
+          AppAlert.alert(t('success'), t('paymentConfirmed'));
+        } catch (e: any) {
+          console.log('[ProviderOrder] confirmPayment error:', e?.message || e);
+          AppAlert.alert(t('error'), t('orderUpdateError'));
+        }
+      } },
     ]);
   }, [order, confirmPayment, t]);
 
@@ -59,7 +71,15 @@ export default function ProviderOrderDetailScreen() {
     if (!order) return;
     AppAlert.alert(t('rejectPaymentAction'), t('rejectPaymentMsg'), [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('confirm'), style: 'destructive', onPress: async () => { await rejectPayment(order.id); AppAlert.alert(t('success'), t('paymentRejectedMsg')); } },
+      { text: t('confirm'), style: 'destructive', onPress: async () => {
+        try {
+          await rejectPayment(order.id);
+          AppAlert.alert(t('success'), t('paymentRejectedMsg'));
+        } catch (e: any) {
+          console.log('[ProviderOrder] rejectPayment error:', e?.message || e);
+          AppAlert.alert(t('error'), t('orderUpdateError'));
+        }
+      } },
     ]);
   }, [order, rejectPayment, t]);
 
@@ -116,6 +136,37 @@ export default function ProviderOrderDetailScreen() {
       },
     ]);
   }, [order, markOrderDelivered, t, locale]);
+
+  const handleOpenComplaint = useCallback(() => {
+    if (!order) return;
+    if (order.driverUid && driver) {
+      AppAlert.alert(t('complaintAgainstWhom'), undefined, [
+        { text: t('complaintAgainstCustomer'), onPress: () => { setComplaintTarget('customer'); setShowComplaintModal(true); } },
+        { text: t('complaintAgainstDriver'), onPress: () => { setComplaintTarget('driver'); setShowComplaintModal(true); } },
+        { text: t('cancel'), style: 'cancel' },
+      ]);
+    } else {
+      setComplaintTarget('customer');
+      setShowComplaintModal(true);
+    }
+  }, [order, driver, t]);
+
+  const handleSubmitComplaint = useCallback(
+    async (note: string) => {
+      if (!order) return;
+      try {
+        await raiseDeliveryComplaint(order, { source: 'provider', type: 'provider_complaint', target: complaintTarget, note });
+        console.log('[ProviderOrder] Provider raised complaint:', order.id, complaintTarget);
+        setShowComplaintModal(false);
+        AppAlert.alert(t('success'), t('complaintSent'));
+      } catch (err: any) {
+        console.log('[ProviderOrder] complaint error:', { orderId: order.id, code: err?.code, message: err?.message });
+        setShowComplaintModal(false);
+        AppAlert.alert(t('error'), t('orderUpdateError'));
+      }
+    },
+    [order, complaintTarget, raiseDeliveryComplaint, t],
+  );
 
   if (!order) return (<SafeAreaView style={cs.centerSafe}><Text>{t('error')}</Text></SafeAreaView>);
 
@@ -209,7 +260,18 @@ export default function ProviderOrderDetailScreen() {
         {hasPaymentProof && (
           <View style={cs.sectionCard}>
             <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('customerPaymentProof')}</Text>
-            {order.stcPayProofImageUrl ? <View style={s.proofDetail}><Text style={[s.proofLabel, r && cs.rtlText]}>{t('proofImage')}</Text><Text style={s.proofValue} numberOfLines={2}>{order.stcPayProofImageUrl}</Text></View> : null}
+            {order.stcPayProofImageUrl ? (
+              <View style={s.proofDetail}>
+                <Text style={[s.proofLabel, r && cs.rtlText]}>{t('proofImage')}</Text>
+                <Pressable onPress={() => Linking.openURL(order.stcPayProofImageUrl!)}>
+                  <Image source={{ uri: order.stcPayProofImageUrl }} style={s.proofImage} contentFit="cover" />
+                </Pressable>
+                <Pressable style={({ pressed }) => [s.viewProofBtn, pressed && cs.btnPressed]} onPress={() => Linking.openURL(order.stcPayProofImageUrl!)}>
+                  <FileCheck size={16} color={Colors.primary} />
+                  <Text style={s.viewProofText}>{t('viewProof')}</Text>
+                </Pressable>
+              </View>
+            ) : null}
             {order.stcPayProofNote ? <View style={s.proofDetail}><Text style={[s.proofLabel, r && cs.rtlText]}>{t('proofNote')}</Text><Text style={[s.proofValue, r && cs.rtlText]}>{order.stcPayProofNote}</Text></View> : null}
             {order.paymentReference ? <View style={s.proofDetail}><Text style={[s.proofLabel, r && cs.rtlText]}>{t('paymentReferenceLabel')}</Text><Text style={s.proofValue}>{order.paymentReference}</Text></View> : null}
             {canConfirmPayment && (
@@ -237,14 +299,42 @@ export default function ProviderOrderDetailScreen() {
           </Pressable>
         )}
 
-        {order.status === 'ready_for_pickup' && (!order.driverUid || order.deliveryStatus !== 'delivered') && order.deliveryStatus !== 'delivered' && (
+        {order.status === 'ready_for_pickup' && !order.driverUid && order.deliveryStatus !== 'delivered' && (
           <Pressable style={({ pressed }) => [cs.actionBtnRow, { backgroundColor: Colors.delivered }, pressed && cs.btnPressed]} onPress={handleMarkDelivered}>
             <CircleCheckBig size={20} color={Colors.white} /><Text style={cs.actionBtnText}>{t('confirmDelivered')}</Text>
           </Pressable>
         )}
 
+        {['pending', 'accepted', 'preparing', 'ready_for_pickup', 'searching_driver', 'assigned_to_driver', 'picked_up'].includes(order.status) && order.deliveryStatus !== 'delivered_pending_confirmation' && (
+          <View style={cs.sectionCard}>
+            <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('haveAnIssue')}</Text>
+            {hasComplaint(order.id) ? (
+              <View style={[s.complaintRaisedBox, r && s.complaintRaisedBoxRTL]}>
+                <AlertTriangle size={18} color={Colors.textSecondary} />
+                <Text style={[s.complaintRaisedText, r && cs.rtlText]}>{t('complaintRaisedLabel')}</Text>
+              </View>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [s.raiseComplaintBtn, pressed && cs.btnPressed]}
+                onPress={handleOpenComplaint}
+              >
+                <AlertTriangle size={20} color={Colors.error} />
+                <Text style={s.raiseComplaintBtnText}>{t('raiseComplaint')}</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
         <View style={cs.bottomSpacer} />
       </ScrollView>
+
+      <ComplaintNoteModal
+        visible={showComplaintModal}
+        title={t('raiseComplaint')}
+        message={complaintTarget === 'driver' ? t('complaintAgainstDriverMsg') : t('complaintAgainstCustomerMsg')}
+        onCancel={() => setShowComplaintModal(false)}
+        onSubmit={handleSubmitComplaint}
+      />
     </View>
   );
 }
@@ -266,9 +356,17 @@ const s = StyleSheet.create({
   proofDetail: { marginBottom: 12 },
   proofLabel: { fontSize: 12, color: Colors.textTertiary, marginBottom: 4 },
   proofValue: { fontSize: 14, fontWeight: '600' as const, color: Colors.text },
+  proofImage: { width: '100%', height: 220, borderRadius: 12, backgroundColor: Colors.background },
+  viewProofBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10, height: 44, borderRadius: 12, borderWidth: 1, borderColor: Colors.primary },
+  viewProofText: { color: Colors.primary, fontSize: 14, fontWeight: '700' as const },
   payActionsRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
   confirmPayBtn: { flex: 1, flexDirection: 'row', backgroundColor: Colors.success, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', gap: 8 },
   rejectPayBtn: { flex: 1, flexDirection: 'row', backgroundColor: Colors.error, height: 46, borderRadius: 14, justifyContent: 'center', alignItems: 'center', gap: 8 },
   waitingCard: { backgroundColor: Colors.surface, borderRadius: 16, padding: 24, marginHorizontal: 20, marginBottom: 16, alignItems: 'center', gap: 10 },
   waitingText: { fontSize: 14, color: Colors.textTertiary, textAlign: 'center', lineHeight: 20 },
+  complaintRaisedBox: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, backgroundColor: Colors.surfaceSecondary },
+  complaintRaisedBoxRTL: { flexDirection: 'row-reverse' },
+  complaintRaisedText: { flex: 1, fontSize: 13, fontWeight: '600' as const, color: Colors.textSecondary },
+  raiseComplaintBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 46, borderRadius: 12, borderWidth: 1, borderColor: Colors.error },
+  raiseComplaintBtnText: { color: Colors.error, fontSize: 15, fontWeight: '700' as const },
 });

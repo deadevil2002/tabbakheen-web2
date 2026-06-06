@@ -346,6 +346,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600' as const,
     color: Colors.textSecondary,
+    textAlign: 'center' as const,
   },
   powered: {
     textAlign: 'center',

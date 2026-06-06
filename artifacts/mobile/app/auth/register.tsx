@@ -60,6 +60,10 @@ export default function RegisterScreen() {
     } catch (e: any) {
       const msg = e?.message === 'EMAIL_EXISTS'
         ? (locale === 'ar' ? 'البريد الإلكتروني مسجل مسبقاً' : 'Email already exists')
+        : e?.message === 'PROFILE_CREATE_FAILED'
+        ? (locale === 'ar'
+            ? 'تعذّر إنشاء الحساب، يرجى المحاولة مرة أخرى'
+            : 'Could not create your account, please try again')
         : t('error');
       AppAlert.alert(t('error'), msg);
     } finally {

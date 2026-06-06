@@ -1,5 +1,7 @@
 import { AppAlert } from '@/components/AppDialog';
-import React, { useMemo, useCallback, useState } from 'react';
+import { ComplaintNoteModal } from '@/components/ComplaintNoteModal';
+import React, { useMemo, useCallback, useState, useEffect } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   View,
   Text,
@@ -9,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Truck, CheckCircle, Package, XCircle, MapPin, Navigation2 } from 'lucide-react-native';
+import { Truck, CheckCircle, Package, XCircle, MapPin, Navigation2, AlertTriangle, Clock } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -24,12 +26,23 @@ import { sendLocalNotification } from '@/services/notifications';
 type DriverFilter = 'all' | 'active' | 'delivered';
 
 export default function MyDeliveriesScreen() {
+  const router = useRouter();
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { getOrdersByDriver, updateDeliveryStatusAsDriver, getProviderById } = useData();
+  const { getOrdersByDriver, updateDeliveryStatusAsDriver, getProviderById, raiseDeliveryComplaint, hasComplaint } = useData();
 
   const [filter, setFilter] = useState<DriverFilter>('all');
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const [complaintOrder, setComplaintOrder] = useState<Order | null>(null);
+  const params = useLocalSearchParams<{ focusId?: string | string[] }>();
+  const focusId = Array.isArray(params.focusId) ? params.focusId[0] : params.focusId;
+
+  useEffect(() => {
+    if (focusId) {
+      setFilter('all');
+      setExpandedOrderId(focusId);
+    }
+  }, [focusId]);
 
   const allDeliveries = useMemo(
     () => (user ? getOrdersByDriver(user.uid) : []),
@@ -40,7 +53,7 @@ export default function MyDeliveriesScreen() {
     if (filter === 'all') return allDeliveries;
     if (filter === 'active') {
       return allDeliveries.filter(
-        (o) => o.deliveryStatus === 'driver_assigned' || o.deliveryStatus === 'picked_up' || o.deliveryStatus === 'arrived' || o.deliveryStatus === 'in_transit',
+        (o) => o.deliveryStatus === 'driver_assigned' || o.deliveryStatus === 'picked_up' || o.deliveryStatus === 'arrived' || o.deliveryStatus === 'in_transit' || o.deliveryStatus === 'delivered_pending_confirmation',
       );
     }
     return allDeliveries.filter((o) => o.deliveryStatus === 'delivered');
@@ -125,13 +138,13 @@ export default function MyDeliveriesScreen() {
             text: t('confirm'),
             onPress: async () => {
               try {
-                await updateDeliveryStatusAsDriver(order.id, 'delivered');
+                await updateDeliveryStatusAsDriver(order.id, 'delivered_pending_confirmation');
                 void sendLocalNotification(
                   t('orderDeliveredTitle'),
-                  t('orderDeliveredBody'),
+                  t('awaitingCustomerConfirmation'),
                 );
-                console.log('[MyDeliveries] Order delivered:', order.id);
-                AppAlert.alert(t('success'), locale === 'ar' ? 'تم تأكيد التوصيل' : 'Delivery confirmed');
+                console.log('[MyDeliveries] Order delivered, awaiting customer confirmation:', order.id);
+                AppAlert.alert(t('success'), t('awaitingCustomerConfirmation'));
               } catch (e: any) {
                 console.log('[MyDeliveries] deliver error:', e?.message || e);
                 AppAlert.alert(t('error'), t('orderUpdateError'));
@@ -142,6 +155,31 @@ export default function MyDeliveriesScreen() {
       );
     },
     [updateDeliveryStatusAsDriver, t, locale],
+  );
+
+  const handleRaiseComplaint = useCallback((order: Order) => {
+    setComplaintOrder(order);
+  }, []);
+
+  const handleSubmitComplaint = useCallback(
+    async (note: string) => {
+      if (!complaintOrder) return;
+      try {
+        await raiseDeliveryComplaint(complaintOrder, {
+          source: 'driver',
+          type: 'delivery_not_confirmed',
+          note,
+        });
+        console.log('[MyDeliveries] Complaint raised:', complaintOrder.id);
+        setComplaintOrder(null);
+        AppAlert.alert(t('success'), t('complaintSent'));
+      } catch (e: any) {
+        console.log('[MyDeliveries] complaint error:', e?.message || e);
+        setComplaintOrder(null);
+        AppAlert.alert(t('error'), t('orderUpdateError'));
+      }
+    },
+    [complaintOrder, raiseDeliveryComplaint, t],
   );
 
   const handleRejectDelivery = useCallback(
@@ -185,6 +223,7 @@ export default function MyDeliveriesScreen() {
       const canArrived = ds === 'picked_up';
       const canDeliver = ds === 'arrived';
       const canReject = ds === 'driver_assigned';
+      const awaitingConfirmation = ds === 'delivered_pending_confirmation';
       const isActive = ds === 'driver_assigned' || ds === 'picked_up' || ds === 'arrived' || ds === 'in_transit';
 
       const showMapPhase: 'to_provider' | 'to_customer' =
@@ -204,14 +243,15 @@ export default function MyDeliveriesScreen() {
       return (
         <View style={styles.deliveryCard}>
           <Pressable
-            onPress={() => setExpandedOrderId(isExpanded ? null : item.id)}
-            style={[styles.cardHeader, isRTL && styles.rowRTL]}
+            onPress={() => router.push(`/(driver)/my-deliveries/${item.id}` as any)}
+            style={({ pressed }) => pressed && styles.btnPressed}
           >
+          <View style={[styles.cardHeader, isRTL && styles.rowRTL]}>
             <Text style={[styles.cardTitle, isRTL && styles.rtlText]} numberOfLines={1}>
               {item.offerTitleSnapshot}
             </Text>
             <OrderStatusBadge status={item.status} size="small" />
-          </Pressable>
+          </View>
 
           {item.orderRef ? (
             <Text style={[styles.cardRef, isRTL && styles.rtlText]}>{item.orderRef}</Text>
@@ -257,6 +297,7 @@ export default function MyDeliveriesScreen() {
               </Text>
             </View>
           ) : null}
+          </Pressable>
 
           {isActive && isExpanded && (
             <View style={{ marginHorizontal: -18, marginTop: 12 }}>
@@ -318,10 +359,37 @@ export default function MyDeliveriesScreen() {
               <Text style={styles.actionBtnText}>{t('rejectDeliveryAction')}</Text>
             </Pressable>
           )}
+
+          {awaitingConfirmation && (
+            <>
+              <View style={[styles.awaitingBox, isRTL && styles.rowRTL]}>
+                <Clock size={16} color={Colors.warning} />
+                <Text style={[styles.awaitingText, isRTL && styles.rtlText]}>
+                  {t('awaitingCustomerConfirmation')}
+                </Text>
+              </View>
+              {hasComplaint(item.id) ? (
+                <View style={[styles.complaintRaisedBox, isRTL && styles.rowRTL]}>
+                  <AlertTriangle size={16} color={Colors.textSecondary} />
+                  <Text style={[styles.complaintRaisedText, isRTL && styles.rtlText]}>
+                    {t('complaintRaisedLabel')}
+                  </Text>
+                </View>
+              ) : (
+                <Pressable
+                  style={({ pressed }) => [styles.actionBtn, styles.complaintBtnStyle, pressed && styles.btnPressed]}
+                  onPress={() => handleRaiseComplaint(item)}
+                >
+                  <AlertTriangle size={18} color={Colors.white} />
+                  <Text style={styles.actionBtnText}>{t('raiseComplaint')}</Text>
+                </Pressable>
+              )}
+            </>
+          )}
         </View>
       );
     },
-    [isRTL, locale, t, user, expandedOrderId, getProviderById, handlePickedUp, handleArrived, handleDelivered, handleRejectDelivery, getDeliveryStatusLabel],
+    [router, isRTL, locale, t, user, expandedOrderId, getProviderById, handlePickedUp, handleArrived, handleDelivered, handleRejectDelivery, handleRaiseComplaint, hasComplaint, getDeliveryStatusLabel],
   );
 
   const filters: DriverFilter[] = ['all', 'active', 'delivered'];
@@ -359,6 +427,14 @@ export default function MyDeliveriesScreen() {
             description={t('emptyDeliveriesDesc')}
           />
         }
+      />
+
+      <ComplaintNoteModal
+        visible={!!complaintOrder}
+        title={t('raiseComplaint')}
+        message={t('raiseComplaintMsg')}
+        onCancel={() => setComplaintOrder(null)}
+        onSubmit={handleSubmitComplaint}
       />
     </View>
   );
@@ -526,6 +602,41 @@ const styles = StyleSheet.create({
   },
   rejectBtnStyle: {
     backgroundColor: Colors.error,
+  },
+  complaintBtnStyle: {
+    backgroundColor: Colors.warning,
+  },
+  complaintRaisedBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.surfaceSecondary,
+  },
+  complaintRaisedText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.textSecondary,
+  },
+  awaitingBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.warningLight,
+  },
+  awaitingText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.warning,
   },
   btnPressed: {
     opacity: 0.9,

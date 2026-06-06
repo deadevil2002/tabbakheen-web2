@@ -11,6 +11,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { ArrowLeft, ArrowRight, MapPin, Star, MessageCircle } from 'lucide-react-native';
 import Colors from '@/constants/colors';
+import { VerifiedBadge } from '@/components/VerifiedBadge';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -70,7 +71,10 @@ export default function ProviderProfileScreen() {
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.profileSection}>
           <Image source={{ uri: provider.photoUrl }} style={styles.avatar} contentFit="cover" />
-          <Text style={[styles.name, isRTL && styles.rtlText]}>{provider.displayName}</Text>
+          <View style={[styles.nameRow, isRTL && styles.rowRTL]}>
+            <Text style={[styles.name, { marginBottom: 0 }, isRTL && styles.rtlText]}>{provider.displayName}</Text>
+            <VerifiedBadge status={provider.verificationStatus} size={20} />
+          </View>
           <View style={[styles.locationRow, isRTL && styles.rowRTL]}>
             <MapPin size={14} color={Colors.textTertiary} />
             <Text style={styles.address}>{provider.address}</Text>
@@ -188,6 +192,12 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800' as const,
     color: Colors.text,
+    marginBottom: 6,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     marginBottom: 6,
   },
   locationRow: {

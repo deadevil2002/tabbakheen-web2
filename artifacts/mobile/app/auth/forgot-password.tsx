@@ -51,6 +51,7 @@ export default function ForgotPasswordScreen() {
     setIsSubmitting(true);
     try {
       const auth = getFirebaseAuth();
+      auth.languageCode = locale === 'ar' ? 'ar' : 'en';
       await sendPasswordResetEmail(auth, trimmed);
       console.log('[ForgotPassword] Reset email sent to:', trimmed);
       setEmailSent(true);
