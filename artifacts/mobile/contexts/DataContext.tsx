@@ -1304,13 +1304,25 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const fetchDeliveryQuote = useCallback(
     async (orderId: string) => {
-      if (fb) {
-        console.log('[DataContext] Fetching delivery quote from Worker for order:', orderId);
-        const quote = await getDeliveryQuote(orderId);
-        console.log('[DataContext] Delivery quote:', JSON.stringify(quote));
-        return quote;
-      }
       const order = orders.find((o) => o.id === orderId);
+      if (fb) {
+        try {
+          console.log('[DataContext] Fetching delivery quote from Worker for order:', orderId);
+          const quote = await getDeliveryQuote(orderId);
+          console.log('[DataContext] Delivery quote:', JSON.stringify(quote));
+          return quote;
+        } catch (workerErr: any) {
+          console.log('[DataContext] Worker delivery quote failed, using local fallback:', workerErr?.message || workerErr);
+          if (!order) return { deliveryFee: 0, totalAmount: 0, deliveryDistanceKm: 0, subtotal: 0 };
+          const fee = computeDeliveryFee(order.providerUid, order.customerLat ?? undefined, order.customerLng ?? undefined);
+          return {
+            deliveryFee: fee,
+            totalAmount: order.priceSnapshot + fee,
+            deliveryDistanceKm: 0,
+            subtotal: order.priceSnapshot,
+          };
+        }
+      }
       if (!order) return { deliveryFee: 0, totalAmount: 0, deliveryDistanceKm: 0, subtotal: 0 };
       const fee = computeDeliveryFee(order.providerUid, order.customerLat ?? undefined, order.customerLng ?? undefined);
       return {

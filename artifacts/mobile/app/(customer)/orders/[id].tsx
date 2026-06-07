@@ -17,7 +17,7 @@ import { RatingStars } from '@/components/RatingStars';
 import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor, formatSaudiPhoneForWhatsApp } from '@/utils/helpers';
 import MapLocationPicker from '@/components/MapLocationPicker';
 import { pickImageFreeAspect } from '@/utils/imagePicker';
-import { uploadPaymentProofViaWorker } from '@/services/pushApi';
+import { uploadPaymentProof } from '@/services/cloudinary';
 import { fsGetOrderContactPhone } from '@/services/firestoreUsers';
 import { Image } from 'expo-image';
 
@@ -247,7 +247,7 @@ export default function CustomerOrderDetailScreen() {
     if (!result) return;
     setIsUploadingProof(true);
     try {
-      const url = await uploadPaymentProofViaWorker(result.uri, order!.id);
+      const url = await uploadPaymentProof(result.uri);
       setProofImageUrl(url);
       console.log('[OrderDetail] Proof image uploaded:', url);
     } catch (e) {

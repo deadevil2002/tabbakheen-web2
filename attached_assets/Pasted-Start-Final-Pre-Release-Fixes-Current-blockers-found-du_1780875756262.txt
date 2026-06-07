@@ -1,0 +1,84 @@
+Start Final Pre-Release Fixes.
+
+Current blockers found during real testing:
+
+1. Customer payment proof upload fails.
+   Error shown:
+   "حدث خطأ - خطأ في رفع الملف"
+
+2. Delivery driver selection / delivery fee calculation fails.
+   Error shown:
+   "حدث خطأ - تعذر حساب رسوم التوصيل"
+
+3. Google Play already has an older Closed Testing release with:
+   Package name: com.tabbakheen.app
+   Version Code: 2
+
+Before creating any new AAB, Android versionCode must be greater than 2.
+Set Android versionCode to 100 to avoid future conflicts.
+
+Important:
+
+* Fix only these blockers.
+* Do not add new features.
+* Do not modify Firestore rules unless you prove they are blocking the issue.
+* Do not modify Cloudflare Worker unless you prove the delivery quote/upload API depends on it.
+* Do not change app design.
+* Do not deploy Worker unless required.
+* Do not push to GitHub yet.
+* Do not build AAB yet.
+
+Tasks:
+
+A) Payment proof upload fix
+
+1. Locate the payment proof upload code.
+2. Identify whether upload uses:
+
+   * Cloudinary
+   * Firebase Storage
+   * local file picker
+   * Worker upload endpoint
+3. Confirm why upload fails on Android.
+4. Fix the upload flow.
+5. Verify image/file picker works.
+6. Verify upload returns a URL.
+7. Verify the payment proof URL is saved to the order.
+
+B) Delivery fee / driver selection fix
+
+1. Locate delivery fee calculation code.
+2. Locate driver selection flow.
+3. Identify why delivery fee calculation fails.
+4. Check whether required customer/provider location fields exist.
+5. Check whether delivery pricing settings are loaded correctly.
+6. Fix only the broken calculation/selection logic.
+7. Verify customer can select delivery successfully.
+
+C) Android versionCode
+
+1. Inspect app.json / app.config / eas.json.
+2. Set Android versionCode to 100.
+3. Keep package name:
+   com.tabbakheen.app
+4. Do not change app name or bundle id.
+
+Validation:
+
+* Restart Expo workflow.
+* Verify app still loads.
+* Verify Firebase works.
+* Verify offers load.
+* Verify payment proof upload no longer fails.
+* Verify delivery fee calculation no longer fails.
+* Verify Android versionCode is 100.
+* Run safe checks available without production build.
+
+Return:
+
+* Root cause for payment proof upload failure
+* Root cause for delivery fee failure
+* Exact files changed
+* VersionCode confirmation
+* Verification results
+* Any remaining blockers

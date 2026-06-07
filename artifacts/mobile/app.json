@@ -28,6 +28,7 @@
     },
     "android": {
       "package": "com.tabbakheen.app",
+      "versionCode": 100,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
