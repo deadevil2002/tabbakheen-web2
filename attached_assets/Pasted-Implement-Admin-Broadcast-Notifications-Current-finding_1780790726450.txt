@@ -1,0 +1,110 @@
+Implement Admin Broadcast Notifications.
+
+Current finding:
+The existing "Admin Notifications" section is only admin alert settings.
+It is NOT a broadcast sender.
+
+Goal:
+Add a real broadcast notification page in the admin dashboard.
+
+Scope:
+.local/worker-src/worker.js only.
+
+Do not modify mobile app.
+Do not modify Firestore rules.
+Do not change admin password.
+Do not change existing settings notification toggles.
+Do not remove existing admin pages.
+Do not push to GitHub.
+
+Requirements:
+
+1. Add sidebar item:
+   الإشعارات
+
+2. Add admin page UI with:
+
+   * Notification title field
+   * Notification message field
+   * Audience selector:
+
+     * العملاء
+     * مقدمي الخدمة
+     * مناديب التوصيل
+     * الكل
+   * Send button
+   * Confirmation before sending
+   * Result summary after sending
+   * Notification history table
+
+3. Backend:
+   Add protected admin API endpoints:
+
+   * POST /admin/api/broadcast-notifications/send
+   * GET /admin/api/broadcast-notifications/history
+
+4. Audience targeting:
+   Query Firestore users collection by role:
+
+   * customer
+   * provider
+   * driver
+   * all
+
+5. Recipients:
+   Send only to users with valid Expo push tokens.
+   Skip users without tokens.
+   Do not duplicate tokens.
+
+6. Store history in Firestore collection:
+   admin_broadcast_notifications
+
+Store:
+
+* title
+* message
+* audience
+* totalUsersMatched
+* validTokensCount
+* sentCount
+* failedCount
+* createdAt
+* createdBy
+
+7. Security:
+
+   * Only logged-in admin can access.
+   * Unauthenticated requests must return 401/403.
+   * Do not make endpoints public.
+
+8. Safety:
+
+   * Do not send automatically on page load.
+   * Send only after explicit admin confirmation.
+   * Add basic validation:
+
+     * title required
+     * message required
+     * audience required
+
+9. Validation:
+
+   * Run node --check worker.js
+   * Deploy Worker after validation
+   * Verify production:
+
+     * /admin loads
+     * الإشعارات appears in sidebar
+     * page opens
+     * history endpoint works for logged-in admin
+     * unauthenticated endpoints return 401/403
+
+Important:
+Do not send a real broadcast notification during verification.
+
+Return:
+
+* Exact changes made
+* Firestore collection used
+* Deployment ID
+* Production verification results
