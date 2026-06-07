@@ -1,1 +1,2 @@
 - [Cloudflare Worker deployment](cloudflare-worker-deploy.md) — CLOUDFLARE_ACCOUNT_ID secret is wrong; hardcode correct ID in wrangler.toml; use Python for edits (CRLF file)
+- [Expo dev-client on Replit](expo-dev-client-replit.md) — EXPO_TOKEN secret suppresses interactive login prompt; --dev-client flag must stay; account isaudi.ai
