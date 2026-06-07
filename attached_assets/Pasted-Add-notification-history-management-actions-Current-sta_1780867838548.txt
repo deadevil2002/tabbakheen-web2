@@ -1,0 +1,96 @@
+Add notification history management actions.
+
+Current status:
+Admin broadcast notifications work and history is now visible.
+
+Goal:
+In the Notification History table, add actions for each sent notification:
+
+1. Delete
+2. Resend as-is
+3. Edit and resend
+
+Scope:
+.local/worker-src/worker.js only.
+
+Do not modify mobile app.
+Do not modify Firestore rules unless absolutely proven required.
+Do not change existing send behavior.
+Do not remove existing history.
+Do not push to GitHub.
+
+Requirements:
+
+A) Delete history record
+
+* Add a Delete button in each history row.
+* Confirm before delete.
+* Delete only the history record from:
+  admin_broadcast_notifications
+* Do not recall/remove notifications already sent to users.
+* After delete, refresh history.
+
+Backend:
+
+* Add protected admin endpoint:
+  DELETE /admin/api/broadcast-notifications/:id
+
+B) Resend as-is
+
+* Add a Resend button in each history row.
+* Confirm before resend.
+* Resend the same:
+  title
+  message
+  audience
+* Create a new history record for the resend.
+* Do not overwrite the old record.
+* After resend, show result summary and refresh history.
+
+Backend:
+
+* Add protected admin endpoint:
+  POST /admin/api/broadcast-notifications/:id/resend
+
+C) Edit and resend
+
+* Add an Edit & Resend button in each history row.
+* When clicked:
+
+  * Fill the form with the old title, message, and audience.
+  * Change the main send button label to:
+    إرسال نسخة معدلة
+  * Do not edit the old history record.
+  * When sent, create a new history record.
+  * Add optional metadata:
+    sourceNotificationId: old record id
+    resendType: "edited"
+
+D) Safety
+
+* All actions require admin auth.
+* Unauthenticated requests must return 401/403.
+* Delete must require confirmation.
+* Resend must require confirmation.
+* Prevent double-click duplicate sends.
+* Disable action buttons while request is in progress.
+
+E) Validation
+
+* Run node --check worker.js.
+* Deploy Worker.
+* Verify production:
+
+  * history loads
+  * delete button appears
+  * resend button appears
+  * edit & resend button appears
+  * unauthenticated delete/resend returns 401/403
+  * do not send a real resend during verification unless explicitly asked
+
+Return:
+
+* Exact changes
+* Endpoints added
+* Deployment ID
+* Production verification
