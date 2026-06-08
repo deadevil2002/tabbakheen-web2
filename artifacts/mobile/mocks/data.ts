@@ -466,6 +466,7 @@ export const MOCK_APP_SETTINGS: AppSettings = {
     baseFee: 10,
     perKmInsideCity: 1,
     perKmOutsideCity: 1.5,
+    minFee: 5,
     maxFee: 40,
   },
   defaultLanguage: 'ar',

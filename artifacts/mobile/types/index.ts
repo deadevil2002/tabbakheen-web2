@@ -212,6 +212,7 @@ export interface DeliveryPricing {
   baseFee: number;
   perKmInsideCity: number;
   perKmOutsideCity: number;
+  minFee?: number;
   maxFee: number;
 }
 

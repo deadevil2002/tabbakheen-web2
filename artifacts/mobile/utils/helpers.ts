@@ -100,7 +100,8 @@ export function calculateDeliveryFee(
   const perKm = sameCity ? pricing.perKmInsideCity : pricing.perKmOutsideCity;
   const fee = pricing.baseFee + distanceKm * perKm;
   const rounded = Math.round(fee);
-  return Math.min(rounded, pricing.maxFee);
+  const minFee = pricing.minFee ?? 0;
+  return Math.max(minFee, Math.min(rounded, pricing.maxFee));
 }
 
 export function getStatusColor(status: string): {
