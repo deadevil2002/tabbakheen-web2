@@ -1,0 +1,81 @@
+Fix delivery driver earnings showing 0 SAR.
+
+Current issue:
+In driver available deliveries screen, a delivery request appears with:
+"أرباحك: 0 ر.س"
+
+But admin delivery pricing settings are configured:
+
+* base fee: 15 SAR
+* price per km: 2 SAR
+* minimum: 5 SAR
+* maximum: 50 SAR
+
+So driver earnings should not show 0 when delivery pricing exists.
+
+Do not modify design.
+Do not modify Firestore rules unless proven required.
+Do not modify Cloudflare Worker unless proven required.
+Do not change unrelated order flow.
+Do not deploy Worker unless required.
+Do not push to GitHub.
+Do not build yet.
+
+Tasks:
+
+1. Inspect driver available deliveries screen:
+
+   * where "أرباحك" value comes from
+   * which order field is used
+   * fallback behavior when fee field is missing
+
+2. Inspect customer delivery selection flow:
+
+   * when delivery fee is calculated
+   * which fields are saved to the order
+   * whether deliveryFee / driverEarnings / deliveryPrice / deliveryQuote fields are saved correctly
+
+3. Inspect DataContext fetchDeliveryQuote fallback added recently.
+   Confirm whether it returns:
+
+   * customer delivery fee
+   * driver earnings
+   * distance
+   * calculation details
+
+4. Inspect Cloudflare Worker /delivery-quote response shape.
+   Confirm if frontend expects different field names.
+
+5. Root cause must be identified before fixing:
+
+   * missing order field?
+   * wrong field name?
+   * fallback returns fee but screen reads another field?
+   * admin pricing not loaded?
+   * distance missing?
+   * provider/customer coordinates missing?
+
+6. Fix so driver available deliveries shows the correct calculated earning.
+   Minimum acceptable behavior:
+
+   * If deliveryFee exists, driver earnings should not be 0.
+   * If driverEarnings field exists, use it.
+   * If only deliveryFee exists, display deliveryFee.
+   * If missing, calculate from settings/location fallback.
+
+7. Ensure accepting delivery still works.
+
+Validation:
+
+* Restart Expo workflow.
+* Verify available delivery card no longer shows 0 when pricing exists.
+* Verify delivery fee calculation still works for customer.
+* Verify no Firebase/Firestore errors.
+* Verify app still loads offers.
+
+Return:
+
+* Root cause
+* Exact fields used before/after
+* Files changed
+* Verification results

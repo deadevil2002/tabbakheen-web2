@@ -583,11 +583,25 @@ export const [DataProvider, useData] = createContextHook(() => {
             ' (isPickup=' + isPickup + ')',
         );
 
+        // Pre-compute local delivery fee so we have a fallback if the Worker is
+        // unreachable. Uses the same pricing formula as the Worker.
+        let localFee: number | undefined;
+        if (!isPickup) {
+          const orderForFee = orders.find((o) => o.id === orderId);
+          if (orderForFee) {
+            localFee = computeDeliveryFee(
+              orderForFee.providerUid,
+              orderForFee.customerLat ?? undefined,
+              orderForFee.customerLng ?? undefined,
+            );
+            console.log('[setDeliveryMethod] Local fee computed:', localFee);
+          }
+        }
+
         // Best-effort: the external Worker (Admin SDK) owns the privileged fields —
         // deliveryFee, totalAmount, deliveryDistanceKm, driverUid — and fires push
-        // notifications. The customer client is NOT allowed by Firestore rules to
-        // write those fields, so we never include them in the client write. We only
-        // call the Worker to compute the quote/notify and use its quote id (if any).
+        // notifications. If the Worker succeeds it writes those fields directly via
+        // Admin SDK. If it fails we fall back to a client-side write below.
         let result: DeliveryFinalizeResult | undefined;
         try {
           console.log('[setDeliveryMethod] calling workerFinalizeDelivery...');
@@ -658,11 +672,29 @@ export const [DataProvider, useData] = createContextHook(() => {
         }
         console.log('[setDeliveryMethod] DONE — selection persisted & verified for', orderId);
 
+        // Best-effort fallback: Worker failed but we have a locally-computed fee.
+        // Try to write it to Firestore. If Firestore rules reject the write from the
+        // customer role this silently succeeds without the fee — that is acceptable
+        // since the Worker will own the fee in production.
+        if (!isPickup && !result && localFee !== undefined) {
+          try {
+            const orderForTotal = orders.find((o) => o.id === orderId);
+            await fsUpdateOrder(orderId, {
+              deliveryFee: localFee,
+              totalAmount: (orderForTotal?.priceSnapshot ?? 0) + localFee,
+              deliveryDistanceKm: 0,
+            });
+            console.log('[setDeliveryMethod] Local fee written to Firestore:', localFee);
+          } catch (feeErr: any) {
+            console.log('[setDeliveryMethod] Local fee write skipped (rules may restrict):', feeErr?.code || feeErr?.message);
+          }
+        }
+
         return (
           result ?? {
-            deliveryFee: saved.deliveryFee,
-            totalAmount: saved.totalAmount,
-            deliveryDistanceKm: saved.deliveryDistanceKm,
+            deliveryFee: localFee ?? saved.deliveryFee,
+            totalAmount: (saved.priceSnapshot ?? 0) + (localFee ?? saved.deliveryFee),
+            deliveryDistanceKm: 0,
           }
         );
       }

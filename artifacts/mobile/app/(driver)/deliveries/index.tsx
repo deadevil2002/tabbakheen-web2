@@ -23,7 +23,7 @@ import { sendLocalNotification } from '@/services/notifications';
 export default function AvailableDeliveriesScreen() {
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { getAvailableDeliveries, driverAcceptDelivery, getProviderById } = useData();
+  const { getAvailableDeliveries, driverAcceptDelivery, getProviderById, computeDeliveryFee } = useData();
 
   const [refreshing, setRefreshing] = React.useState<boolean>(false);
 
@@ -110,7 +110,12 @@ export default function AvailableDeliveriesScreen() {
           <View style={styles.cardFooter}>
             <View style={[styles.priceRow, isRTL && styles.rowRTL]}>
               <Text style={[styles.feeLabel, isRTL && styles.rtlText]}>{locale === 'ar' ? 'أرباحك' : 'Your Earning'}:</Text>
-              <Text style={styles.feeValue}>{formatPrice(item.deliveryFee, locale)}</Text>
+              <Text style={styles.feeValue}>{formatPrice(
+                item.deliveryFee > 0
+                  ? item.deliveryFee
+                  : computeDeliveryFee(item.providerUid, item.customerLat ?? undefined, item.customerLng ?? undefined),
+                locale
+              )}</Text>
             </View>
 
             <Pressable
@@ -124,7 +129,7 @@ export default function AvailableDeliveriesScreen() {
         </View>
       );
     },
-    [isRTL, locale, t, getProviderById, handleAcceptDelivery],
+    [isRTL, locale, t, getProviderById, handleAcceptDelivery, computeDeliveryFee],
   );
 
   return (
