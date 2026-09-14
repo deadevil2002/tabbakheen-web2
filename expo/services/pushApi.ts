@@ -1,4 +1,5 @@
 import { getFirebaseAuth } from './firebase';
+import type { Order, PaymentMethod, PublicRating } from '@/types';
 
 const PUSH_API_URL = 'https://tabbakheen-api.tabbakheen.workers.dev';
 
@@ -37,10 +38,134 @@ export interface OrderPaymentInstructions {
   iban?: string;
 }
 
+export interface CreateOrderRequest {
+  requestId: string;
+  providerUid: string;
+  offerId: string;
+  note: string;
+  paymentMethod: PaymentMethod;
+}
+
+/**
+ * Creates an order through the authoritative Worker. The Worker obtains the
+ * customer from the token and snapshots offer, pickup, pricing, and payment
+ * data itself; callers must not construct those privileged fields.
+ */
+export async function createOrderViaWorker(request: CreateOrderRequest): Promise<Order> {
+  const data = await authorizedWorkerRequest<{ order?: unknown }>('/orders/create', {
+    requestId: request.requestId,
+    providerUid: request.providerUid,
+    offerId: request.offerId,
+    quantity: 1,
+    note: request.note,
+    paymentMethod: request.paymentMethod,
+  });
+  if (!data.order || typeof data.order !== 'object' || typeof (data.order as { id?: unknown }).id !== 'string') {
+    throw new Error('Order creation returned an invalid order');
+  }
+  return data.order as Order;
+}
+
+/** Updates the signed-in driver's availability through the Worker only. */
+export async function updateDriverAvailabilityViaWorker(isAvailable: boolean): Promise<void> {
+  await authorizedWorkerRequest('/drivers/availability', { isAvailable });
+}
+
+/**
+ * Server-authoritative order state mutation. The Worker validates the caller,
+ * participant role, current state and allowed payload for each action.
+ */
+export async function transitionProviderOrderViaWorker(
+  orderId: string,
+  action: 'provider_accept' | 'provider_reject' | 'provider_preparing' | 'provider_ready',
+  reason?: string,
+): Promise<void> {
+  await authorizedWorkerRequest('/order-transition', {
+    orderId,
+    action,
+    ...(action === 'provider_reject' && reason ? { reason } : {}),
+  });
+}
+
+export async function updateDeliveryProgressViaWorker(
+  orderId: string,
+  action: 'reject' | 'picked_up' | 'arrived' | 'delivered_pending_confirmation',
+): Promise<void> {
+  await authorizedWorkerRequest('/delivery-transition', { orderId, action });
+}
+
+export async function confirmDeliveredViaWorker(orderId: string): Promise<void> {
+  await authorizedWorkerRequest('/delivery-transition', { orderId, action: 'confirm_delivered' });
+}
+
+export async function completeSelfPickupViaWorker(orderId: string): Promise<void> {
+  await authorizedWorkerRequest('/delivery-transition', { orderId, action: 'complete_self_pickup' });
+}
+
+export async function submitPaymentProofViaWorker(
+  orderId: string,
+  proofImageUrl: string,
+  proofNote: string,
+  paymentReference: string,
+): Promise<void> {
+  await authorizedWorkerRequest('/orders/payment-proof', { orderId, proofImageUrl, proofNote, paymentReference });
+}
+
+export async function decidePaymentViaWorker(
+  orderId: string,
+  decision: 'confirm' | 'reject',
+  reason?: string,
+): Promise<void> {
+  if (decision === 'confirm') {
+    await authorizedWorkerRequest('/orders/payment-confirm', { orderId });
+    return;
+  }
+  await authorizedWorkerRequest('/orders/payment-reject', { orderId, reason: reason ?? '' });
+}
+
+export async function submitRatingViaWorker(
+  orderId: string,
+  type: 'provider' | 'driver',
+  stars: number,
+  comment: string,
+): Promise<void> {
+  await authorizedWorkerRequest('/ratings/submit', { orderId, type, stars, comment });
+}
+
+/**
+ * Reads the server-redacted public representation of reviews. The endpoint
+ * deliberately has no customer or order identifiers in its response contract.
+ */
+export async function getPublicRatings(
+  uid: string,
+  kind: 'provider' | 'driver',
+): Promise<PublicRating[]> {
+  const response = await fetch(
+    `${PUSH_API_URL}/profiles/${encodeURIComponent(uid)}/ratings?kind=${kind}`,
+  );
+  const data = await response.json();
+  if (!response.ok || !Array.isArray(data?.ratings)) {
+    throw new Error(data?.error || 'Public ratings request failed');
+  }
+  const ratingsPayload: unknown[] = data.ratings;
+  return ratingsPayload
+    .filter((rating: unknown): rating is Record<string, unknown> => !!rating && typeof rating === 'object')
+    .map((rating: Record<string, unknown>) => ({
+      stars: typeof rating.stars === 'number' ? rating.stars : 0,
+      comment: typeof rating.comment === 'string' ? rating.comment : '',
+      createdAt: typeof rating.createdAt === 'string' ? rating.createdAt : '',
+    }));
+}
+
 /** Gets minimum order-authorized data; it is deliberately not a UID lookup. */
 export async function getOrderContact(orderId: string, target: 'provider' | 'driver'): Promise<OrderContact | null> {
   try {
-    return await authorizedWorkerRequest<OrderContact>('/order-contact', { orderId, target, purpose: 'contact' });
+    const data = await authorizedWorkerRequest<{ phone?: unknown }>('/order-contact', {
+      orderId,
+      target,
+      purpose: 'contact',
+    });
+    return typeof data.phone === 'string' && data.phone.length > 0 ? { phone: data.phone } : null;
   } catch (error) {
     console.log('[PushAPI] order contact unavailable:', error);
     return null;
@@ -49,7 +174,21 @@ export async function getOrderContact(orderId: string, target: 'provider' | 'dri
 
 export async function getOrderPaymentInstructions(orderId: string): Promise<OrderPaymentInstructions | null> {
   try {
-    return await authorizedWorkerRequest<OrderPaymentInstructions>('/order-payment-instructions', { orderId, purpose: 'payment_instructions' });
+    const data = await authorizedWorkerRequest<{
+      method?: unknown;
+      stcPayPhone?: unknown;
+      bankName?: unknown;
+      accountName?: unknown;
+      iban?: unknown;
+    }>('/order-payment-instructions', { orderId, purpose: 'payment_instructions' });
+    if (data.method !== 'stc_pay' && data.method !== 'bank_transfer') return null;
+    return {
+      method: data.method,
+      ...(typeof data.stcPayPhone === 'string' ? { stcPayPhone: data.stcPayPhone } : {}),
+      ...(typeof data.bankName === 'string' ? { bankName: data.bankName } : {}),
+      ...(typeof data.accountName === 'string' ? { accountName: data.accountName } : {}),
+      ...(typeof data.iban === 'string' ? { iban: data.iban } : {}),
+    };
   } catch (error) {
     console.log('[PushAPI] payment instructions unavailable:', error);
     return null;
@@ -287,32 +426,6 @@ export async function submitFreelanceCertificate(
   } catch {
     console.log('[PushAPI] Freelance certificate submit failed (network)');
     return { success: false, verificationStatus: 'pending_review' };
-  }
-}
-
-export async function aggregateRatingViaWorker(
-  type: 'provider' | 'driver',
-  uid: string,
-): Promise<void> {
-  try {
-    const idToken = await getIdToken();
-    if (!idToken) {
-      console.log(`[PushAPI] No auth token — skipping ${type} rating aggregation`);
-      return;
-    }
-    console.log(`[PushAPI] Aggregating ${type} rating for ${uid}`);
-    const response = await fetch(`${PUSH_API_URL}/aggregate-rating`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`,
-      },
-      body: JSON.stringify({ type, uid }),
-    });
-    const data = await response.json();
-    console.log(`[PushAPI] Aggregate response:`, JSON.stringify(data));
-  } catch (e) {
-    console.log(`[PushAPI] Error aggregating ${type} rating:`, e);
   }
 }
 

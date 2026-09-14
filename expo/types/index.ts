@@ -181,6 +181,30 @@ export interface Order {
   updatedAt: string;
 }
 
+/**
+ * The intentionally redacted delivery-discovery shape returned by the Worker
+ * before a driver accepts an order. This is not an Order: it must never grow
+ * customer identity, payment, notes, drop-off, or private profile fields.
+ */
+export interface AvailableDelivery {
+  id: string;
+  orderNumber: string;
+  offerTitleSnapshot: string;
+  deliveryFee: number;
+  pickupAddress: string;
+  /** Operational pickup point only; the Worker must not derive this from a private user location. */
+  pickupLocation: UserLocation | null;
+  deliveryDistanceKm: number;
+  createdAt: string;
+}
+
+/** Anonymous public review representation returned by the public ratings API. */
+export interface PublicRating {
+  stars: number;
+  comment: string;
+  createdAt: string;
+}
+
 export interface Payment {
   id: string;
   orderId: string;

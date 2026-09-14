@@ -1,30 +1,24 @@
 import {
   collection,
   doc,
-  addDoc,
-  setDoc,
-  getDoc,
-  updateDoc,
   onSnapshot,
   query,
   where,
-  serverTimestamp,
 } from 'firebase/firestore';
 import type { Unsubscribe } from 'firebase/firestore';
 import { getFirebaseFirestore, getFirebaseAuth } from './firebase';
-import type { Order, AppSettings, PaymentMethod, PaymentStatus, DeliveryStatus } from '@/types';
+import type {
+  AvailableDelivery,
+  Order,
+  AppSettings,
+  PaymentMethod,
+  PaymentStatus,
+  DeliveryStatus,
+  UserLocation,
+} from '@/types';
 
 const COLLECTION = 'orders';
 const WORKER_URL = 'https://tabbakheen-api.tabbakheen.workers.dev';
-
-function toFsPaymentMethod(val: string): string {
-  const map: Record<string, string> = {
-    cod: 'CASH',
-    stc_pay: 'STC_PAY',
-    bank_transfer: 'BANK_TRANSFER',
-  };
-  return map[val] || val;
-}
 
 function fromFsPaymentMethod(val: string): PaymentMethod {
   const map: Record<string, PaymentMethod> = {
@@ -33,19 +27,6 @@ function fromFsPaymentMethod(val: string): PaymentMethod {
     BANK_TRANSFER: 'bank_transfer',
   };
   return map[val] || (val as PaymentMethod);
-}
-
-function toFsPaymentStatus(val: string): string {
-  const map: Record<string, string> = {
-    unpaid: 'PENDING',
-    proof_sent: 'PROOF_SENT',
-    paid_confirmed: 'PAID_CONFIRMED',
-    payment_rejected: 'PAYMENT_REJECTED',
-    paid: 'PAID',
-    refunded: 'REFUNDED',
-    failed: 'FAILED',
-  };
-  return map[val] || val;
 }
 
 function fromFsPaymentStatus(val: string): PaymentStatus {
@@ -114,6 +95,40 @@ function toOrder(id: string, d: Record<string, any>): Order {
   };
 }
 
+function toIsoString(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value && typeof (value as { toDate?: () => Date }).toDate === 'function') {
+    return (value as { toDate: () => Date }).toDate().toISOString();
+  }
+  return new Date().toISOString();
+}
+
+function toPickupLocation(value: unknown): UserLocation | null {
+  if (!value || typeof value !== 'object') return null;
+  const { lat, lng } = value as Record<string, unknown>;
+  return typeof lat === 'number' && Number.isFinite(lat) && typeof lng === 'number' && Number.isFinite(lng)
+    ? { lat, lng }
+    : null;
+}
+
+/**
+ * Maps only the documented Worker delivery-discovery fields. Keeping this
+ * separate from toOrder prevents a redacted payload from being fabricated into
+ * a complete Order with misleading empty private fields.
+ */
+export function toAvailableDelivery(id: string, data: Record<string, unknown>): AvailableDelivery {
+  return {
+    id,
+    orderNumber: typeof data.orderNumber === 'string' ? data.orderNumber : '',
+    offerTitleSnapshot: typeof data.offerTitleSnapshot === 'string' ? data.offerTitleSnapshot : '',
+    deliveryFee: typeof data.deliveryFee === 'number' ? data.deliveryFee : 0,
+    pickupAddress: typeof data.pickupAddress === 'string' ? data.pickupAddress : '',
+    pickupLocation: toPickupLocation(data.pickupLocation),
+    deliveryDistanceKm: typeof data.deliveryDistanceKm === 'number' ? data.deliveryDistanceKm : 0,
+    createdAt: toIsoString(data.createdAt),
+  };
+}
+
 export function fsSubscribeOrders(
   field: string,
   value: string,
@@ -139,56 +154,8 @@ export function fsSubscribeOrders(
   );
 }
 
-export async function fsCreateOrder(
-  data: Omit<Order, 'id'>,
-): Promise<string> {
-  const db = getFirebaseFirestore();
-  const payload: Record<string, any> = { ...data };
-  payload.paymentMethod = toFsPaymentMethod(payload.paymentMethod);
-  payload.paymentStatus = toFsPaymentStatus(payload.paymentStatus);
-  payload.createdAt = serverTimestamp();
-  payload.updatedAt = serverTimestamp();
-  console.log('[fsOrders] creating order payload:', JSON.stringify({
-    customerUid: payload.customerUid,
-    providerUid: payload.providerUid,
-    paymentMethod: payload.paymentMethod,
-    paymentStatus: payload.paymentStatus,
-    offerId: payload.offerId,
-  }));
-  const ref = await addDoc(collection(db, COLLECTION), payload);
-  console.log('[fsOrders] created:', ref.id);
-  return ref.id;
-}
-
-export async function fsUpdateOrder(
-  orderId: string,
-  changes: Record<string, any>,
-): Promise<void> {
-  const db = getFirebaseFirestore();
-  const payload = { ...changes };
-  if (payload.paymentMethod) {
-    payload.paymentMethod = toFsPaymentMethod(payload.paymentMethod);
-  }
-  if (payload.paymentStatus) {
-    payload.paymentStatus = toFsPaymentStatus(payload.paymentStatus);
-  }
-  console.log('[fsOrders] updating order', orderId, 'with:', JSON.stringify(payload));
-  await updateDoc(doc(db, COLLECTION, orderId), payload);
-  console.log('[fsOrders] updated:', orderId);
-}
-
-export async function fsGetOrder(orderId: string): Promise<Order | null> {
-  const db = getFirebaseFirestore();
-  const snap = await getDoc(doc(db, COLLECTION, orderId));
-  if (!snap.exists()) {
-    console.log('[fsOrders] getOrder: not found', orderId);
-    return null;
-  }
-  return toOrder(snap.id, snap.data());
-}
-
 export function fsSubscribeAvailableDeliveries(
-  cb: (orders: Order[]) => void,
+  cb: (deliveries: AvailableDelivery[]) => void,
 ): Unsubscribe {
   // Unassigned orders are not subscribed from Firestore. The Worker returns a
   // purpose-built DTO that omits customer UID, contact details, notes, payment
@@ -204,7 +171,13 @@ export function fsSubscribeAvailableDeliveries(
       });
       const data = await response.json();
       if (!response.ok || !data?.success) throw new Error(data?.error || 'Available delivery request failed');
-      if (!disposed) cb((data.deliveries ?? []).map((item: Record<string, any>) => toOrder(item.id, item)));
+      const deliveryPayload: unknown[] = Array.isArray(data?.deliveries) ? data.deliveries : [];
+      const deliveries = deliveryPayload
+        .filter((item: unknown): item is Record<string, unknown> =>
+          !!item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string',
+        )
+        .map((item: Record<string, unknown>) => toAvailableDelivery(item.id as string, item));
+      if (!disposed) cb(deliveries);
     } catch (error) {
       console.log('[fsOrders] available deliveries worker error:', error);
       if (!disposed) cb([]);
@@ -216,87 +189,6 @@ export function fsSubscribeAvailableDeliveries(
     disposed = true;
     clearInterval(interval);
   };
-}
-
-export async function fsUpdateDeliveryStatus(
-  orderId: string,
-  deliveryStatus: DeliveryStatus,
-): Promise<void> {
-  const db = getFirebaseFirestore();
-  console.log('[fsOrders] updating delivery status', orderId, '->', deliveryStatus);
-  await updateDoc(doc(db, COLLECTION, orderId), { deliveryStatus });
-  console.log('[fsOrders] delivery status updated:', orderId);
-}
-
-export async function fsDriverAcceptOrder(
-  orderId: string,
-  driverUid: string,
-  callerAccountStatus?: string,
-): Promise<void> {
-  if (callerAccountStatus === 'suspended') throw new Error('ACCOUNT_SUSPENDED');
-  const db = getFirebaseFirestore();
-  console.log('[fsOrders] driver accepting order', orderId, 'driverUid:', driverUid);
-  await updateDoc(doc(db, COLLECTION, orderId), {
-    driverUid,
-    deliveryStatus: 'driver_assigned',
-  });
-  console.log('[fsOrders] driver accepted order:', orderId);
-}
-
-export async function fsUpdateOrderStatus(
-  orderId: string,
-  status: 'accepted' | 'rejected' | 'preparing' | 'ready_for_pickup' | 'cancelled',
-  callerAccountStatus?: string,
-): Promise<void> {
-  if ((status === 'accepted' || status === 'preparing') && callerAccountStatus === 'suspended') {
-    throw new Error('ACCOUNT_SUSPENDED');
-  }
-  const db = getFirebaseFirestore();
-  console.log('[fsOrders] updating order status', orderId, '->', status);
-  await updateDoc(doc(db, COLLECTION, orderId), { status });
-  console.log('[fsOrders] order status updated:', orderId);
-}
-
-export async function fsSubmitProviderRating(
-  providerUid: string,
-  orderId: string,
-  customerUid: string,
-  stars: number,
-  comment: string,
-): Promise<void> {
-  const db = getFirebaseFirestore();
-  await setDoc(
-    doc(db, 'provider_ratings', providerUid, 'ratings', orderId),
-    {
-      customerUid,
-      providerUid,
-      stars,
-      comment,
-      createdAt: serverTimestamp(),
-    },
-  );
-  console.log('[fsOrders] provider rating submitted for order:', orderId);
-}
-
-export async function fsSubmitDriverRating(
-  driverUid: string,
-  orderId: string,
-  customerUid: string,
-  stars: number,
-  comment: string,
-): Promise<void> {
-  const db = getFirebaseFirestore();
-  await setDoc(
-    doc(db, 'driver_ratings', driverUid, 'ratings', orderId),
-    {
-      customerUid,
-      driverUid,
-      stars,
-      comment,
-      createdAt: serverTimestamp(),
-    },
-  );
-  console.log('[fsOrders] driver rating submitted for order:', orderId);
 }
 
 export function fsSubscribeAppSettings(

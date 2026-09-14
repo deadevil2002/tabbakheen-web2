@@ -43,10 +43,9 @@ export default function DriverProfileScreen() {
 
   const handleToggleAvailability = useCallback(async (value: boolean) => {
     if (!user) return;
-    setIsAvailable(value);
     await updateDriverAvailability(user.uid, value);
-    await updateUser({ isAvailable: value });
-  }, [user, updateDriverAvailability, updateUser]);
+    setIsAvailable(value);
+  }, [user, updateDriverAvailability]);
 
   const handleChangeAvatar = useCallback(async () => {
     const result = await pickImageFromGallery();

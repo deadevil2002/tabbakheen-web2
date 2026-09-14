@@ -4,6 +4,7 @@ import createContextHook from '@nkzw/create-context-hook';
 import {
   Offer,
   Order,
+  AvailableDelivery,
   ProviderRating,
   DriverRating,
   User,
@@ -13,7 +14,6 @@ import {
   Subscription,
   AppSettings,
   DeliveryMethod,
-  DeliveryPaymentMethod,
   DeliveryStatus,
   ProviderPaymentMethods,
 } from '@/types';
@@ -29,19 +29,27 @@ import {
 } from '@/mocks/data';
 import { generateId, generateOrderNumber, generateOrderRef, calculateDeliveryFee } from '@/utils/helpers';
 import { isFirebaseConfigured } from '@/services/firebase';
-import { sendPushNotification, aggregateRatingViaWorker, getDeliveryQuote, finalizeDeliveryMethod as workerFinalizeDelivery, acceptDeliveryViaWorker, type DeliveryFinalizeResult } from '@/services/pushApi';
+import {
+  sendPushNotification,
+  getDeliveryQuote,
+  finalizeDeliveryMethod as workerFinalizeDelivery,
+  acceptDeliveryViaWorker,
+  createOrderViaWorker,
+  transitionProviderOrderViaWorker,
+  updateDeliveryProgressViaWorker,
+  confirmDeliveredViaWorker,
+  completeSelfPickupViaWorker,
+  submitPaymentProofViaWorker,
+  decidePaymentViaWorker,
+  submitRatingViaWorker,
+  updateDriverAvailabilityViaWorker,
+} from '@/services/pushApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { fsSubscribeByRole, fsUpdateUser } from '@/services/firestoreUsers';
 import { fsSubscribeOffers, fsCreateOffer, fsUpdateOffer } from '@/services/firestoreOffers';
 import {
   fsSubscribeOrders,
-  fsCreateOrder,
-  fsUpdateOrder,
-  fsGetOrder,
-  fsUpdateDeliveryStatus,
   fsSubscribeAvailableDeliveries,
-  fsSubmitProviderRating,
-  fsSubmitDriverRating,
   fsSubscribeAppSettings,
 } from '@/services/firestoreOrders';
 import {
@@ -80,15 +88,12 @@ export const [DataProvider, useData] = createContextHook(() => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const driverAssigned = useRef<Order[]>([]);
-  const driverAvailable = useRef<Order[]>([]);
+  const [availableDeliveries, setAvailableDeliveries] = useState<AvailableDelivery[]>([]);
 
-  const mergeDriverOrders = useCallback(() => {
-    const map = new Map<string, Order>();
-    for (const o of [...driverAssigned.current, ...driverAvailable.current]) {
-      map.set(o.id, o);
-    }
+  const setDriverAssignedOrders = useCallback((assigned: Order[]) => {
+    driverAssigned.current = assigned;
     setOrders(
-      Array.from(map.values()).sort(
+      [...assigned].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       ),
     );
@@ -263,14 +268,12 @@ export const [DataProvider, useData] = createContextHook(() => {
     if (authUser.role === 'driver') {
       unsubs.push(
         fsSubscribeOrders('driverUid', authUser.uid, (data) => {
-          driverAssigned.current = data;
-          mergeDriverOrders();
+          setDriverAssignedOrders(data);
         }),
       );
       unsubs.push(
         fsSubscribeAvailableDeliveries((data) => {
-          driverAvailable.current = data;
-          mergeDriverOrders();
+          setAvailableDeliveries(data);
         }),
       );
     } else {
@@ -281,11 +284,11 @@ export const [DataProvider, useData] = createContextHook(() => {
     return () => {
       unsubs.forEach((fn) => fn());
       driverAssigned.current = [];
-      driverAvailable.current = [];
+      setAvailableDeliveries([]);
       setMyComplaints([]);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fb, authUser?.uid, authUser?.role, mergeDriverOrders]);
+  }, [fb, authUser?.uid, authUser?.role, setDriverAssignedOrders]);
 
   // ======= CRUD: Offers =======
 
@@ -343,9 +346,20 @@ export const [DataProvider, useData] = createContextHook(() => {
       note: string;
       paymentMethod: PaymentMethod;
     }) => {
+      if (fb) {
+        const newOrder = await createOrderViaWorker({
+          requestId: generateId(),
+          providerUid: order.providerUid,
+          offerId: order.offerId,
+          note: order.note,
+          paymentMethod: order.paymentMethod,
+        });
+        console.log('[DataContext] Order created via Worker:', newOrder.id, 'Number:', newOrder.orderNumber);
+        return newOrder;
+      }
+
       const now = new Date().toISOString();
       const provider = providers.find((p) => p.uid === order.providerUid);
-
       const base: Omit<Order, 'id'> = {
         orderNumber: generateOrderNumber(),
         customerUid: order.customerUid,
@@ -390,13 +404,6 @@ export const [DataProvider, useData] = createContextHook(() => {
         updatedAt: now,
       };
 
-      if (fb) {
-        const id = await fsCreateOrder(base);
-        const newOrder: Order = { ...base, id };
-        console.log('[DataContext] Order created via Firestore:', id, 'Number:', base.orderNumber);
-        return newOrder;
-      }
-
       const usersData = await AsyncStorage.getItem(USERS_KEY);
       const allUsers: User[] = usersData ? JSON.parse(usersData) : [];
       const customer = allUsers.find((u) => u.uid === order.customerUid);
@@ -419,8 +426,16 @@ export const [DataProvider, useData] = createContextHook(() => {
   const updateDeliveryStatusAsDriver = useCallback(
     async (orderId: string, newStatus: DeliveryStatus) => {
       if (fb) {
-        await fsUpdateDeliveryStatus(orderId, newStatus);
-        console.log('[DataContext] Delivery status updated via Firestore:', orderId, '->', newStatus);
+        const action = {
+          driver_rejected: 'reject',
+          picked_up: 'picked_up',
+          arrived: 'arrived',
+          delivered_pending_confirmation: 'delivered_pending_confirmation',
+        } as const;
+        const selectedAction = action[newStatus as keyof typeof action];
+        if (!selectedAction) throw new Error('Unsupported driver delivery transition');
+        await updateDeliveryProgressViaWorker(orderId, selectedAction);
+        console.log('[DataContext] Delivery status updated via Worker:', orderId, '->', newStatus);
         if (newStatus === 'picked_up') {
           void sendPushNotification('picked_up', orderId);
         } else if (newStatus === 'arrived') {
@@ -450,18 +465,17 @@ export const [DataProvider, useData] = createContextHook(() => {
       const now = new Date().toISOString();
 
       if (fb) {
-        const order = orders.find((o) => o.id === orderId);
-        const changes: Record<string, any> = { status };
-        if (comment) changes.providerComment = comment;
-        if (reason) changes.statusReason = reason;
-        if (status === 'delivered' && order?.paymentMethod === 'cod') {
-          changes.paymentStatus = 'paid_confirmed';
-        }
-        if (status === 'cancelled' && order?.paymentStatus === 'paid') {
-          changes.paymentStatus = 'payment_rejected';
-        }
-        await fsUpdateOrder(orderId, changes);
-        console.log('[DataContext] Order status updated via Firestore:', orderId, '->', status, 'changes:', JSON.stringify(changes));
+        const order = orders.find((item) => item.id === orderId);
+        const action = {
+          accepted: 'provider_accept',
+          rejected: 'provider_reject',
+          preparing: 'provider_preparing',
+          ready_for_pickup: 'provider_ready',
+        } as const;
+        const selectedAction = action[status as keyof typeof action];
+        if (!selectedAction) throw new Error('Unsupported provider order transition');
+        await transitionProviderOrderViaWorker(orderId, selectedAction, reason ?? comment);
+        console.log('[DataContext] Order status updated via Worker:', orderId, '->', status);
         if (status === 'accepted') {
           void sendPushNotification('order_accepted', orderId);
         } else if (status === 'delivered' && order?.deliveryMethod === 'self_pickup') {
@@ -495,13 +509,8 @@ export const [DataProvider, useData] = createContextHook(() => {
   const submitPaymentProof = useCallback(
     async (orderId: string, proofImageUrl: string, proofNote: string, paymentReference?: string) => {
       if (fb) {
-        await fsUpdateOrder(orderId, {
-          stcPayProofImageUrl: proofImageUrl,
-          stcPayProofNote: proofNote,
-          paymentReference: paymentReference ?? '',
-          paymentStatus: 'proof_sent',
-        });
-        console.log('[DataContext] Payment proof submitted via Firestore:', orderId);
+        await submitPaymentProofViaWorker(orderId, proofImageUrl, proofNote, paymentReference ?? '');
+        console.log('[DataContext] Payment proof submitted via Worker:', orderId);
         return;
       }
 
@@ -526,10 +535,8 @@ export const [DataProvider, useData] = createContextHook(() => {
   const confirmPayment = useCallback(
     async (orderId: string) => {
       if (fb) {
-        await fsUpdateOrder(orderId, {
-          paymentStatus: 'paid_confirmed',
-        });
-        console.log('[DataContext] Payment confirmed via Firestore:', orderId);
+        await decidePaymentViaWorker(orderId, 'confirm');
+        console.log('[DataContext] Payment confirmed via Worker:', orderId);
         return;
       }
 
@@ -552,8 +559,8 @@ export const [DataProvider, useData] = createContextHook(() => {
   const rejectPayment = useCallback(
     async (orderId: string) => {
       if (fb) {
-        await fsUpdateOrder(orderId, { paymentStatus: 'payment_rejected' });
-        console.log('[DataContext] Payment rejected via Firestore:', orderId);
+        await decidePaymentViaWorker(orderId, 'reject');
+        console.log('[DataContext] Payment rejected via Worker:', orderId);
         return;
       }
 
@@ -582,88 +589,9 @@ export const [DataProvider, useData] = createContextHook(() => {
             ' (isPickup=' + isPickup + ')',
         );
 
-        // Best-effort: the external Worker (Admin SDK) owns the privileged fields —
-        // deliveryFee, totalAmount, deliveryDistanceKm, driverUid — and fires push
-        // notifications. The customer client is NOT allowed by Firestore rules to
-        // write those fields, so we never include them in the client write. We only
-        // call the Worker to compute the quote/notify and use its quote id (if any).
-        let result: DeliveryFinalizeResult | undefined;
-        try {
-          console.log('[setDeliveryMethod] calling workerFinalizeDelivery...');
-          result = await workerFinalizeDelivery(orderId, isPickup ? 'self_pickup' : 'driver');
-          console.log('[setDeliveryMethod] worker response:', JSON.stringify(result));
-        } catch (e: any) {
-          console.log(
-            '[setDeliveryMethod] worker FAILED (continuing with client write):',
-            e?.code || '',
-            e?.message || e,
-          );
-        }
-
-        // Client write restricted to ONLY the fields the customer is allowed to
-        // update per current Firestore rules: deliveryMethod, deliveryStatus,
-        // deliveryQuoteId, deliveryPricingVersion. Do NOT write driverUid /
-        // deliveryFee / totalAmount / deliveryDistanceKm — those are rejected with
-        // permission-denied and belong to the Worker/Admin SDK.
-        const fields: Record<string, any> = {
-          deliveryMethod: isPickup ? 'self_pickup' : 'driver',
-          deliveryStatus: expectedStatus,
-        };
-        if (result?.deliveryQuoteId) fields.deliveryQuoteId = result.deliveryQuoteId;
-        console.log('[setDeliveryMethod] exact Firestore payload:', JSON.stringify(fields));
-
-        // Authoritative persistence. This is the success gate: if the Firestore
-        // write throws (e.g. permission-denied), the error propagates and the UI
-        // shows an error instead of a false "success".
-        try {
-          await fsUpdateOrder(orderId, fields);
-          console.log('[setDeliveryMethod] fsUpdateOrder SUCCESS for', orderId);
-        } catch (e: any) {
-          console.log(
-            '[setDeliveryMethod] fsUpdateOrder FAILED:',
-            'code=' + (e?.code || 'unknown'),
-            'message=' + (e?.message || String(e)),
-          );
-          throw e;
-        }
-
-        // Read-back assertion: re-read the same doc and confirm the selection
-        // actually landed. Guards against silent non-persistence.
-        const saved = await fsGetOrder(orderId);
-        console.log(
-          '[setDeliveryMethod] read-back:',
-          JSON.stringify({
-            deliveryMethod: saved?.deliveryMethod ?? null,
-            deliveryStatus: saved?.deliveryStatus ?? null,
-            driverUid: saved?.driverUid ?? null,
-          }),
-        );
-        if (
-          !saved ||
-          saved.deliveryMethod !== fields.deliveryMethod ||
-          saved.deliveryStatus !== expectedStatus ||
-          saved.driverUid != null
-        ) {
-          const reason =
-            'read-back mismatch: expected deliveryMethod=' + fields.deliveryMethod +
-            ', deliveryStatus=' + expectedStatus + ', driverUid=null; got ' +
-            JSON.stringify({
-              deliveryMethod: saved?.deliveryMethod ?? null,
-              deliveryStatus: saved?.deliveryStatus ?? null,
-              driverUid: saved?.driverUid ?? null,
-            });
-          console.log('[setDeliveryMethod] ASSERTION FAILED:', reason);
-          throw new Error(reason);
-        }
-        console.log('[setDeliveryMethod] DONE — selection persisted & verified for', orderId);
-
-        return (
-          result ?? {
-            deliveryFee: saved.deliveryFee,
-            totalAmount: saved.totalAmount,
-            deliveryDistanceKm: saved.deliveryDistanceKm,
-          }
-        );
+        const result = await workerFinalizeDelivery(orderId, isPickup ? 'self_pickup' : 'driver');
+        console.log('[setDeliveryMethod] Worker finalized delivery selection:', orderId, expectedStatus);
+        return result;
       }
 
       const now = new Date().toISOString();
@@ -686,51 +614,6 @@ export const [DataProvider, useData] = createContextHook(() => {
       await saveOrders(updated);
       console.log('[DataContext] Delivery method set:', orderId, '->', method);
       return undefined;
-    },
-    [orders, fb],
-  );
-
-  const assignDriver = useCallback(
-    async (
-      orderId: string,
-      driverUid: string,
-      deliveryFee?: number,
-      deliveryPaymentMethod?: DeliveryPaymentMethod,
-    ) => {
-      const fee = deliveryFee ?? 0;
-
-      if (fb) {
-        const order = orders.find((o) => o.id === orderId);
-        await fsUpdateOrder(orderId, {
-          driverUid,
-          deliveryMethod: 'driver_delivery',
-          deliveryFee: fee,
-          totalAmount: (order?.priceSnapshot ?? 0) + fee,
-          deliveryPaymentMethod: deliveryPaymentMethod ?? 'cod',
-          status: 'assigned_to_driver',
-          driverStatus: 'assigned',
-        });
-        console.log('[DataContext] Driver assigned via Firestore:', driverUid, 'to order:', orderId);
-        return;
-      }
-
-      const now = new Date().toISOString();
-      const updated = orders.map((o) => {
-        if (o.id !== orderId) return o;
-        return {
-          ...o,
-          driverUid,
-          deliveryMethod: 'driver_delivery' as DeliveryMethod,
-          deliveryFee: fee,
-          totalAmount: o.priceSnapshot + fee,
-          deliveryPaymentMethod: deliveryPaymentMethod ?? ('cod' as DeliveryPaymentMethod),
-          status: 'assigned_to_driver' as OrderStatus,
-          driverStatus: 'assigned',
-          updatedAt: now,
-        };
-      });
-      await saveOrders(updated);
-      console.log('[DataContext] Driver assigned:', driverUid, 'to order:', orderId, 'fee:', deliveryFee);
     },
     [orders, fb],
   );
@@ -768,13 +651,17 @@ export const [DataProvider, useData] = createContextHook(() => {
       const now = new Date().toISOString();
 
       if (fb) {
-        const order = orders.find((o) => o.id === orderId);
-        const changes: Record<string, any> = { driverStatus, status: orderStatus };
-        if (orderStatus === 'delivered' && order?.paymentMethod === 'cod') {
-          changes.paymentStatus = 'paid_confirmed';
-        }
-        await fsUpdateOrder(orderId, changes);
-        console.log('[DataContext] Driver status updated via Firestore:', orderId, '->', driverStatus);
+        const action = {
+          driver_rejected: 'reject',
+          picked_up: 'picked_up',
+          arrived: 'arrived',
+          delivered: 'delivered_pending_confirmation',
+          delivered_pending_confirmation: 'delivered_pending_confirmation',
+        } as const;
+        const selectedAction = action[driverStatus as keyof typeof action];
+        if (!selectedAction) throw new Error('Unsupported driver delivery transition');
+        await updateDeliveryProgressViaWorker(orderId, selectedAction);
+        console.log('[DataContext] Driver progress updated via Worker:', orderId, '->', driverStatus);
         return;
       }
 
@@ -815,47 +702,12 @@ export const [DataProvider, useData] = createContextHook(() => {
       }
 
       if (fb) {
-        const order = orders.find((o) => o.id === orderId);
-        // Primary write: the field the customer is permitted to change. The UI
-        // treats deliveryStatus === 'delivered' as a finalized order, so this
-        // alone completes the order for the customer.
-        console.log('[DataContext] confirmReceipt primary write', {
-          orderId,
-          payloadKeys: ['deliveryStatus'],
-        });
-        try {
-          await fsUpdateOrder(orderId, { deliveryStatus: 'delivered' });
-        } catch (e: any) {
-          console.log('[DataContext] confirmReceipt primary write FAILED', {
-            orderId,
-            code: e?.code,
-            message: e?.message,
-          });
-          throw e;
+        if (isOwnerProviderSelfPickup) {
+          await completeSelfPickupViaWorker(orderId);
+        } else {
+          await confirmDeliveredViaWorker(orderId);
         }
-        // Best-effort: richer completion fields, written only if Firestore rules
-        // allow the customer to change them. Never blocks confirmation.
-        const extra: Record<string, any> = {
-          status: 'delivered',
-          customerConfirmedAt: now,
-          completedAt: now,
-          updatedAt: now,
-        };
-        if (order?.paymentMethod === 'cod') {
-          extra.paymentStatus = 'paid_confirmed';
-        }
-        try {
-          await fsUpdateOrder(orderId, extra);
-          console.log('[DataContext] confirmReceipt completion fields written:', orderId);
-        } catch (e: any) {
-          console.log('[DataContext] confirmReceipt completion fields skipped (rules?)', {
-            orderId,
-            code: e?.code,
-            message: e?.message,
-            payloadKeys: Object.keys(extra),
-          });
-        }
-        console.log('[DataContext] Order confirmed delivered by customer:', orderId);
+        console.log('[DataContext] Order confirmed delivered by Worker:', orderId);
         void sendPushNotification('delivered', orderId);
         return;
       }
@@ -961,20 +813,8 @@ export const [DataProvider, useData] = createContextHook(() => {
 
       if (fb) {
         try {
-          await fsSubmitProviderRating(
-            rating.providerUid,
-            rating.orderId,
-            rating.customerUid,
-            rating.stars,
-            rating.comment,
-          );
-          await fsUpdateOrder(rating.orderId, {
-            providerHasRating: true,
-            providerRatingStars: rating.stars,
-            providerRatingComment: rating.comment,
-          });
-          console.log('[DataContext] Provider rating + order flags saved to Firestore');
-          void aggregateRatingViaWorker('provider', rating.providerUid);
+          await submitRatingViaWorker(rating.orderId, 'provider', rating.stars, rating.comment);
+          console.log('[DataContext] Provider rating submitted through Worker');
         } catch (e) {
           console.log('[DataContext] Error submitting rating to Firestore:', e);
           throw e;
@@ -1023,20 +863,8 @@ export const [DataProvider, useData] = createContextHook(() => {
 
       if (fb) {
         try {
-          await fsSubmitDriverRating(
-            rating.driverUid,
-            rating.orderId,
-            rating.customerUid,
-            rating.stars,
-            rating.comment,
-          );
-          await fsUpdateOrder(rating.orderId, {
-            driverHasRating: true,
-            driverRatingStars: rating.stars,
-            driverRatingComment: rating.comment,
-          });
-          console.log('[DataContext] Driver rating + order flags saved to Firestore');
-          void aggregateRatingViaWorker('driver', rating.driverUid);
+          await submitRatingViaWorker(rating.orderId, 'driver', rating.stars, rating.comment);
+          console.log('[DataContext] Driver rating submitted through Worker');
         } catch (e) {
           console.log('[DataContext] Error submitting driver rating to Firestore:', e);
           throw e;
@@ -1103,8 +931,14 @@ export const [DataProvider, useData] = createContextHook(() => {
   const updateDriverAvailability = useCallback(
     async (driverUid: string, isAvailable: boolean) => {
       if (fb) {
-        await fsUpdateUser(driverUid, { isAvailable });
-        console.log('[DataContext] Driver availability updated via Firestore:', driverUid, '->', isAvailable);
+        if (authUser?.uid !== driverUid || authUser.role !== 'driver') {
+          throw new Error('Only the signed-in driver can update availability');
+        }
+        await updateDriverAvailabilityViaWorker(isAvailable);
+        setDrivers((current) =>
+          current.map((driver) => (driver.uid === driverUid ? { ...driver, isAvailable } : driver)),
+        );
+        console.log('[DataContext] Driver availability updated via Worker:', driverUid, '->', isAvailable);
         return;
       }
       const usersData = await AsyncStorage.getItem(USERS_KEY);
@@ -1118,7 +952,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       }
       console.log('[DataContext] Driver availability updated:', driverUid, '->', isAvailable);
     },
-    [fb],
+    [fb, authUser],
   );
 
   // ======= CRUD: Subscriptions (local only) =======
@@ -1190,19 +1024,26 @@ export const [DataProvider, useData] = createContextHook(() => {
     [orders],
   );
 
-  const getAvailableDeliveries = useCallback((): Order[] => {
-    // Match the exact, secure query used by fsSubscribeAvailableDeliveries and the
-    // Firestore rules: an order is available to drivers iff it is ready for a driver
-    // and not yet claimed. We deliberately do NOT also require deliveryMethod ===
-    // 'driver' here: the server Worker that finalizes delivery may persist the method
-    // as 'driver_delivery' (or leave it unset), and a strict equality check silently
-    // hid every available order from drivers. deliveryStatus === 'ready_for_driver' is
-    // only ever set for driver deliveries (self-pickup uses 'self_pickup_selected'), so
-    // these two conditions are sufficient and cannot surface pickup orders.
-    return orders.filter(
-      (o) => o.deliveryStatus === 'ready_for_driver' && !o.driverUid,
-    );
-  }, [orders]);
+  const getAvailableDeliveries = useCallback((): AvailableDelivery[] => {
+    // Firebase-backed discovery is the redacted Worker DTO. The mock path mirrors
+    // its eligibility rule only, so development previews preserve the same UX.
+    // deliveryStatus === ready_for_driver is set only for driver deliveries.
+    if (fb) return availableDeliveries;
+    return orders
+      .filter((o) => o.deliveryStatus === 'ready_for_driver' && !o.driverUid)
+      .map((o) => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        offerTitleSnapshot: o.offerTitleSnapshot,
+        deliveryFee: o.deliveryFee,
+        pickupAddress: o.pickupAddress,
+        // Mock orders predate the operational pickupLocation contract. Do not
+        // repurpose their private provider coordinates as a public delivery DTO.
+        pickupLocation: null,
+        deliveryDistanceKm: o.deliveryDistanceKm,
+        createdAt: o.createdAt,
+      }));
+  }, [fb, availableDeliveries, orders]);
 
   const getAvailableDrivers = useCallback((): User[] => {
     return drivers.filter((d) => d.isAvailable === true);
@@ -1266,10 +1107,8 @@ export const [DataProvider, useData] = createContextHook(() => {
   const markOrderReady = useCallback(
     async (orderId: string) => {
       if (fb) {
-        await fsUpdateOrder(orderId, {
-          status: 'ready_for_pickup',
-        });
-        console.log('[DataContext] Order marked ready via Firestore (customer will choose delivery):', orderId);
+        await transitionProviderOrderViaWorker(orderId, 'provider_ready');
+        console.log('[DataContext] Order marked ready via Worker (customer will choose delivery):', orderId);
         void sendPushNotification('order_ready', orderId);
         return;
       }
@@ -1354,7 +1193,6 @@ export const [DataProvider, useData] = createContextHook(() => {
     confirmPayment,
     rejectPayment,
     setDeliveryMethod,
-    assignDriver,
     updateDriverStatus,
     markOrderDelivered,
     raiseDeliveryComplaint,
@@ -1386,7 +1224,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     activeProviders, availableOffers, isLoading,
     createOffer, updateOffer, deleteOffer, createOrder, updateOrderStatus,
     submitPaymentProof, confirmPayment, rejectPayment, setDeliveryMethod,
-    assignDriver, updateDriverStatus, markOrderDelivered, raiseDeliveryComplaint, hasComplaint, submitRating, submitDriverRating,
+    updateDriverStatus, markOrderDelivered, raiseDeliveryComplaint, hasComplaint, submitRating, submitDriverRating,
     getProviderById, getDriverById, getOffersByProvider, getOrdersByCustomer,
     getOrdersByProvider, getOrdersByDriver, getAvailableDeliveries, getAvailableDrivers,
     getRatingsByProvider, getRatingsByDriver, getSubscription, isProviderSubscriptionValid,

@@ -284,7 +284,7 @@ export default function MyDeliveriesScreen() {
             <View style={[styles.locationRow, isRTL && styles.rowRTL]}>
               <MapPin size={14} color={Colors.textTertiary} />
               <Text style={[styles.locationText, isRTL && styles.rtlText]}>
-                {t('pickupFrom')}: {provider.displayName} - {provider.address || ''}
+                {t('pickupFrom')}: {provider.displayName} - {item.pickupAddress || provider.city || ''}
               </Text>
             </View>
           )}

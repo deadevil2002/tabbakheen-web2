@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -18,8 +18,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { OfferCard } from '@/components/OfferCard';
 import LoginRequired from '@/components/LoginRequired';
 import { RatingStars } from '@/components/RatingStars';
-import { Offer } from '@/types';
+import { Offer, PublicRating } from '@/types';
 import { formatDate } from '@/utils/helpers';
+import { isFirebaseConfigured } from '@/services/firebase';
+import { getPublicRatings } from '@/services/pushApi';
 
 export default function ProviderProfileScreen() {
   const router = useRouter();
@@ -27,16 +29,40 @@ export default function ProviderProfileScreen() {
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
   const { providers, getOffersByProvider, getRatingsByProvider } = useData();
+  const [publicRatings, setPublicRatings] = useState<PublicRating[]>([]);
+  const firebaseEnabled = isFirebaseConfigured();
 
   const provider = useMemo(() => providers.find((p) => p.uid === id), [providers, id]);
   const providerOffers = useMemo(
     () => (id ? getOffersByProvider(id).filter((o) => o.isAvailable) : []),
     [id, getOffersByProvider],
   );
-  const providerRatings = useMemo(
+  const localProviderRatings = useMemo(
     () => (id ? getRatingsByProvider(id) : []),
     [id, getRatingsByProvider],
   );
+  const providerRatings = firebaseEnabled
+    ? publicRatings
+    : localProviderRatings.map(({ stars, comment, createdAt }) => ({ stars, comment, createdAt }));
+
+  useEffect(() => {
+    let active = true;
+    if (!firebaseEnabled || !id) {
+      setPublicRatings([]);
+      return () => { active = false; };
+    }
+
+    void getPublicRatings(id, 'provider')
+      .then((nextRatings) => {
+        if (active) setPublicRatings(nextRatings);
+      })
+      .catch((error) => {
+        console.log('[ProviderProfile] public ratings unavailable:', error);
+        if (active) setPublicRatings([]);
+      });
+
+    return () => { active = false; };
+  }, [firebaseEnabled, id]);
 
   const BackIcon = isRTL ? ArrowRight : ArrowLeft;
 
@@ -77,7 +103,7 @@ export default function ProviderProfileScreen() {
           </View>
           <View style={[styles.locationRow, isRTL && styles.rowRTL]}>
             <MapPin size={14} color={Colors.textTertiary} />
-            <Text style={styles.address}>{provider.address}</Text>
+            <Text style={styles.address}>{provider.city ?? ''}</Text>
           </View>
           <View style={styles.ratingRow}>
             <RatingStars rating={Math.round(provider.ratingAverage)} size={20} />
@@ -108,8 +134,8 @@ export default function ProviderProfileScreen() {
           <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>
             {t('reviews')} ({providerRatings.length})
           </Text>
-          {providerRatings.map((rating) => (
-            <View key={rating.id} style={styles.reviewCard}>
+          {providerRatings.map((rating, index) => (
+            <View key={`${rating.createdAt}-${index}`} style={styles.reviewCard}>
               <View style={[styles.reviewHeader, isRTL && styles.rowRTL]}>
                 <RatingStars rating={rating.stars} size={14} />
                 <Text style={styles.reviewDate}>{formatDate(rating.createdAt, locale)}</Text>

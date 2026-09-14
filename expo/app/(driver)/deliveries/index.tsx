@@ -16,14 +16,14 @@ import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import { EmptyState } from '@/components/EmptyState';
-import { Order } from '@/types';
+import { AvailableDelivery } from '@/types';
 import { formatPrice, formatDate, formatDistance } from '@/utils/helpers';
 import { sendLocalNotification } from '@/services/notifications';
 
 export default function AvailableDeliveriesScreen() {
   const { t, isRTL, locale } = useLocale();
   const { user } = useAuth();
-  const { getAvailableDeliveries, driverAcceptDelivery, getProviderById } = useData();
+  const { getAvailableDeliveries, driverAcceptDelivery } = useData();
 
   const [refreshing, setRefreshing] = React.useState<boolean>(false);
 
@@ -38,7 +38,7 @@ export default function AvailableDeliveriesScreen() {
   }, []);
 
   const handleAcceptDelivery = useCallback(
-    async (order: Order) => {
+    async (delivery: AvailableDelivery) => {
       if (!user) return;
       AppAlert.alert(
         t('acceptDelivery'),
@@ -51,8 +51,8 @@ export default function AvailableDeliveriesScreen() {
             text: t('confirm'),
             onPress: async () => {
               try {
-                console.log('[AvailableDeliveries] Driver accepting order:', order.id, 'driverUid:', user.uid);
-                await driverAcceptDelivery(order.id, user.uid);
+                console.log('[AvailableDeliveries] Driver accepting order:', delivery.id, 'driverUid:', user.uid);
+                await driverAcceptDelivery(delivery.id, user.uid);
                 void sendLocalNotification(
                   t('deliveryAccepted'),
                   t('deliveryAcceptedBody'),
@@ -71,8 +71,7 @@ export default function AvailableDeliveriesScreen() {
   );
 
   const renderDelivery = useCallback(
-    ({ item }: { item: Order }) => {
-      const provider = getProviderById(item.providerUid);
+    ({ item }: { item: AvailableDelivery }) => {
       return (
         <View style={styles.deliveryCard}>
           <View style={[styles.cardHeader, isRTL && styles.rowRTL]}>
@@ -89,20 +88,20 @@ export default function AvailableDeliveriesScreen() {
             </View>
           </View>
 
-          {provider && (
+          {item.pickupAddress ? (
             <View style={[styles.locationRow, isRTL && styles.rowRTL]}>
               <MapPin size={14} color={Colors.textTertiary} />
               <Text style={[styles.locationText, isRTL && styles.rtlText]}>
-                {t('pickupFrom')}: {provider.displayName} - {provider.address}
+                {t('pickupLocation')}: {item.pickupAddress}
               </Text>
             </View>
-          )}
+          ) : null}
 
-          {(item as any).deliveryDistanceKm > 0 && (
+          {item.deliveryDistanceKm > 0 && (
             <View style={[styles.locationRow, isRTL && styles.rowRTL]}>
               <MapPin size={14} color={Colors.textTertiary} />
               <Text style={[styles.locationText, isRTL && styles.rtlText]}>
-                {locale === 'ar' ? 'المسافة' : 'Distance'}: {formatDistance((item as any).deliveryDistanceKm, locale)}
+                {locale === 'ar' ? 'المسافة' : 'Distance'}: {formatDistance(item.deliveryDistanceKm, locale)}
               </Text>
             </View>
           )}
@@ -124,7 +123,7 @@ export default function AvailableDeliveriesScreen() {
         </View>
       );
     },
-    [isRTL, locale, t, getProviderById, handleAcceptDelivery],
+    [isRTL, locale, t, handleAcceptDelivery],
   );
 
   return (

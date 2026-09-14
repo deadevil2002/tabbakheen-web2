@@ -33,8 +33,8 @@ import { formatPrice, formatDateShort } from '@/utils/helpers';
 export default function DriverDashboardScreen() {
   const router = useRouter();
   const { t, isRTL, locale, toggleLocale } = useLocale();
-  const { user, updateUser } = useAuth();
-  const { getOrdersByDriver, getAvailableDeliveries } = useData();
+  const { user } = useAuth();
+  const { getOrdersByDriver, getAvailableDeliveries, updateDriverAvailability } = useData();
 
   const [refreshing, setRefreshing] = React.useState<boolean>(false);
   const [isAvailable, setIsAvailable] = React.useState<boolean>(user?.isAvailable ?? false);
@@ -68,14 +68,13 @@ export default function DriverDashboardScreen() {
 
   const handleToggleAvailability = React.useCallback(async (value: boolean) => {
     if (!user) return;
-    setIsAvailable(value);
     try {
-      await updateUser({ isAvailable: value });
+      await updateDriverAvailability(user.uid, value);
+      setIsAvailable(value);
     } catch (e) {
       console.log('[DriverDashboard] availability toggle error:', e);
-      setIsAvailable(!value);
     }
-  }, [user, updateUser]);
+  }, [user, updateDriverAvailability]);
 
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);

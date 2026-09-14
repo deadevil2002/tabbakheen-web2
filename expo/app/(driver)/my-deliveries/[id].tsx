@@ -222,7 +222,7 @@ export default function DriverDeliveryDetailScreen() {
             <View style={[styles.locationRow, r && styles.rowRTL]}>
               <MapPin size={16} color={Colors.textTertiary} />
               <Text style={[styles.locationText, r && styles.rtlText]}>
-                {t('pickupFrom')}: {provider.displayName}{provider.address ? ` - ${provider.address}` : ''}
+                {t('pickupFrom')}: {provider.displayName}{order.pickupAddress ? ` - ${order.pickupAddress}` : provider.city ? ` - ${provider.city}` : ''}
               </Text>
             </View>
           ) : null}

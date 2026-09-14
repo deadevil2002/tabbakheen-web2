@@ -146,7 +146,7 @@ export default function OfferDetailsScreen() {
                 </View>
                 <View style={[styles.locationRow, isRTL && styles.rowRTL]}>
                   <MapPin size={12} color={Colors.textTertiary} />
-                  <Text style={styles.locationText}>{provider.address}</Text>
+                  <Text style={styles.locationText}>{provider.city ?? ''}</Text>
                 </View>
               </View>
             </Pressable>

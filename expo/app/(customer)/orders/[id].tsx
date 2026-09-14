@@ -606,7 +606,9 @@ export default function CustomerOrderDetailScreen() {
               <PackageCheck size={28} color={Colors.delivered} />
               <Text style={[s.selfPickupTitle, r && cs.rtlText]}>{t('selfPickup')}</Text>
               <Text style={[s.selfPickupDesc, r && cs.rtlText]}>{t('selfPickupInfo')}</Text>
-              {provider && <Text style={[s.selfPickupAddress, r && cs.rtlText]}>{provider.address || provider.displayName}</Text>}
+              <Text style={[s.selfPickupAddress, r && cs.rtlText]}>
+                {order.pickupAddress || provider?.city || provider?.displayName || ''}
+              </Text>
               <Pressable style={({ pressed }) => [s.openMapBtn, pressed && cs.btnPressed]} onPress={openPickupLocation}>
                 <MapPin size={18} color="#fff" />
                 <Text style={s.openMapBtnText}>{locale === 'ar' ? 'فتح موقع الطباخ في الخريطة' : "Open cook's location on map"}</Text>
