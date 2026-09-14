@@ -29,7 +29,7 @@ import {
 } from '@/mocks/data';
 import { generateId, generateOrderNumber, generateOrderRef, calculateDeliveryFee } from '@/utils/helpers';
 import { isFirebaseConfigured } from '@/services/firebase';
-import { sendPushNotification, aggregateRatingViaWorker, getDeliveryQuote, finalizeDeliveryMethod as workerFinalizeDelivery, type DeliveryFinalizeResult } from '@/services/pushApi';
+import { sendPushNotification, aggregateRatingViaWorker, getDeliveryQuote, finalizeDeliveryMethod as workerFinalizeDelivery, acceptDeliveryViaWorker, type DeliveryFinalizeResult } from '@/services/pushApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { fsSubscribeByRole, fsUpdateUser } from '@/services/firestoreUsers';
 import { fsSubscribeOffers, fsCreateOffer, fsUpdateOffer } from '@/services/firestoreOffers';
@@ -40,7 +40,6 @@ import {
   fsGetOrder,
   fsUpdateDeliveryStatus,
   fsSubscribeAvailableDeliveries,
-  fsDriverAcceptOrder,
   fsSubmitProviderRating,
   fsSubmitDriverRating,
   fsSubscribeAppSettings,
@@ -742,8 +741,8 @@ export const [DataProvider, useData] = createContextHook(() => {
         throw new Error(SUSPENDED_ACCOUNT_MESSAGE);
       }
       if (fb) {
-        await fsDriverAcceptOrder(orderId, driverUid);
-        console.log('[DataContext] Driver self-accepted delivery via Firestore:', driverUid, 'order:', orderId);
+        await acceptDeliveryViaWorker(orderId);
+        console.log('[DataContext] Driver self-accepted delivery via Worker:', driverUid, 'order:', orderId);
         void sendPushNotification('driver_assigned', orderId);
         return;
       }

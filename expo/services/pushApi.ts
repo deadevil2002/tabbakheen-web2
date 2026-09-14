@@ -85,6 +85,10 @@ export async function getProviderPaymentAvailability(providerUid: string): Promi
   return { cod: data.cod === true, stcPay: data.stcPay === true, bankTransfer: data.bankTransfer === true };
 }
 
+export async function acceptDeliveryViaWorker(orderId: string): Promise<void> {
+  await authorizedWorkerRequest('/delivery-transition', { orderId, action: 'accept' });
+}
+
 export type PushEvent =
   | 'order_accepted'
   | 'order_ready'
