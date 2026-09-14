@@ -24,7 +24,9 @@ const {
   submitPaymentProofViaWorker,
   decidePaymentViaWorker,
   submitRatingViaWorker,
+  setPublicLocationPreference,
 } = await import('./pushApi');
+const { hasEnabledPublicLocation, isValidPublicLocation } = await import('../utils/publicLocation');
 
 const originalFetch = globalThis.fetch;
 
@@ -211,5 +213,53 @@ test('order mutations use only existing semantic Worker endpoints', async () => 
     ['https://tabbakheen-api.tabbakheen.workers.dev/orders/payment-confirm', { orderId: 'order-1' }],
     ['https://tabbakheen-api.tabbakheen.workers.dev/orders/payment-reject', { orderId: 'order-1', reason: 'Unreadable' }],
     ['https://tabbakheen-api.tabbakheen.workers.dev/ratings/submit', { orderId: 'order-1', type: 'provider', stars: 5, comment: 'Excellent' }],
+  ]);
+});
+
+test('map eligibility requires explicit public consent and never falls back to private coordinates', () => {
+  const legacyProvider = {
+    publicLocationEnabled: false,
+    publicLocation: null,
+    location: { lat: 24.7136, lng: 46.6753 },
+  };
+  const ambiguousLegacyDiscovery = {
+    publicLocationEnabled: undefined,
+    discoveryLocation: { lat: 24.7136, lng: 46.6753 },
+  };
+  const optedInProvider = {
+    publicLocationEnabled: true,
+    publicLocation: { lat: 24.8, lng: 46.7, city: 'Riyadh' },
+  };
+  expect(hasEnabledPublicLocation(legacyProvider)).toBe(false);
+  expect(hasEnabledPublicLocation(ambiguousLegacyDiscovery)).toBe(false);
+  expect(hasEnabledPublicLocation(optedInProvider)).toBe(true);
+  expect(isValidPublicLocation({ lat: 24.8, lng: 46.7, city: '' })).toBe(false);
+  expect(isValidPublicLocation({ lat: 50, lng: 46.7, city: 'Riyadh' })).toBe(false);
+});
+
+test('public-location preference has an authenticated allowlisted Worker outbound', async () => {
+  const fetchMock = mock(async () => ({ ok: true, json: async () => ({ success: true, publicLocationEnabled: true }) }));
+  globalThis.fetch = fetchMock;
+
+  await setPublicLocationPreference(true, { lat: 24.8, lng: 46.7, city: 'Riyadh' });
+  await setPublicLocationPreference(false);
+
+  expect(fetchMock.mock.calls).toEqual([
+    [
+      'https://tabbakheen-api.tabbakheen.workers.dev/profile/public-discovery',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-id-token' },
+        body: JSON.stringify({ publicLocationEnabled: true, publicLocation: { lat: 24.8, lng: 46.7, city: 'Riyadh' } }),
+      },
+    ],
+    [
+      'https://tabbakheen-api.tabbakheen.workers.dev/profile/public-discovery',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-id-token' },
+        body: JSON.stringify({ publicLocationEnabled: false }),
+      },
+    ],
   ]);
 });

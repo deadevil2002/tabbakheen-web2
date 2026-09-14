@@ -12,6 +12,7 @@ import {
 import type { Unsubscribe } from 'firebase/firestore';
 import { getFirebaseFirestore, getFirebaseAuth } from './firebase';
 import type { User } from '@/types';
+import { isValidPublicLocation } from '@/utils/publicLocation';
 
 const COLLECTION = 'users';
 const PUBLIC_COLLECTION = 'public_profiles';
@@ -32,6 +33,9 @@ const FORBIDDEN_FIELDS = [
   // Phone identity and verification state are Worker-owned. New app versions
   // use /profiles/phone, which atomically maintains the private phone index.
   'phone', 'phoneNumber', 'phoneVerified', 'phoneIndexStatus', 'phoneIndexSchemaVersion',
+  // Public discovery preference is exclusively written by the authenticated
+  // Worker, which validates provider eligibility and public coordinates.
+  'publicLocationEnabled', 'publicLocation',
 ];
 
 // Fields a client MAY legitimately set at create time (immutable afterwards).
@@ -51,7 +55,8 @@ function toUser(id: string, data: Record<string, any>): User {
     photoUrl: data.photoUrl ?? '',
     socialLink: data.socialLink ?? '',
     location: data.location ?? null,
-    discoveryLocation: data.discoveryLocation ?? null,
+    publicLocationEnabled: data.publicLocationEnabled === true,
+    publicLocation: data.publicLocation ?? null,
     address: data.address ?? '',
     ratingAverage: data.ratingAverage ?? 0,
     ratingCount: data.ratingCount ?? 0,
@@ -233,6 +238,9 @@ export async function fsUpdateUser(
  * owner-private field here merely because an existing screen happens to use it.
  */
 function toPublicUser(id: string, data: Record<string, any>): User {
+  const publicLocation = data.publicLocationEnabled === true && isValidPublicLocation(data.publicLocation)
+    ? data.publicLocation
+    : null;
   return {
     uid: id,
     email: '',
@@ -241,16 +249,18 @@ function toPublicUser(id: string, data: Record<string, any>): User {
     role: data.role ?? 'customer',
     photoUrl: data.photoUrl ?? '',
     socialLink: data.socialLink ?? '',
-    // The Worker only publishes this value after an explicit owner choice. A
-    // legacy/private `users.location` is never a discovery location.
-    location: data.discoveryLocation ?? null,
+    // A public profile never maps a legacy/private location. The Worker only
+    // includes this point after an explicit provider opt-in.
+    location: null,
+    publicLocationEnabled: publicLocation !== null,
+    publicLocation,
     address: '',
     ratingAverage: data.ratingAverage ?? 0,
     ratingCount: data.ratingCount ?? 0,
     fcmToken: '',
     createdAt: data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? new Date().toISOString(),
     vehicleType: data.vehicleType,
-    city: data.city,
+    city: publicLocation?.city,
     isAvailable: data.isAvailable,
     verificationStatus: data.verificationStatus,
   };

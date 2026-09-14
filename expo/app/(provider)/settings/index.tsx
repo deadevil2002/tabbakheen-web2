@@ -13,12 +13,12 @@ import { useData } from '@/contexts/DataContext';
 import SupportDialog from '@/components/SupportDialog';
 import MapLocationPicker from '@/components/MapLocationPicker';
 import { RatingStars } from '@/components/RatingStars';
-import { ProviderPaymentMethods, SAUDI_BANKS } from '@/types';
+import { ProviderPaymentMethods, PublicLocation, SAUDI_BANKS } from '@/types';
 import { formatPrice, formatDateOnly, daysRemaining, getSubscriptionStatusColor } from '@/utils/helpers';
 import { SUBSCRIPTION_PRICE } from '@/mocks/data';
 import { pickImageFromGallery, pickImageFreeAspect } from '@/utils/imagePicker';
 import { uploadProviderAvatar, uploadFreelanceCertificate } from '@/services/cloudinary';
-import { verifyCommercialRegistration, submitFreelanceCertificate, setDiscoveryLocationPublication } from '@/services/pushApi';
+import { verifyCommercialRegistration, submitFreelanceCertificate, setPublicLocationPreference } from '@/services/pushApi';
 import { fsGetVerificationCrNumber, fsSubscribeToFreelanceCertificate } from '@/services/firestoreUsers';
 import type { FreelanceCertReview } from '@/services/firestoreUsers';
 import { VERIFIED_BLUE } from '@/components/VerifiedBadge';
@@ -45,8 +45,11 @@ export default function ProviderSettingsScreen() {
   const [showSupport, setShowSupport] = useState<boolean>(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState<boolean>(false);
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
-  const [isDiscoveryLocationPublished, setIsDiscoveryLocationPublished] = useState<boolean>(!!user?.discoveryLocation);
-  const [isSavingDiscoveryLocation, setIsSavingDiscoveryLocation] = useState<boolean>(false);
+  const [showPublicLocationPicker, setShowPublicLocationPicker] = useState<boolean>(false);
+  const [publicLocation, setPublicLocation] = useState<PublicLocation | null>(user?.publicLocation ?? null);
+  const [publicLocationCity, setPublicLocationCity] = useState<string>(user?.publicLocation?.city ?? '');
+  const [isPublicLocationEnabled, setIsPublicLocationEnabled] = useState<boolean>(user?.publicLocationEnabled === true);
+  const [isSavingPublicLocation, setIsSavingPublicLocation] = useState<boolean>(false);
   const [crNumber, setCrNumber] = useState<string>('');
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
   const [showVerifyForm, setShowVerifyForm] = useState<boolean>(false);
@@ -105,22 +108,55 @@ export default function ProviderSettingsScreen() {
     AppAlert.alert(t('success'), t('locationSaved'));
   }, [updateUser, t]);
 
-  const handleDiscoveryLocationPublication = useCallback(async (publish: boolean) => {
-    if (publish && !user?.location) {
-      AppAlert.alert(t('error'), locale === 'ar' ? 'اختر موقعاً أولاً قبل نشره للاكتشاف.' : 'Choose a location before publishing it for discovery.');
+  const handleSavePublicLocation = useCallback(async (coords: { lat: number; lng: number }) => {
+    const city = publicLocationCity.trim();
+    if (!city) {
+      AppAlert.alert(t('error'), locale === 'ar' ? 'أدخل المدينة لموقع الاكتشاف العام.' : 'Enter the city for the public discovery location.');
       return;
     }
-    setIsSavingDiscoveryLocation(true);
+    const selected: PublicLocation = { ...coords, city };
+    setIsSavingPublicLocation(true);
     try {
-      await setDiscoveryLocationPublication(publish, user?.location ?? null);
-      setIsDiscoveryLocationPublished(publish);
+      await setPublicLocationPreference(true, selected);
+      setPublicLocation(selected);
+      setIsPublicLocationEnabled(true);
     } catch (error) {
-      console.log('[ProviderSettings] Discovery-location publication error:', error);
-      AppAlert.alert(t('error'), locale === 'ar' ? 'تعذر تحديث خصوصية موقع الاكتشاف.' : 'Unable to update discovery-location privacy.');
+      console.log('[ProviderSettings] Public-location update error:', error);
+      AppAlert.alert(t('error'), locale === 'ar' ? 'تعذر تحديث موقع الاكتشاف العام.' : 'Unable to update public discovery location.');
     } finally {
-      setIsSavingDiscoveryLocation(false);
+      setIsSavingPublicLocation(false);
     }
-  }, [user?.location, t, locale]);
+  }, [publicLocationCity, t, locale]);
+
+  const handlePublicLocationToggle = useCallback(async (enabled: boolean) => {
+    if (enabled) {
+      if (!publicLocation || !publicLocationCity.trim()) {
+        AppAlert.alert(t('error'), locale === 'ar' ? 'اختر موقع الاكتشاف العام وأدخل المدينة أولاً.' : 'Choose a public discovery location and enter its city first.');
+        return;
+      }
+      setIsSavingPublicLocation(true);
+      try {
+        const selected: PublicLocation = { lat: publicLocation.lat, lng: publicLocation.lng, city: publicLocationCity.trim() };
+        await setPublicLocationPreference(true, selected);
+        setPublicLocation(selected);
+        setIsPublicLocationEnabled(true);
+      } catch {
+        AppAlert.alert(t('error'), locale === 'ar' ? 'تعذر تحديث موقع الاكتشاف العام.' : 'Unable to update public discovery location.');
+      } finally {
+        setIsSavingPublicLocation(false);
+      }
+      return;
+    }
+    setIsSavingPublicLocation(true);
+    try {
+      await setPublicLocationPreference(false);
+      setIsPublicLocationEnabled(false);
+    } catch {
+      AppAlert.alert(t('error'), locale === 'ar' ? 'تعذر إيقاف موقع الاكتشاف العام.' : 'Unable to turn off public discovery location.');
+    } finally {
+      setIsSavingPublicLocation(false);
+    }
+  }, [publicLocation, publicLocationCity, t, locale]);
 
   const handleSavePaymentSettings = useCallback(async () => {
     if (!user) return;
@@ -406,9 +442,9 @@ export default function ProviderSettingsScreen() {
           <View style={[s.paySettingsHeader, r && cs.rowRTL]}>
             <Navigation size={20} color={user?.location ? Colors.success : Colors.primary} />
             <View style={cs.flex1}>
-              <Text style={[s.paySettingsTitle, r && cs.rtlText]}>{t('setMyLocation')}</Text>
+              <Text style={[s.paySettingsTitle, r && cs.rtlText]}>{locale === 'ar' ? 'موقع الحساب الخاص' : 'Private account location'}</Text>
               <Text style={[s.paySettingsDesc, r && cs.rtlText]}>
-                {user?.location ? t('locationAlreadySet') : t('setLocationDesc')}
+                {locale === 'ar' ? 'هذا الموقع خاص بحسابك ولا يظهر للعملاء على الخريطة.' : 'This location is private to your account and is never shown to customers on the map.'}
               </Text>
             </View>
             {user?.location ? (
@@ -423,18 +459,37 @@ export default function ProviderSettingsScreen() {
           <View style={[s.paySettingsHeader, r && cs.rowRTL]}>
             <Globe size={20} color={Colors.primary} />
             <View style={cs.flex1}>
-              <Text style={[s.paySettingsTitle, r && cs.rtlText]}>{locale === 'ar' ? 'نشر موقع الاكتشاف' : 'Publish discovery location'}</Text>
+              <Text style={[s.paySettingsTitle, r && cs.rtlText]}>{locale === 'ar' ? 'إظهار موقعي للعملاء في الخريطة' : 'Show my location to customers on the map'}</Text>
               <Text style={[s.paySettingsDesc, r && cs.rtlText]}>
-                {locale === 'ar' ? 'اختياري. يتم نشر الموقع الذي اخترته فقط، وليس عنوان المنزل.' : 'Optional. Only the location you selected is published, never your home address.'}
+                {locale === 'ar' ? 'اختر الموقع الذي ترغب أن يظهر للعملاء عند البحث عن مقدمي الخدمة. لا يلزم أن يكون موقع منزلك.' : 'Choose the location you want customers to see when searching for providers. It does not need to be your home location.'}
               </Text>
             </View>
             <Switch
-              value={isDiscoveryLocationPublished}
-              onValueChange={handleDiscoveryLocationPublication}
-              disabled={isSavingDiscoveryLocation}
+              value={isPublicLocationEnabled}
+              onValueChange={handlePublicLocationToggle}
+              disabled={isSavingPublicLocation}
               trackColor={{ false: Colors.border, true: Colors.primary }}
             />
           </View>
+          <TextInput
+            style={[cs.formInput, r && cs.inputRTL, { marginTop: 12 }]}
+            placeholder={locale === 'ar' ? 'مدينة موقع الاكتشاف العام' : 'Public discovery location city'}
+            placeholderTextColor={Colors.textTertiary}
+            value={publicLocationCity}
+            onChangeText={setPublicLocationCity}
+            editable={!isSavingPublicLocation}
+            textAlign={r ? 'right' : 'left'}
+          />
+          <Pressable
+            style={({ pressed }) => [s.publicLocationButton, r && cs.rowRTL, pressed && { opacity: 0.8 }]}
+            onPress={() => setShowPublicLocationPicker(true)}
+            disabled={isSavingPublicLocation}
+          >
+            <MapPin size={18} color={Colors.primary} />
+            <Text style={[s.publicLocationButtonText, r && cs.rtlText]}>
+              {publicLocation ? (locale === 'ar' ? 'تغيير موقع الاكتشاف العام' : 'Change public discovery location') : (locale === 'ar' ? 'اختيار موقع الاكتشاف العام' : 'Choose public discovery location')}
+            </Text>
+          </Pressable>
         </View>
 
         <Pressable style={({ pressed }) => [s.paySettingsBtn, pressed && { backgroundColor: Colors.background }]} onPress={() => setShowPaymentSettings(!showPaymentSettings)}>
@@ -506,6 +561,18 @@ export default function ProviderSettingsScreen() {
         onClose={() => setShowLocationPicker(false)}
         onSave={handleSaveLocation}
         initialLocation={user?.location}
+        title={locale === 'ar' ? 'موقع الحساب الخاص' : 'Private account location'}
+        hint={locale === 'ar' ? 'هذا الموقع خاص بحسابك ولا يظهر للعملاء.' : 'This is your private account location and is not shown to customers.'}
+        saveLabel={locale === 'ar' ? 'حفظ الموقع الخاص' : 'Save private location'}
+      />
+      <MapLocationPicker
+        visible={showPublicLocationPicker}
+        onClose={() => setShowPublicLocationPicker(false)}
+        onSave={handleSavePublicLocation}
+        initialLocation={publicLocation}
+        title={locale === 'ar' ? 'موقع الاكتشاف العام' : 'Public discovery location'}
+        hint={locale === 'ar' ? 'هذا الموقع سيظهر للعملاء عند البحث عن مقدمي الخدمة.' : 'This location will be visible to customers searching for providers.'}
+        saveLabel={locale === 'ar' ? 'نشر موقع الاكتشاف العام' : 'Publish public discovery location'}
       />
     </View>
   );
@@ -557,6 +624,8 @@ const s = StyleSheet.create({
   paySettingsHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   paySettingsTitle: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, marginBottom: 2 },
   paySettingsDesc: { fontSize: 12, color: Colors.textTertiary },
+  publicLocationButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: Colors.primary, borderRadius: 12, marginTop: 10, paddingVertical: 11 },
+  publicLocationButtonText: { color: Colors.primary, fontSize: 14, fontWeight: '700' as const },
   payForm: { backgroundColor: Colors.surface, borderRadius: 16, marginHorizontal: 20, padding: 16, marginBottom: 16, marginTop: 4 },
   toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   toggleLabel: { fontSize: 15, fontWeight: '600' as const, color: Colors.text },

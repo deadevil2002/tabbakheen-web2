@@ -199,13 +199,13 @@ export async function registerPrivateDeviceToken(token: string | null): Promise<
   await authorizedWorkerRequest('/devices/register', { token, platform: typeof navigator === 'undefined' ? 'native' : 'web' });
 }
 
-export async function setDiscoveryLocationPublication(
-  publishDiscoveryLocation: boolean,
-  discoveryLocation?: { lat: number; lng: number } | null,
+export async function setPublicLocationPreference(
+  publicLocationEnabled: boolean,
+  publicLocation?: { lat: number; lng: number; city: string } | null,
 ): Promise<void> {
   await authorizedWorkerRequest('/profile/public-discovery', {
-    publishDiscoveryLocation,
-    ...(publishDiscoveryLocation ? { discoveryLocation } : {}),
+    publicLocationEnabled,
+    ...(publicLocationEnabled ? { publicLocation } : {}),
   });
 }
 

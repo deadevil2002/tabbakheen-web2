@@ -44,6 +44,9 @@ interface MapLocationPickerProps {
   onClose: () => void;
   onSave: (coords: { lat: number; lng: number }) => Promise<void>;
   initialLocation?: { lat: number; lng: number } | null;
+  title?: string;
+  hint?: string;
+  saveLabel?: string;
 }
 
 export default function MapLocationPicker({
@@ -51,6 +54,9 @@ export default function MapLocationPicker({
   onClose,
   onSave,
   initialLocation,
+  title,
+  hint,
+  saveLabel,
 }: MapLocationPickerProps) {
   const { t, isRTL } = useLocale();
   const cameraRef = useRef<any>(null);
@@ -166,14 +172,14 @@ export default function MapLocationPicker({
             <Pressable style={s.closeBtn} onPress={onClose} testID="location-picker-close">
               <X size={22} color={Colors.text} />
             </Pressable>
-            <Text style={s.headerTitle}>{t('locationPickerTitle')}</Text>
+            <Text style={s.headerTitle}>{title ?? t('locationPickerTitle')}</Text>
             <View style={s.closeBtn} />
           </View>
         </SafeAreaView>
 
         <View style={s.hintBar}>
           <MapPin size={16} color={Colors.primary} />
-          <Text style={[s.hintText, isRTL && s.rtlText]}>{t('dragPinToSetLocation')}</Text>
+          <Text style={[s.hintText, isRTL && s.rtlText]}>{hint ?? t('dragPinToSetLocation')}</Text>
         </View>
 
         <View style={s.mapWrap}>
@@ -223,7 +229,7 @@ export default function MapLocationPicker({
           ) : (
             <View style={s.webFallback}>
               <MapPin size={48} color={Colors.primary} />
-              <Text style={s.webTitle}>{t('locationPickerTitle')}</Text>
+              <Text style={s.webTitle}>{title ?? t('locationPickerTitle')}</Text>
               <Text style={[s.webCoords, isRTL && s.rtlText]}>
                 {pinCoords.lat.toFixed(6)}, {pinCoords.lng.toFixed(6)}
               </Text>
@@ -267,7 +273,7 @@ export default function MapLocationPicker({
               ) : (
                 <>
                   <Check size={18} color={Colors.white} />
-                  <Text style={s.saveBtnText}>{t('saveLocation')}</Text>
+                   <Text style={s.saveBtnText}>{saveLabel ?? t('saveLocation')}</Text>
                 </>
               )}
             </Pressable>

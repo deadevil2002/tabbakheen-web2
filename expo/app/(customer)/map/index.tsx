@@ -21,6 +21,7 @@ import { useLocale } from '@/contexts/LocaleContext';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { calculateDistance, formatDistance } from '@/utils/helpers';
+import { hasEnabledPublicLocation } from '@/utils/publicLocation';
 import { User } from '@/types';
 import { MAPTILER_STYLE_URL, deltaToZoom } from '@/constants/maptiler';
 import LoginRequired from '@/components/LoginRequired';
@@ -52,18 +53,10 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const RIYADH_LAT = 24.7136;
 const RIYADH_LNG = 46.6753;
-
-function hasValidCoords(p: User): boolean {
-  const loc = p.location;
-  if (!loc) return false;
-  const { lat, lng } = loc;
-  if (typeof lat !== 'number' || typeof lng !== 'number') return false;
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
-  // Reject the "null island" (0,0) placeholder, but allow a single legitimate 0 axis.
-  if (lat === 0 && lng === 0) return false;
-  return true;
-}
+type PublicMapProvider = User & {
+  publicLocationEnabled: true;
+  publicLocation: NonNullable<User['publicLocation']>;
+};
 
 export default function CustomerMapScreen() {
   const router = useRouter();
@@ -78,26 +71,26 @@ export default function CustomerMapScreen() {
 
   const currentLocation = userCoords ?? user?.location ?? { lat: RIYADH_LAT, lng: RIYADH_LNG };
 
-  const providersWithLocation = useMemo(() => {
-    return providers.filter(hasValidCoords);
+  const providersWithLocation = useMemo<PublicMapProvider[]>(() => {
+    // Public profiles also power list/search/offer discovery. Map pins are the
+    // narrower opt-in subset: no legacy/private coordinate can reach here.
+    return providers.filter((provider): provider is PublicMapProvider => hasEnabledPublicLocation(provider));
   }, [providers]);
 
   const sortedProviders = useMemo(() => {
     return [...providersWithLocation]
       .map((p) => ({
         ...p,
-        distance: p.location
-          ? calculateDistance(currentLocation.lat, currentLocation.lng, p.location.lat, p.location.lng)
-          : 999,
+        distance: calculateDistance(currentLocation.lat, currentLocation.lng, p.publicLocation.lat, p.publicLocation.lng),
       }))
       .sort((a, b) => a.distance - b.distance);
   }, [providersWithLocation, currentLocation]);
 
   const centerOnProvider = useCallback((provider: User) => {
     setSelectedUid(provider.uid);
-    if (cameraRef.current && provider.location) {
+    if (cameraRef.current && hasEnabledPublicLocation(provider)) {
       cameraRef.current.easeTo({
-        center: [provider.location.lng, provider.location.lat],
+        center: [provider.publicLocation.lng, provider.publicLocation.lat],
         zoom: deltaToZoom(0.02),
         duration: 500,
       });
@@ -113,8 +106,8 @@ export default function CustomerMapScreen() {
 
   const handleOpenRoute = useCallback(
     (provider: User) => {
-      const loc = provider.location;
-      if (!loc) return;
+      if (!hasEnabledPublicLocation(provider)) return;
+      const loc = provider.publicLocation;
       const { lat, lng } = loc;
       const label = encodeURIComponent(provider.displayName || t('viewProviderPage'));
       const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
@@ -235,10 +228,10 @@ export default function CustomerMapScreen() {
               />
               <MapLibreUserLocation />
               {sortedProviders.map((provider) =>
-                provider.location ? (
+                hasEnabledPublicLocation(provider) ? (
                   <MapLibreMarker
                     key={provider.uid}
-                    lngLat={[provider.location.lng, provider.location.lat]}
+                    lngLat={[provider.publicLocation.lng, provider.publicLocation.lat]}
                     onPress={() => centerOnProvider(provider)}
                   >
                     <View style={[
@@ -308,14 +301,12 @@ export default function CustomerMapScreen() {
           contentContainerStyle={styles.listScroll}
         >
           {sortedProviders.map((provider) => {
-            const dist = provider.location
-              ? calculateDistance(
-                  currentLocation.lat,
-                  currentLocation.lng,
-                  provider.location.lat,
-                  provider.location.lng,
-                )
-              : 0;
+            const dist = calculateDistance(
+              currentLocation.lat,
+              currentLocation.lng,
+              provider.publicLocation.lat,
+              provider.publicLocation.lng,
+            );
             const isSelected = selectedUid === provider.uid;
             return (
               <Pressable

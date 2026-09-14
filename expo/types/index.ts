@@ -3,6 +3,11 @@ export interface UserLocation {
   lng: number;
 }
 
+/** A provider-selected, customer-visible discovery point; never a home address. */
+export interface PublicLocation extends UserLocation {
+  city: string;
+}
+
 export type UserRole = 'customer' | 'provider' | 'driver';
 
 export type DeliveryMethod = 'self_pickup' | 'driver' | 'driver_delivery';
@@ -73,8 +78,10 @@ export interface User {
   photoUrl: string;
   socialLink: string;
   location: UserLocation | null;
-  /** Explicit opt-in discovery coordinate, distinct from private location. */
-  discoveryLocation?: UserLocation | null;
+  /** Explicit provider consent; absent/false is always private and off-map. */
+  publicLocationEnabled?: boolean;
+  /** Public discovery point, selected separately from the private account location. */
+  publicLocation?: PublicLocation | null;
   address: string;
   ratingAverage: number;
   ratingCount: number;
