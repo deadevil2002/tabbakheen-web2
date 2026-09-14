@@ -11,10 +11,11 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import type { Unsubscribe } from 'firebase/firestore';
-import { getFirebaseFirestore } from './firebase';
+import { getFirebaseFirestore, getFirebaseAuth } from './firebase';
 import type { Order, AppSettings, PaymentMethod, PaymentStatus, DeliveryStatus } from '@/types';
 
 const COLLECTION = 'orders';
+const WORKER_URL = 'https://tabbakheen-api.tabbakheen.workers.dev';
 
 function toFsPaymentMethod(val: string): string {
   const map: Record<string, string> = {
@@ -189,25 +190,32 @@ export async function fsGetOrder(orderId: string): Promise<Order | null> {
 export function fsSubscribeAvailableDeliveries(
   cb: (orders: Order[]) => void,
 ): Unsubscribe {
-  const db = getFirebaseFirestore();
-  const q = query(
-    collection(db, COLLECTION),
-    where('deliveryStatus', '==', 'ready_for_driver'),
-    where('driverUid', '==', null),
-  );
-  console.log('[fsOrders] subscribing to available deliveries: deliveryStatus==ready_for_driver, driverUid==null');
-  return onSnapshot(
-    q,
-    (snap) => {
-      const orders = snap.docs.map((d) => toOrder(d.id, d.data()));
-      console.log('[fsOrders] available deliveries snapshot:', orders.length, 'orders');
-      cb(orders);
-    },
-    (err) => {
-      console.log('[fsOrders] available deliveries error:', err);
-      cb([]);
-    },
-  );
+  // Unassigned orders are not subscribed from Firestore. The Worker returns a
+  // purpose-built DTO that omits customer UID, contact details, notes, payment
+  // data and destination coordinates until assignment.
+  let disposed = false;
+  const load = async () => {
+    try {
+      const auth = getFirebaseAuth().currentUser;
+      const token = auth ? await auth.getIdToken() : null;
+      if (!token) throw new Error('Not authenticated');
+      const response = await fetch(`${WORKER_URL}/deliveries/available?limit=25`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.success) throw new Error(data?.error || 'Available delivery request failed');
+      if (!disposed) cb((data.deliveries ?? []).map((item: Record<string, any>) => toOrder(item.id, item)));
+    } catch (error) {
+      console.log('[fsOrders] available deliveries worker error:', error);
+      if (!disposed) cb([]);
+    }
+  };
+  void load();
+  const interval = setInterval(() => { void load(); }, 20_000);
+  return () => {
+    disposed = true;
+    clearInterval(interval);
+  };
 }
 
 export async function fsUpdateDeliveryStatus(
