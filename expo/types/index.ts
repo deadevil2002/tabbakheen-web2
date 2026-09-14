@@ -47,9 +47,6 @@ export type VehicleType = 'car' | 'motorcycle' | 'bicycle';
 export interface StcPayConfig {
   enabled: boolean;
   phone: string;
-  // A phone is not ownership-verified until a future OTP/Firebase Phone Auth
-  // credential is linked to this same Firebase UID.
-  phoneVerified?: boolean;
 }
 
 export interface BankTransferConfig {
@@ -69,6 +66,9 @@ export interface User {
   email: string;
   displayName: string;
   phone: string;
+  // A phone is not ownership-verified until a future OTP/Firebase Phone Auth
+  // credential is linked to this same Firebase UID.
+  phoneVerified?: boolean;
   role: UserRole;
   photoUrl: string;
   socialLink: string;
