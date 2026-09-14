@@ -1,5 +1,5 @@
 import { AppAlert } from '@/components/AppDialog';
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import { formatPrice } from '@/utils/helpers';
 import { PaymentMethod } from '@/types';
 import { requireAuth } from '@/utils/authGuard';
 import LoginRequired from '@/components/LoginRequired';
+import { getProviderPaymentAvailability } from '@/services/pushApi';
 
 export default function OfferDetailsScreen() {
   const router = useRouter();
@@ -34,6 +35,7 @@ export default function OfferDetailsScreen() {
   const [note, setNote] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
   const [isOrdering, setIsOrdering] = useState<boolean>(false);
+  const [availablePaymentMethods, setAvailablePaymentMethods] = useState<PaymentMethod[]>(['cod']);
 
   const offer = useMemo(() => offers.find((o) => o.id === id), [offers, id]);
   const provider = useMemo(
@@ -41,10 +43,19 @@ export default function OfferDetailsScreen() {
     [providers, offer],
   );
 
-  // Payment destinations and enabled methods are owner-private. The order
-  // authorizer validates a selected non-COD method before it is actionable;
-  // discovery never reads a provider paymentMethods object.
-  const availablePaymentMethods = useMemo<PaymentMethod[]>(() => ['cod'], []);
+  useEffect(() => {
+    if (!user || !offer) return;
+    let active = true;
+    void getProviderPaymentAvailability(offer.providerUid).then((availability) => {
+      if (!active) return;
+      setAvailablePaymentMethods([
+        ...(availability.stcPay ? ['stc_pay' as PaymentMethod] : []),
+        ...(availability.bankTransfer ? ['bank_transfer' as PaymentMethod] : []),
+        'cod',
+      ]);
+    }).catch(() => { if (active) setAvailablePaymentMethods(['cod']); });
+    return () => { active = false; };
+  }, [user, offer]);
 
   const BackIcon = isRTL ? ArrowRight : ArrowLeft;
 

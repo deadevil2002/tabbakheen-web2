@@ -74,6 +74,17 @@ export async function syncMyPublicProfile(): Promise<void> {
   await authorizedWorkerRequest('/profile/public-discovery', { action: 'sync' });
 }
 
+export async function getProviderPaymentAvailability(providerUid: string): Promise<{ cod: boolean; stcPay: boolean; bankTransfer: boolean }> {
+  const idToken = await getIdToken();
+  if (!idToken) throw new Error('Not authenticated');
+  const response = await fetch(`${PUSH_API_URL}/providers/payment-availability?providerUid=${encodeURIComponent(providerUid)}`, {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  const data = await response.json();
+  if (!response.ok || !data?.success) throw new Error(data?.error || 'Payment availability request failed');
+  return { cod: data.cod === true, stcPay: data.stcPay === true, bankTransfer: data.bankTransfer === true };
+}
+
 export type PushEvent =
   | 'order_accepted'
   | 'order_ready'

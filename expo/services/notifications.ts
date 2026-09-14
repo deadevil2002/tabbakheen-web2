@@ -69,7 +69,7 @@ export async function getExpoPushToken(): Promise<string | null> {
       projectId,
     });
     const token = tokenData.data;
-    console.log('[Notifications] Expo push token:', token);
+    console.log('[Notifications] Expo push token acquired');
     return token;
   } catch (e) {
     console.log('[Notifications] Error getting push token:', e);
