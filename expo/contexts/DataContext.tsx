@@ -399,7 +399,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         providerLng: publicProviderLocation?.lng ?? null,
         customerLat: authUser?.location?.lat ?? null,
         customerLng: authUser?.location?.lng ?? null,
-        pickupAddress: provider?.address ?? '',
+        pickupAddress: publicProviderLocation?.city ?? '',
         dropoffAddress: authUser?.address ?? '',
         deliveryDistanceKm: 0,
         deliveryQuoteId: '',

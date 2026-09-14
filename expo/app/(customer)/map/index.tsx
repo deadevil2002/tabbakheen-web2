@@ -20,8 +20,8 @@ import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { calculateDistance, formatDistance } from '@/utils/helpers';
-import { hasEnabledPublicLocation } from '@/utils/publicLocation';
+import { formatDistance } from '@/utils/helpers';
+import { distanceToPublicProvider, hasEnabledPublicLocation } from '@/utils/publicLocation';
 import { User } from '@/types';
 import { MAPTILER_STYLE_URL, deltaToZoom } from '@/constants/maptiler';
 import LoginRequired from '@/components/LoginRequired';
@@ -69,7 +69,10 @@ export default function CustomerMapScreen() {
   const [locating, setLocating] = useState<boolean>(false);
   const cameraRef = useRef<any>(null);
 
-  const currentLocation = userCoords ?? user?.location ?? { lat: RIYADH_LAT, lng: RIYADH_LNG };
+  // Riyadh is a camera-only default. It must never be treated as a customer's
+  // location for “nearby” sorting or distance labels.
+  const customerLocation = userCoords ?? user?.location ?? null;
+  const cameraLocation = customerLocation ?? { lat: RIYADH_LAT, lng: RIYADH_LNG };
 
   const providersWithLocation = useMemo<PublicMapProvider[]>(() => {
     // Public profiles also power list/search/offer discovery. Map pins are the
@@ -81,10 +84,10 @@ export default function CustomerMapScreen() {
     return [...providersWithLocation]
       .map((p) => ({
         ...p,
-        distance: calculateDistance(currentLocation.lat, currentLocation.lng, p.publicLocation.lat, p.publicLocation.lng),
+        distance: distanceToPublicProvider(customerLocation, p),
       }))
-      .sort((a, b) => a.distance - b.distance);
-  }, [providersWithLocation, currentLocation]);
+      .sort((a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY));
+  }, [providersWithLocation, customerLocation]);
 
   const centerOnProvider = useCallback((provider: User) => {
     setSelectedUid(provider.uid);
@@ -222,7 +225,7 @@ export default function CustomerMapScreen() {
               <MapLibreCamera
                 ref={cameraRef}
                 initialViewState={{
-                  center: [currentLocation.lng, currentLocation.lat],
+                  center: [cameraLocation.lng, cameraLocation.lat],
                   zoom: deltaToZoom(0.08),
                 }}
               />
@@ -301,12 +304,7 @@ export default function CustomerMapScreen() {
           contentContainerStyle={styles.listScroll}
         >
           {sortedProviders.map((provider) => {
-            const dist = calculateDistance(
-              currentLocation.lat,
-              currentLocation.lng,
-              provider.publicLocation.lat,
-              provider.publicLocation.lng,
-            );
+            const dist = provider.distance;
             const isSelected = selectedUid === provider.uid;
             return (
               <Pressable
@@ -336,7 +334,9 @@ export default function CustomerMapScreen() {
                       <Text style={styles.metaText}>{provider.ratingAverage.toFixed(1)}</Text>
                       <View style={styles.metaDot} />
                       <MapPin size={12} color={Colors.textTertiary} />
-                      <Text style={styles.metaText}>{formatDistance(dist, locale)}</Text>
+                      <Text style={styles.metaText}>
+                        {dist === null ? t('distanceNotAvailable') : formatDistance(dist, locale)}
+                      </Text>
                     </View>
                   </View>
                 </View>

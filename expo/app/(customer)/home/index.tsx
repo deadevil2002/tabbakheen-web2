@@ -38,7 +38,8 @@ import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import { Offer, OfferCategory } from '@/types';
-import { formatPrice, calculateDistance, formatDistance } from '@/utils/helpers';
+import { formatPrice, formatDistance } from '@/utils/helpers';
+import { distanceToPublicProvider } from '@/utils/publicLocation';
 
 const FALLBACK_BANNER_URL =
   'https://res.cloudinary.com/dv6n9vnly/image/upload/v1769698754/67e13686-c891-4d70-96da-f11ac94351ca_zlsh8x.png';
@@ -127,15 +128,8 @@ export default function CustomerHomeScreen() {
 
   const getDistanceToProvider = useCallback(
     (providerUid: string): number | null => {
-      if (!user?.location?.lat || !user?.location?.lng) return null;
       const provider = providers.find((p) => p.uid === providerUid);
-      if (!provider?.location?.lat || !provider?.location?.lng) return null;
-      return calculateDistance(
-        user.location.lat,
-        user.location.lng,
-        provider.location.lat,
-        provider.location.lng,
-      );
+      return provider ? distanceToPublicProvider(user?.location, provider) : null;
     },
     [user, providers],
   );

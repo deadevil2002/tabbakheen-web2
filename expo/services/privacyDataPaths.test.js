@@ -27,6 +27,8 @@ const {
   setPublicLocationPreference,
 } = await import('./pushApi');
 const { hasEnabledPublicLocation, isValidPublicLocation } = await import('../utils/publicLocation');
+const { distanceToPublicProvider } = await import('../utils/publicLocation');
+const { getOrderPickupNavigationTarget } = await import('../utils/orderPickupNavigation');
 
 const originalFetch = globalThis.fetch;
 
@@ -235,6 +237,35 @@ test('map eligibility requires explicit public consent and never falls back to p
   expect(hasEnabledPublicLocation(optedInProvider)).toBe(true);
   expect(isValidPublicLocation({ lat: 24.8, lng: 46.7, city: '' })).toBe(false);
   expect(isValidPublicLocation({ lat: 50, lng: 46.7, city: 'Riyadh' })).toBe(false);
+});
+
+test('Home and map distance require both a real customer location and an opted-in provider location', () => {
+  const optedInProvider = {
+    publicLocationEnabled: true,
+    publicLocation: { lat: 24.8, lng: 46.7, city: 'Riyadh' },
+  };
+  const noPublicLocationProvider = { publicLocationEnabled: false, publicLocation: null };
+  expect(distanceToPublicProvider({ lat: 24.7, lng: 46.6 }, optedInProvider)).not.toBeNull();
+  expect(distanceToPublicProvider(null, optedInProvider)).toBeNull();
+  expect(distanceToPublicProvider({ lat: 24.7, lng: 46.6 }, noPublicLocationProvider)).toBeNull();
+});
+
+test('order pickup navigation uses only the authorized order pickup snapshot', () => {
+  expect(getOrderPickupNavigationTarget({
+    providerLat: 24.8,
+    providerLng: 46.7,
+    pickupAddress: 'Authorized pickup point',
+  })).toEqual({
+    kind: 'coordinates',
+    lat: 24.8,
+    lng: 46.7,
+    address: 'Authorized pickup point',
+  });
+  expect(getOrderPickupNavigationTarget({ pickupAddress: 'Authorized pickup point' })).toEqual({
+    kind: 'address',
+    address: 'Authorized pickup point',
+  });
+  expect(getOrderPickupNavigationTarget(null)).toBeNull();
 });
 
 test('public-location preference has an authenticated allowlisted Worker outbound', async () => {

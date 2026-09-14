@@ -1,4 +1,5 @@
 import type { PublicLocation, User } from '@/types';
+import { calculateDistance } from '@/utils/helpers';
 
 export function isValidPublicLocation(value: unknown): value is PublicLocation {
   if (!value || typeof value !== 'object') return false;
@@ -24,4 +25,22 @@ export function hasEnabledPublicLocation(
   publicLocation: PublicLocation;
 } {
   return provider.publicLocationEnabled === true && isValidPublicLocation(provider.publicLocation);
+}
+
+export function distanceToPublicProvider(
+  customerLocation: { lat: number; lng: number } | null | undefined,
+  provider: Pick<User, 'publicLocationEnabled' | 'publicLocation'>,
+): number | null {
+  if (!customerLocation
+    || !Number.isFinite(customerLocation.lat)
+    || !Number.isFinite(customerLocation.lng)
+    || !hasEnabledPublicLocation(provider)) {
+    return null;
+  }
+  return calculateDistance(
+    customerLocation.lat,
+    customerLocation.lng,
+    provider.publicLocation.lat,
+    provider.publicLocation.lng,
+  );
 }

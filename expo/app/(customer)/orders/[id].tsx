@@ -15,6 +15,7 @@ import { useData } from '@/contexts/DataContext';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { RatingStars } from '@/components/RatingStars';
 import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor, formatSaudiPhoneForWhatsApp } from '@/utils/helpers';
+import { getOrderPickupNavigationTarget } from '@/utils/orderPickupNavigation';
 import MapLocationPicker from '@/components/MapLocationPicker';
 import { pickImageFreeAspect } from '@/utils/imagePicker';
 import { uploadPaymentProofViaWorker, getOrderContact, getOrderPaymentInstructions, type OrderPaymentInstructions } from '@/services/pushApi';
@@ -31,14 +32,17 @@ export default function CustomerOrderDetailScreen() {
   const provider = useMemo(() => (order ? getProviderById(order.providerUid) : undefined), [order, getProviderById]);
 
   const openPickupLocation = useCallback(async () => {
-    const lat = provider?.location?.lat;
-    const lng = provider?.location?.lng;
-    const addr = (provider?.address || provider?.displayName || '').trim();
-    const hasCoords = typeof lat === 'number' && typeof lng === 'number';
-    if (!hasCoords && !addr) {
+    // Pickup data belongs to this authorized order snapshot. Public discovery
+    // profiles intentionally do not expose a provider's account address.
+    const pickup = getOrderPickupNavigationTarget(order);
+    if (!pickup) {
       AppAlert.alert('', locale === 'ar' ? 'موقع الطباخ غير متوفر' : "Cook's location is unavailable");
       return;
     }
+    const hasCoords = pickup.kind === 'coordinates';
+    const lat = hasCoords ? pickup.lat : undefined;
+    const lng = hasCoords ? pickup.lng : undefined;
+    const addr = pickup.address;
     const query = hasCoords ? `${lat},${lng}` : encodeURIComponent(addr);
     let url: string;
     if (Platform.OS === 'ios') {
@@ -56,7 +60,7 @@ export default function CustomerOrderDetailScreen() {
       console.log('[OrderDetail] Cannot open maps:', err);
       AppAlert.alert('', locale === 'ar' ? 'موقع الطباخ غير متوفر' : "Cook's location is unavailable");
     }
-  }, [provider, locale]);
+  }, [order, locale]);
   const driver = useMemo(() => (order?.driverUid ? getDriverById(order.driverUid) : undefined), [order, getDriverById]);
 
   const [providerStars, setProviderStars] = useState<number>(0);
@@ -607,7 +611,7 @@ export default function CustomerOrderDetailScreen() {
               <Text style={[s.selfPickupTitle, r && cs.rtlText]}>{t('selfPickup')}</Text>
               <Text style={[s.selfPickupDesc, r && cs.rtlText]}>{t('selfPickupInfo')}</Text>
               <Text style={[s.selfPickupAddress, r && cs.rtlText]}>
-                {order.pickupAddress || provider?.city || provider?.displayName || ''}
+                {order.pickupAddress || (locale === 'ar' ? 'موقع الاستلام المحفوظ للطلب' : 'Order pickup location')}
               </Text>
               <Pressable style={({ pressed }) => [s.openMapBtn, pressed && cs.btnPressed]} onPress={openPickupLocation}>
                 <MapPin size={18} color="#fff" />
