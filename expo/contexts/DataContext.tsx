@@ -28,6 +28,7 @@ import {
   MOCK_APP_SETTINGS,
 } from '@/mocks/data';
 import { generateId, generateOrderNumber, generateOrderRef, calculateDeliveryFee } from '@/utils/helpers';
+import { hasEnabledPublicLocation } from '@/utils/publicLocation';
 import { isFirebaseConfigured } from '@/services/firebase';
 import {
   sendPushNotification,
@@ -360,6 +361,9 @@ export const [DataProvider, useData] = createContextHook(() => {
 
       const now = new Date().toISOString();
       const provider = providers.find((p) => p.uid === order.providerUid);
+      const publicProviderLocation = provider && hasEnabledPublicLocation(provider)
+        ? provider.publicLocation
+        : null;
       const base: Omit<Order, 'id'> = {
         orderNumber: generateOrderNumber(),
         customerUid: order.customerUid,
@@ -391,8 +395,8 @@ export const [DataProvider, useData] = createContextHook(() => {
         stcPayProofImageUrl: '',
         stcPayProofNote: '',
         paymentReference: '',
-        providerLat: provider?.location?.lat ?? null,
-        providerLng: provider?.location?.lng ?? null,
+        providerLat: publicProviderLocation?.lat ?? null,
+        providerLng: publicProviderLocation?.lng ?? null,
         customerLat: authUser?.location?.lat ?? null,
         customerLng: authUser?.location?.lng ?? null,
         pickupAddress: provider?.address ?? '',
@@ -1126,12 +1130,12 @@ export const [DataProvider, useData] = createContextHook(() => {
   const computeDeliveryFee = useCallback(
     (providerUid: string, customerLat?: number, customerLng?: number): number => {
       const provider = providers.find((p) => p.uid === providerUid);
-      if (!provider?.location || !customerLat || !customerLng) {
+      if (!provider || !hasEnabledPublicLocation(provider) || !customerLat || !customerLng) {
         return appSettings.deliveryPricing?.baseFee ?? 5;
       }
       return calculateDeliveryFee(
-        provider.location.lat,
-        provider.location.lng,
+        provider.publicLocation.lat,
+        provider.publicLocation.lng,
         customerLat,
         customerLng,
         appSettings.deliveryPricing,
