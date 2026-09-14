@@ -28,6 +28,9 @@ const FORBIDDEN_FIELDS = [
   // Verification fields are written ONLY by the Worker/Admin SDK — never by the client.
   'verificationStatus', 'verificationSource', 'crNumber', 'verifiedAt',
   'verificationCrName', 'verificationError', 'verificationCheckedAt',
+  // Phone identity and verification state are Worker-owned. New app versions
+  // use /profiles/phone, which atomically maintains the private phone index.
+  'phone', 'phoneNumber', 'phoneVerified', 'phoneIndexStatus', 'phoneIndexSchemaVersion',
 ];
 
 // Fields a client MAY legitimately set at create time (immutable afterwards).
@@ -42,6 +45,7 @@ function toUser(id: string, data: Record<string, any>): User {
     email: data.email ?? '',
     displayName: data.displayName ?? '',
     phone: data.phone ?? '',
+    phoneVerified: data.phoneVerified === true,
     role: data.role ?? 'customer',
     photoUrl: data.photoUrl ?? '',
     socialLink: data.socialLink ?? '',

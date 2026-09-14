@@ -1,5 +1,5 @@
 import { AppAlert } from '@/components/AppDialog';
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocale } from '@/contexts/LocaleContext';
 import { UserRole } from '@/types';
+import { getPhoneAuthSettings } from '@/services/phoneAuth';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -32,9 +33,18 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [role, setRole] = useState<UserRole>('customer');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [requirePhoneAtSignup, setRequirePhoneAtSignup] = useState<boolean>(true);
+
+  useEffect(() => {
+    let active = true;
+    getPhoneAuthSettings().then((settings) => {
+      if (active) setRequirePhoneAtSignup(settings.requirePhoneAtSignup);
+    });
+    return () => { active = false; };
+  }, []);
 
   const handleRegister = useCallback(async () => {
-    if (!displayName.trim() || !email.trim() || !password.trim()) {
+    if (!displayName.trim() || !email.trim() || !password.trim() || (requirePhoneAtSignup && !phone.trim())) {
       AppAlert.alert(
         t('error'),
         locale === 'ar' ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill in all required fields',
@@ -64,12 +74,16 @@ export default function RegisterScreen() {
         ? (locale === 'ar'
             ? 'تعذّر إنشاء الحساب، يرجى المحاولة مرة أخرى'
             : 'Could not create your account, please try again')
+        : e?.message === 'INVALID_PHONE'
+        ? (locale === 'ar' ? 'يرجى إدخال رقم جوال سعودي صالح' : 'Please enter a valid Saudi mobile number')
+        : e?.message === 'PHONE_UNAVAILABLE'
+        ? (locale === 'ar' ? 'لا يمكن استخدام رقم الجوال هذا' : 'This phone number cannot be used')
         : t('error');
       AppAlert.alert(t('error'), msg);
     } finally {
       setIsSubmitting(false);
     }
-  }, [displayName, email, phone, password, role, register, locale, t, router]);
+  }, [displayName, email, phone, password, role, requirePhoneAtSignup, register, locale, t, router]);
 
   const goToLogin = useCallback(() => {
     router.back();
@@ -154,7 +168,9 @@ export default function RegisterScreen() {
                 <Phone size={20} color={Colors.textTertiary} />
                 <TextInput
                   style={[styles.input, isRTL && styles.inputRTL]}
-                  placeholder={t('phone')}
+                  placeholder={requirePhoneAtSignup
+                    ? (locale === 'ar' ? 'رقم الجوال (مطلوب)' : 'Phone number (required)')
+                    : (locale === 'ar' ? 'رقم الجوال (اختياري)' : 'Phone number (optional)')}
                   placeholderTextColor={Colors.textTertiary}
                   value={phone}
                   onChangeText={setPhone}

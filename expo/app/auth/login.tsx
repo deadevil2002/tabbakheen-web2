@@ -1,5 +1,5 @@
 import { AppAlert } from '@/components/AppDialog';
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,25 +19,41 @@ import { Image } from 'expo-image';
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocale } from '@/contexts/LocaleContext';
+import { getPhoneAuthSettings } from '@/services/phoneAuth';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { login } = useAuth();
   const { t, isRTL, toggleLocale, locale } = useLocale();
 
-  const [email, setEmail] = useState<string>('');
+  const [identifier, setIdentifier] = useState<string>('');
   const [password, setPassword] = useState<string>('');
+  const [phoneLoginEnabled, setPhoneLoginEnabled] = useState<boolean>(false);
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
+  useEffect(() => {
+    let active = true;
+    getPhoneAuthSettings().then((settings) => {
+      if (active) setPhoneLoginEnabled(settings.phonePasswordLoginEnabled);
+    });
+    return () => { active = false; };
+  }, []);
+
   const handleLogin = useCallback(async () => {
-    if (!email.trim()) {
-      AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال البريد الإلكتروني' : 'Please enter your email');
+    if (!identifier.trim()) {
+      AppAlert.alert(t('error'), locale === 'ar'
+        ? (phoneLoginEnabled ? 'يرجى إدخال البريد الإلكتروني أو رقم الجوال' : 'يرجى إدخال البريد الإلكتروني')
+        : (phoneLoginEnabled ? 'Please enter your email or phone number' : 'Please enter your email'));
+      return;
+    }
+    if (!phoneLoginEnabled && !identifier.includes('@')) {
+      AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى إدخال بريد إلكتروني صالح' : 'Please enter a valid email address');
       return;
     }
     setIsSubmitting(true);
     try {
-      const user = await login(email.trim(), password);
+      const user = await login(identifier.trim(), password);
       if (user.role === 'customer') {
         router.replace('/(customer)/home' as any);
       } else if (user.role === 'driver') {
@@ -70,7 +86,7 @@ export default function LoginScreen() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [email, password, login, locale, t, router]);
+  }, [identifier, password, phoneLoginEnabled, login, locale, t, router]);
 
   const goToRegister = useCallback(() => {
     router.push('/auth/register' as any);
@@ -117,11 +133,13 @@ export default function LoginScreen() {
                 <Mail size={20} color={Colors.textTertiary} />
                 <TextInput
                   style={[styles.input, isRTL && styles.inputRTL]}
-                  placeholder={t('email')}
+                  placeholder={phoneLoginEnabled
+                    ? (locale === 'ar' ? 'البريد الإلكتروني أو رقم الجوال' : 'Email or phone number')
+                    : t('email')}
                   placeholderTextColor={Colors.textTertiary}
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
+                  value={identifier}
+                  onChangeText={setIdentifier}
+                  keyboardType={phoneLoginEnabled ? 'default' : 'email-address'}
                   autoCapitalize="none"
                   autoCorrect={false}
                   textAlign={isRTL ? 'right' : 'left'}

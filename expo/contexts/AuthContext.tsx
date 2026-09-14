@@ -5,6 +5,7 @@ import { User, UserRole } from '@/types';
 import { isFirebaseConfigured, getFirebaseAuth } from '@/services/firebase';
 import {
   signInWithEmailAndPassword,
+  signInWithCustomToken,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   signOut,
@@ -13,10 +14,14 @@ import {
 import {
   fsGetUser,
   fsUserExistsByEmail,
-  fsCreateUser,
   fsUpdateUser,
   fsSubscribeToUser,
 } from '@/services/firestoreUsers';
+import {
+  getPhonePasswordCustomToken,
+  registerAuthoritativeProfile,
+  updateAuthoritativePhone,
+} from '@/services/phoneAuth';
 import type { Unsubscribe } from 'firebase/firestore';
 import { MOCK_CUSTOMER, MOCK_PROVIDERS, MOCK_DRIVERS } from '@/mocks/data';
 import { generateId } from '@/utils/helpers';
@@ -101,13 +106,13 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   };
 
   const login = useCallback(
-    async (email: string, password: string): Promise<User> => {
+    async (identifier: string, password: string): Promise<User> => {
       if (!fb) {
         const usersData = await AsyncStorage.getItem(USERS_KEY);
         const users: User[] = usersData
           ? JSON.parse(usersData)
           : [MOCK_CUSTOMER, ...MOCK_PROVIDERS, ...MOCK_DRIVERS];
-        const found = users.find((u) => u.email === email);
+        const found = users.find((u) => u.email === identifier);
         if (!found) throw new Error('USER_NOT_FOUND');
         await AsyncStorage.setItem(AUTH_KEY, found.uid);
         setUser(found);
@@ -116,7 +121,9 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
       try {
         const auth = getFirebaseAuth();
-        const credential = await signInWithEmailAndPassword(auth, email, password);
+        const credential = identifier.includes('@')
+          ? await signInWithEmailAndPassword(auth, identifier, password)
+          : await signInWithCustomToken(auth, await getPhonePasswordCustomToken(identifier, password));
         console.log('[Auth] Firebase login success:', credential.user.uid);
         const userDoc = await fsGetUser(credential.user.uid);
         if (!userDoc) throw new Error('USER_NOT_FOUND');
@@ -124,6 +131,14 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         return userDoc;
       } catch (error: any) {
         console.log('[Auth] Login error:', error.code, error.message);
+        if (error.message === 'INVALID_CREDENTIALS') {
+          throw new Error('INVALID_CREDENTIALS');
+        }
+        if (!identifier.includes('@')) {
+          // A phone-password attempt must never reuse the email-login
+          // existence probe or produce distinguishable account errors.
+          throw new Error('INVALID_CREDENTIALS');
+        }
         if (error.code === 'auth/user-not-found') {
           throw new Error('USER_NOT_FOUND');
         }
@@ -131,7 +146,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           throw new Error('WRONG_PASSWORD');
         }
         if (error.code === 'auth/invalid-credential') {
-          const exists = await fsUserExistsByEmail(email);
+          const exists = await fsUserExistsByEmail(identifier);
           if (exists === true) throw new Error('WRONG_PASSWORD');
           if (exists === false) throw new Error('USER_NOT_FOUND');
           throw new Error('INVALID_CREDENTIALS');
@@ -231,12 +246,16 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         createdAt: now.toISOString(),
       };
 
-      // Step 2: create the Firestore profile. If this fails (e.g. rules reject the
-      // payload), roll back the just-created Auth user so we never leave an orphan
-      // auth-only account that blocks re-registration with "email already in use".
+      // Step 2: create the profile and phone index through the Worker. If this fails,
+      // roll back the Auth account so re-registration remains possible.
       try {
-        await fsCreateUser(newUser);
-        console.log('[Auth] Firestore user doc created for:', newUser.uid);
+        const profile = await registerAuthoritativeProfile({
+          role: data.role,
+          displayName: data.displayName,
+          phone: data.phone,
+        });
+        newUser.phone = typeof profile?.phone === 'string' ? profile.phone : '';
+        console.log('[Auth] Worker-authoritative profile created');
       } catch (error: any) {
         console.log(
           '[Auth] Profile create failed, rolling back auth user:',
@@ -252,6 +271,9 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
             delErr?.code,
             delErr?.message,
           );
+        }
+        if (error?.message === 'INVALID_PHONE' || error?.message === 'PHONE_UNAVAILABLE') {
+          throw new Error(error.message);
         }
         throw new Error('PROFILE_CREATE_FAILED');
       }
@@ -282,8 +304,17 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
       if (fb) {
         try {
-          await fsUpdateUser(user.uid, updates);
-          setUser((prev) => (prev ? { ...prev, ...updates } : prev));
+          const cleanUpdates: Partial<User> = { ...updates };
+          const authoritativeUpdates: Partial<User> = {};
+          if (typeof cleanUpdates.phone === 'string') {
+            authoritativeUpdates.phone = await updateAuthoritativePhone(cleanUpdates.phone);
+            delete cleanUpdates.phone;
+          }
+          delete (cleanUpdates as any).phoneVerified;
+          if (Object.keys(cleanUpdates).length > 0) {
+            await fsUpdateUser(user.uid, cleanUpdates);
+          }
+          setUser((prev) => (prev ? { ...prev, ...cleanUpdates, ...authoritativeUpdates } : prev));
           console.log('[Auth] User profile updated via Firestore');
         } catch (e) {
           console.log('[Auth] updateUser Firestore error:', e);
