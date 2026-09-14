@@ -17,8 +17,7 @@ import { RatingStars } from '@/components/RatingStars';
 import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor, formatSaudiPhoneForWhatsApp } from '@/utils/helpers';
 import MapLocationPicker from '@/components/MapLocationPicker';
 import { pickImageFreeAspect } from '@/utils/imagePicker';
-import { uploadPaymentProofViaWorker } from '@/services/pushApi';
-import { fsGetOrderContactPhone } from '@/services/firestoreUsers';
+import { uploadPaymentProofViaWorker, getOrderContact, getOrderPaymentInstructions, type OrderPaymentInstructions } from '@/services/pushApi';
 import { Image } from 'expo-image';
 
 export default function CustomerOrderDetailScreen() {
@@ -81,15 +80,17 @@ export default function CustomerOrderDetailScreen() {
   const [isFinalizingDelivery, setIsFinalizingDelivery] = useState<boolean>(false);
   const [providerContactPhone, setProviderContactPhone] = useState<string>('');
   const [driverContactPhone, setDriverContactPhone] = useState<string>('');
+  const [paymentInstructions, setPaymentInstructions] = useState<OrderPaymentInstructions | null>(null);
 
   useEffect(() => {
     if (!order) return;
     let cancelled = false;
     if (order.providerUid) {
-      fsGetOrderContactPhone(order.providerUid).then((p) => { if (!cancelled) setProviderContactPhone(p); });
+      getOrderContact(order.id, 'provider').then((contact) => { if (!cancelled) setProviderContactPhone(contact?.phone ?? ''); });
+      getOrderPaymentInstructions(order.id).then((instructions) => { if (!cancelled) setPaymentInstructions(instructions); });
     }
     if (order.driverUid) {
-      fsGetOrderContactPhone(order.driverUid).then((p) => { if (!cancelled) setDriverContactPhone(p); });
+      getOrderContact(order.id, 'driver').then((contact) => { if (!cancelled) setDriverContactPhone(contact?.phone ?? ''); });
     }
     return () => { cancelled = true; };
   }, [order?.id, order?.providerUid, order?.driverUid]);
@@ -269,7 +270,7 @@ export default function CustomerOrderDetailScreen() {
 
   const handleWhatsAppProof = useCallback(() => {
     if (!order || !provider) return;
-    const rawPhone = provider.paymentMethods?.stcPay?.phone || providerContactPhone;
+    const rawPhone = paymentInstructions?.stcPayPhone || providerContactPhone;
     const phone = formatSaudiPhoneForWhatsApp(rawPhone);
     console.log('[OrderDetail] WhatsApp proof - raw:', rawPhone, 'formatted:', phone);
     const message = locale === 'ar'
@@ -278,7 +279,7 @@ export default function CustomerOrderDetailScreen() {
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
     console.log('[OrderDetail] Opening WhatsApp URL:', url);
     Linking.openURL(url).catch((err) => console.log('[OrderDetail] Cannot open WhatsApp:', err));
-  }, [order, provider, locale]);
+  }, [order, paymentInstructions, providerContactPhone, locale]);
 
   const handleContactDriverWhatsApp = useCallback(async (coords?: { lat: number; lng: number }) => {
     if (!order || !driver) return;
@@ -483,29 +484,29 @@ export default function CustomerOrderDetailScreen() {
           </View>
         )}
 
-        {(order.paymentMethod === 'stc_pay' || order.paymentMethod === 'bank_transfer') && provider && order.status !== 'rejected' && order.status !== 'cancelled' && (
+        {(order.paymentMethod === 'stc_pay' || order.paymentMethod === 'bank_transfer') && paymentInstructions && order.status !== 'rejected' && order.status !== 'cancelled' && (
           <View style={cs.sectionCard}>
             <Text style={[cs.sectionTitle, r && cs.rtlText]}>{t('paymentInstructions')}</Text>
-            {order.paymentMethod === 'stc_pay' && provider.paymentMethods?.stcPay?.enabled && (
+            {order.paymentMethod === 'stc_pay' && paymentInstructions.stcPayPhone && (
               <View style={s.payDetail}>
                 <Text style={[s.payDetailLabel, r && cs.rtlText]}>{t('stcPayPhone')}</Text>
                 <View style={[s.copyRow, r && cs.rowRTL]}>
-                  <Text style={s.payDetailValue}>{provider.paymentMethods.stcPay.phone}</Text>
-                  <Pressable style={s.copyBtn} onPress={() => handleCopy(provider.paymentMethods?.stcPay?.phone ?? '')}>
+                  <Text style={s.payDetailValue}>{paymentInstructions.stcPayPhone}</Text>
+                  <Pressable style={s.copyBtn} onPress={() => handleCopy(paymentInstructions.stcPayPhone ?? '')}>
                     <Copy size={14} color={Colors.primary} /><Text style={s.copyText}>{t('copyToClipboard')}</Text>
                   </Pressable>
                 </View>
               </View>
             )}
-            {order.paymentMethod === 'bank_transfer' && provider.paymentMethods?.bankTransfer?.enabled && (
+            {order.paymentMethod === 'bank_transfer' && paymentInstructions.iban && (
               <>
-                <View style={s.payDetail}><Text style={[s.payDetailLabel, r && cs.rtlText]}>{t('bankName')}</Text><Text style={[s.payDetailValue, r && cs.rtlText]}>{provider.paymentMethods.bankTransfer.bankName}</Text></View>
-                <View style={s.payDetail}><Text style={[s.payDetailLabel, r && cs.rtlText]}>{t('accountName')}</Text><Text style={[s.payDetailValue, r && cs.rtlText]}>{provider.paymentMethods.bankTransfer.accountName}</Text></View>
+                <View style={s.payDetail}><Text style={[s.payDetailLabel, r && cs.rtlText]}>{t('bankName')}</Text><Text style={[s.payDetailValue, r && cs.rtlText]}>{paymentInstructions.bankName}</Text></View>
+                <View style={s.payDetail}><Text style={[s.payDetailLabel, r && cs.rtlText]}>{t('accountName')}</Text><Text style={[s.payDetailValue, r && cs.rtlText]}>{paymentInstructions.accountName}</Text></View>
                 <View style={s.payDetail}>
                   <Text style={[s.payDetailLabel, r && cs.rtlText]}>{t('iban')}</Text>
                   <View style={[s.copyRow, r && cs.rowRTL]}>
-                    <Text style={s.payDetailValue} numberOfLines={1}>{provider.paymentMethods.bankTransfer.iban}</Text>
-                    <Pressable style={s.copyBtn} onPress={() => handleCopy(provider.paymentMethods?.bankTransfer?.iban ?? '')}>
+                    <Text style={s.payDetailValue} numberOfLines={1}>{paymentInstructions.iban}</Text>
+                    <Pressable style={s.copyBtn} onPress={() => handleCopy(paymentInstructions.iban ?? '')}>
                       <Copy size={14} color={Colors.primary} /><Text style={s.copyText}>{t('copyToClipboard')}</Text>
                     </Pressable>
                   </View>

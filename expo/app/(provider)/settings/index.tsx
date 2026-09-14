@@ -18,7 +18,7 @@ import { formatPrice, formatDateOnly, daysRemaining, getSubscriptionStatusColor 
 import { SUBSCRIPTION_PRICE } from '@/mocks/data';
 import { pickImageFromGallery, pickImageFreeAspect } from '@/utils/imagePicker';
 import { uploadProviderAvatar, uploadFreelanceCertificate } from '@/services/cloudinary';
-import { verifyCommercialRegistration, submitFreelanceCertificate } from '@/services/pushApi';
+import { verifyCommercialRegistration, submitFreelanceCertificate, setDiscoveryLocationPublication } from '@/services/pushApi';
 import { fsGetVerificationCrNumber, fsSubscribeToFreelanceCertificate } from '@/services/firestoreUsers';
 import type { FreelanceCertReview } from '@/services/firestoreUsers';
 import { VERIFIED_BLUE } from '@/components/VerifiedBadge';
@@ -45,6 +45,8 @@ export default function ProviderSettingsScreen() {
   const [showSupport, setShowSupport] = useState<boolean>(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState<boolean>(false);
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
+  const [isDiscoveryLocationPublished, setIsDiscoveryLocationPublished] = useState<boolean>(!!user?.discoveryLocation);
+  const [isSavingDiscoveryLocation, setIsSavingDiscoveryLocation] = useState<boolean>(false);
   const [crNumber, setCrNumber] = useState<string>('');
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
   const [showVerifyForm, setShowVerifyForm] = useState<boolean>(false);
@@ -102,6 +104,23 @@ export default function ProviderSettingsScreen() {
     console.log('[ProviderSettings] Location saved:', coords);
     AppAlert.alert(t('success'), t('locationSaved'));
   }, [updateUser, t]);
+
+  const handleDiscoveryLocationPublication = useCallback(async (publish: boolean) => {
+    if (publish && !user?.location) {
+      AppAlert.alert(t('error'), locale === 'ar' ? 'اختر موقعاً أولاً قبل نشره للاكتشاف.' : 'Choose a location before publishing it for discovery.');
+      return;
+    }
+    setIsSavingDiscoveryLocation(true);
+    try {
+      await setDiscoveryLocationPublication(publish, user?.location ?? null);
+      setIsDiscoveryLocationPublished(publish);
+    } catch (error) {
+      console.log('[ProviderSettings] Discovery-location publication error:', error);
+      AppAlert.alert(t('error'), locale === 'ar' ? 'تعذر تحديث خصوصية موقع الاكتشاف.' : 'Unable to update discovery-location privacy.');
+    } finally {
+      setIsSavingDiscoveryLocation(false);
+    }
+  }, [user?.location, t, locale]);
 
   const handleSavePaymentSettings = useCallback(async () => {
     if (!user) return;
@@ -399,6 +418,24 @@ export default function ProviderSettingsScreen() {
             )}
           </View>
         </Pressable>
+
+        <View style={[s.paySettingsBtn, { paddingVertical: 14 }]}>
+          <View style={[s.paySettingsHeader, r && cs.rowRTL]}>
+            <Globe size={20} color={Colors.primary} />
+            <View style={cs.flex1}>
+              <Text style={[s.paySettingsTitle, r && cs.rtlText]}>{locale === 'ar' ? 'نشر موقع الاكتشاف' : 'Publish discovery location'}</Text>
+              <Text style={[s.paySettingsDesc, r && cs.rtlText]}>
+                {locale === 'ar' ? 'اختياري. يتم نشر الموقع الذي اخترته فقط، وليس عنوان المنزل.' : 'Optional. Only the location you selected is published, never your home address.'}
+              </Text>
+            </View>
+            <Switch
+              value={isDiscoveryLocationPublished}
+              onValueChange={handleDiscoveryLocationPublication}
+              disabled={isSavingDiscoveryLocation}
+              trackColor={{ false: Colors.border, true: Colors.primary }}
+            />
+          </View>
+        </View>
 
         <Pressable style={({ pressed }) => [s.paySettingsBtn, pressed && { backgroundColor: Colors.background }]} onPress={() => setShowPaymentSettings(!showPaymentSettings)}>
           <View style={[s.paySettingsHeader, r && cs.rowRTL]}>

@@ -1,10 +1,9 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import { getFirebaseFirestore } from './firebase';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { isFirebaseConfigured } from './firebase';
 import { router } from 'expo-router';
+import { registerPrivateDeviceToken } from './pushApi';
 
 if (Platform.OS !== 'web') {
   Notifications.setNotificationHandler({
@@ -88,13 +87,8 @@ export async function savePushTokenToFirestore(
   }
 
   try {
-    const db = getFirebaseFirestore();
-    await updateDoc(doc(db, 'users', uid), {
-      expoPushToken: token,
-      pushNotificationsEnabled: true,
-      lastPushTokenUpdatedAt: serverTimestamp(),
-    });
-    console.log('[Notifications] Push token saved to Firestore for user:', uid);
+    await registerPrivateDeviceToken(token);
+    console.log('[Notifications] Push token registered in private device storage');
   } catch (e) {
     console.log('[Notifications] Error saving push token to Firestore:', e);
   }
@@ -111,12 +105,8 @@ export async function getAndStorePushToken(uid: string): Promise<string | null> 
 export async function clearPushToken(uid: string): Promise<void> {
   if (!isFirebaseConfigured() || !uid) return;
   try {
-    const db = getFirebaseFirestore();
-    await updateDoc(doc(db, 'users', uid), {
-      expoPushToken: null,
-      pushNotificationsEnabled: false,
-    });
-    console.log('[Notifications] Push token cleared for user:', uid);
+    await registerPrivateDeviceToken(null);
+    console.log('[Notifications] Push token cleared from private device storage');
   } catch (e) {
     console.log('[Notifications] Error clearing push token:', e);
   }

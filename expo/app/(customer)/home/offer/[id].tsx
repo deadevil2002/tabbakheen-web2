@@ -41,16 +41,10 @@ export default function OfferDetailsScreen() {
     [providers, offer],
   );
 
-  const availablePaymentMethods = useMemo(() => {
-    const methods: PaymentMethod[] = ['cod'];
-    if (provider?.paymentMethods?.stcPay?.enabled) {
-      methods.unshift('stc_pay');
-    }
-    if (provider?.paymentMethods?.bankTransfer?.enabled) {
-      methods.push('bank_transfer');
-    }
-    return methods;
-  }, [provider]);
+  // Payment destinations and enabled methods are owner-private. The order
+  // authorizer validates a selected non-COD method before it is actionable;
+  // discovery never reads a provider paymentMethods object.
+  const availablePaymentMethods = useMemo<PaymentMethod[]>(() => ['cod'], []);
 
   const BackIcon = isRTL ? ArrowRight : ArrowLeft;
 

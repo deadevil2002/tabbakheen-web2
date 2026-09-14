@@ -14,7 +14,7 @@ import { useData } from '@/contexts/DataContext';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor } from '@/utils/helpers';
 import { sendLocalNotification } from '@/services/notifications';
-import { fsGetOrderContactPhone } from '@/services/firestoreUsers';
+import { getOrderContact } from '@/services/pushApi';
 
 export default function ProviderOrderDetailScreen() {
   const router = useRouter();
@@ -36,7 +36,7 @@ export default function ProviderOrderDetailScreen() {
   useEffect(() => {
     if (!order?.driverUid) return;
     let cancelled = false;
-    fsGetOrderContactPhone(order.driverUid).then((p) => { if (!cancelled) setDriverContactPhone(p); });
+    getOrderContact(order.id, 'driver').then((contact) => { if (!cancelled) setDriverContactPhone(contact?.phone ?? ''); });
     return () => { cancelled = true; };
   }, [order?.id, order?.driverUid]);
 

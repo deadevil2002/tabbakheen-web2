@@ -12,6 +12,68 @@ async function getIdToken(): Promise<string | null> {
   }
 }
 
+async function authorizedWorkerRequest<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  const idToken = await getIdToken();
+  if (!idToken) throw new Error('Not authenticated');
+  const response = await fetch(`${PUSH_API_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok || !data?.success) throw new Error(data?.error || 'Request failed');
+  return data as T;
+}
+
+export interface OrderContact {
+  phone: string;
+}
+
+export interface OrderPaymentInstructions {
+  method: 'stc_pay' | 'bank_transfer';
+  stcPayPhone?: string;
+  bankName?: string;
+  accountName?: string;
+  iban?: string;
+}
+
+/** Gets minimum order-authorized data; it is deliberately not a UID lookup. */
+export async function getOrderContact(orderId: string, target: 'provider' | 'driver'): Promise<OrderContact | null> {
+  try {
+    return await authorizedWorkerRequest<OrderContact>('/order-contact', { orderId, target, purpose: 'contact' });
+  } catch (error) {
+    console.log('[PushAPI] order contact unavailable:', error);
+    return null;
+  }
+}
+
+export async function getOrderPaymentInstructions(orderId: string): Promise<OrderPaymentInstructions | null> {
+  try {
+    return await authorizedWorkerRequest<OrderPaymentInstructions>('/order-payment-instructions', { orderId, purpose: 'payment_instructions' });
+  } catch (error) {
+    console.log('[PushAPI] payment instructions unavailable:', error);
+    return null;
+  }
+}
+
+export async function registerPrivateDeviceToken(token: string | null): Promise<void> {
+  await authorizedWorkerRequest('/devices/register', { token, platform: typeof navigator === 'undefined' ? 'native' : 'web' });
+}
+
+export async function setDiscoveryLocationPublication(
+  publishDiscoveryLocation: boolean,
+  discoveryLocation?: { lat: number; lng: number } | null,
+): Promise<void> {
+  await authorizedWorkerRequest('/profile/public-discovery', {
+    publishDiscoveryLocation,
+    ...(publishDiscoveryLocation ? { discoveryLocation } : {}),
+  });
+}
+
+export async function syncMyPublicProfile(): Promise<void> {
+  await authorizedWorkerRequest('/profile/public-discovery', { action: 'sync' });
+}
+
 export type PushEvent =
   | 'order_accepted'
   | 'order_ready'

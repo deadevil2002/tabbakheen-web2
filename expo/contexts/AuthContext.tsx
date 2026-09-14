@@ -22,6 +22,7 @@ import {
   registerAuthoritativeProfile,
   updateAuthoritativePhone,
 } from '@/services/phoneAuth';
+import { syncMyPublicProfile } from '@/services/pushApi';
 import type { Unsubscribe } from 'firebase/firestore';
 import { MOCK_CUSTOMER, MOCK_PROVIDERS, MOCK_DRIVERS } from '@/mocks/data';
 import { generateId } from '@/utils/helpers';
@@ -313,6 +314,9 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           delete (cleanUpdates as any).phoneVerified;
           if (Object.keys(cleanUpdates).length > 0) {
             await fsUpdateUser(user.uid, cleanUpdates);
+            if (user.role === 'provider' || user.role === 'driver') {
+              await syncMyPublicProfile();
+            }
           }
           setUser((prev) => (prev ? { ...prev, ...cleanUpdates, ...authoritativeUpdates } : prev));
           console.log('[Auth] User profile updated via Firestore');

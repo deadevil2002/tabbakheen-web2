@@ -73,6 +73,8 @@ export interface User {
   photoUrl: string;
   socialLink: string;
   location: UserLocation | null;
+  /** Explicit opt-in discovery coordinate, distinct from private location. */
+  discoveryLocation?: UserLocation | null;
   address: string;
   ratingAverage: number;
   ratingCount: number;

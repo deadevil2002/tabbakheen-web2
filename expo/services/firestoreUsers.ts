@@ -10,10 +10,11 @@ import {
   where,
 } from 'firebase/firestore';
 import type { Unsubscribe } from 'firebase/firestore';
-import { getFirebaseFirestore } from './firebase';
+import { getFirebaseFirestore, getFirebaseAuth } from './firebase';
 import type { User } from '@/types';
 
 const COLLECTION = 'users';
+const PUBLIC_COLLECTION = 'public_profiles';
 
 const FORBIDDEN_FIELDS = [
   'uid', 'role', 'email', 'createdAt',
@@ -50,6 +51,7 @@ function toUser(id: string, data: Record<string, any>): User {
     photoUrl: data.photoUrl ?? '',
     socialLink: data.socialLink ?? '',
     location: data.location ?? null,
+    discoveryLocation: data.discoveryLocation ?? null,
     address: data.address ?? '',
     ratingAverage: data.ratingAverage ?? 0,
     ratingCount: data.ratingCount ?? 0,
@@ -87,6 +89,10 @@ function toUser(id: string, data: Record<string, any>): User {
 
 export async function fsGetUser(uid: string): Promise<User | null> {
   try {
+    if (getFirebaseAuth().currentUser?.uid !== uid) {
+      console.log('[fsUsers] refusing non-owner private profile read');
+      return null;
+    }
     const db = getFirebaseFirestore();
     const snap = await getDoc(doc(db, COLLECTION, uid));
     if (!snap.exists()) return null;
@@ -174,6 +180,10 @@ export function fsSubscribeToUser(
   cb: (u: User | null) => void,
 ): Unsubscribe {
   const db = getFirebaseFirestore();
+  if (getFirebaseAuth().currentUser?.uid !== uid) {
+    console.log('[fsUsers] refusing non-owner private profile subscription');
+    return () => {};
+  }
   return onSnapshot(
     doc(db, COLLECTION, uid),
     (snap) => cb(snap.exists() ? toUser(snap.id, snap.data()) : null),
@@ -206,6 +216,9 @@ export async function fsUpdateUser(
   uid: string,
   partial: Partial<User>,
 ): Promise<void> {
+  if (getFirebaseAuth().currentUser?.uid !== uid) {
+    throw new Error('Cannot update another account');
+  }
   const db = getFirebaseFirestore();
   const clean: Record<string, any> = { ...partial };
   for (const f of FORBIDDEN_FIELDS) delete clean[f];
@@ -215,16 +228,9 @@ export async function fsUpdateUser(
 }
 
 /**
- * Maps a Firestore users/{uid} document to a sanitised PUBLIC profile.
- * Used for cross-user reads (fsSubscribeByRole) — private fields are intentionally
- * omitted. Self-profile reads (fsGetUser / fsSubscribeToUser) still use toUser().
- *
- * Stripped: phone, email, fcmToken, expoPushToken, accountStatus, suspendedReason/At/By,
- *   disabledReason, vehiclePlateNumber, vehicleImageUrl, hasAcceptedTerms, lastLoginAt,
- *   maxDistanceKm, subscriptionStatus/Plan, trialEndsAt, subscriptionEndsAt, activatedByAdmin.
- * Kept intentionally public: displayName, role, photoUrl, location, address, city,
- *   ratingAverage/Count, isAvailable, verificationStatus/Source/At, vehicleType (type only),
- *   paymentMethods (provider exposes deliberately for payment), socialLink.
+ * Maps the server-controlled `public_profiles/{uid}` discovery projection.
+ * This is intentionally a separate schema from `users/{uid}`.  Do not add an
+ * owner-private field here merely because an existing screen happens to use it.
  */
 function toPublicUser(id: string, data: Record<string, any>): User {
   return {
@@ -235,19 +241,18 @@ function toPublicUser(id: string, data: Record<string, any>): User {
     role: data.role ?? 'customer',
     photoUrl: data.photoUrl ?? '',
     socialLink: data.socialLink ?? '',
-    location: data.location ?? null,
-    address: data.address ?? '',
+    // The Worker only publishes this value after an explicit owner choice. A
+    // legacy/private `users.location` is never a discovery location.
+    location: data.discoveryLocation ?? null,
+    address: '',
     ratingAverage: data.ratingAverage ?? 0,
     ratingCount: data.ratingCount ?? 0,
     fcmToken: '',
     createdAt: data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? new Date().toISOString(),
-    paymentMethods: data.paymentMethods,
     vehicleType: data.vehicleType,
     city: data.city,
     isAvailable: data.isAvailable,
     verificationStatus: data.verificationStatus,
-    verificationSource: data.verificationSource,
-    verifiedAt: data.verifiedAt?.toDate?.()?.toISOString?.() ?? data.verifiedAt,
   };
 }
 
@@ -256,7 +261,7 @@ export function fsSubscribeByRole(
   cb: (users: User[]) => void,
 ): Unsubscribe {
   const db = getFirebaseFirestore();
-  const q = query(collection(db, COLLECTION), where('role', '==', role));
+  const q = query(collection(db, PUBLIC_COLLECTION), where('role', '==', role));
   return onSnapshot(
     q,
     (snap) => cb(snap.docs.map((d) => toPublicUser(d.id, d.data()))),
@@ -267,20 +272,3 @@ export function fsSubscribeByRole(
   );
 }
 
-/**
- * Fetch the contact phone number for a user who is a party to an active order.
- * MUST only be called when the caller has a confirmed order relationship with targetUid
- * (e.g. order.providerUid, order.driverUid, order.customerUid).
- * Full server-side enforcement (Firestore rules) is a follow-up task.
- */
-export async function fsGetOrderContactPhone(targetUid: string): Promise<string> {
-  try {
-    const db = getFirebaseFirestore();
-    const snap = await getDoc(doc(db, COLLECTION, targetUid));
-    if (!snap.exists()) return '';
-    return snap.data()?.phone ?? '';
-  } catch (e) {
-    console.log('[fsUsers] getOrderContactPhone error:', e);
-    return '';
-  }
-}
