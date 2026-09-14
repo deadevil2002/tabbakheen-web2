@@ -25,6 +25,13 @@ const {
   decidePaymentViaWorker,
   submitRatingViaWorker,
   setPublicLocationPreference,
+  getOrderChat,
+  sendOrderChatMessage,
+  markOrderChatRead,
+  reportOrderChat,
+  mergeOrderChatMessages,
+  pendingOrderChatSend,
+  preserveOlderChatCursor,
 } = await import('./pushApi');
 const { hasEnabledPublicLocation, isValidPublicLocation } = await import('../utils/publicLocation');
 const { distanceToPublicProvider } = await import('../utils/publicLocation');
@@ -293,4 +300,128 @@ test('public-location preference has an authenticated allowlisted Worker outboun
       },
     ],
   ]);
+});
+
+test('order chat uses authenticated Worker-only bounded reads and allowlisted text/report payloads', async () => {
+  const fetchMock = mock(async (url) => {
+    if (url.includes('/orders/order-1/chat?')) {
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          writable: true,
+          lastReadSequence: 0,
+          unreadVisibleCount: 1,
+          unreadMayExistOutsidePage: true,
+          nextCursor: 'next-page',
+          messages: [{
+            messageId: 'message-1',
+            orderId: 'order-1',
+            senderUid: 'provider-1',
+            senderRole: 'provider',
+            text: 'وقت التحضير ساعتان',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            sequence: 1,
+            type: 'text',
+            phone: 'must-not-reach-client',
+          }],
+        }),
+      };
+    }
+    if (url.endsWith('/orders/chat/send')) {
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          message: {
+            messageId: 'message-2',
+            orderId: 'order-1',
+            senderUid: 'customer-1',
+            senderRole: 'customer',
+            text: 'موافق',
+            createdAt: '2026-01-01T00:01:00.000Z',
+            sequence: 2,
+            type: 'text',
+          },
+        }),
+      };
+    }
+    if (url.endsWith('/orders/chat/read')) return { ok: true, json: async () => ({ success: true, lastReadSequence: 1 }) };
+    return { ok: true, json: async () => ({ success: true }) };
+  });
+  globalThis.fetch = fetchMock;
+
+  await expect(getOrderChat('order-1')).resolves.toEqual({
+    writable: true,
+    lastReadSequence: 0,
+    unreadVisibleCount: 1,
+    unreadMayExistOutsidePage: true,
+    nextCursor: 'next-page',
+    messages: [{
+      messageId: 'message-1',
+      orderId: 'order-1',
+      senderUid: 'provider-1',
+      senderRole: 'provider',
+      text: 'وقت التحضير ساعتان',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      sequence: 1,
+      type: 'text',
+    }],
+  });
+  await expect(sendOrderChatMessage('order-1', 'message-2', 'موافق')).resolves.toMatchObject({ messageId: 'message-2', text: 'موافق' });
+  await markOrderChatRead('order-1', 'message-1', 1);
+  await reportOrderChat('order-1', 'message-1', 'إساءة');
+
+  expect(fetchMock.mock.calls).toEqual([
+    ['https://tabbakheen-api.tabbakheen.workers.dev/orders/order-1/chat?limit=30', { headers: { Authorization: 'Bearer test-id-token' } }],
+    ['https://tabbakheen-api.tabbakheen.workers.dev/orders/chat/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-id-token' },
+      body: JSON.stringify({ orderId: 'order-1', requestId: 'message-2', text: 'موافق' }),
+    }],
+    ['https://tabbakheen-api.tabbakheen.workers.dev/orders/chat/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-id-token' },
+      body: JSON.stringify({ orderId: 'order-1', lastVisibleMessageId: 'message-1', contiguousFromSequence: 1 }),
+    }],
+    ['https://tabbakheen-api.tabbakheen.workers.dev/orders/chat/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-id-token' },
+      body: JSON.stringify({ orderId: 'order-1', messageId: 'message-1', note: 'إساءة' }),
+    }],
+  ]);
+});
+
+test('order chat polling and older-page merge is deduplicated, chronological, and non-lossy', () => {
+  const message = (messageId, createdAt) => ({
+    messageId,
+    orderId: 'order-1',
+    senderUid: 'provider-1',
+    senderRole: 'provider',
+    text: messageId,
+    createdAt,
+    type: 'text',
+  });
+  const firstPoll = [message('m3', '2026-01-01T00:03:00.000Z'), message('m2', '2026-01-01T00:02:00.000Z')];
+  const olderPage = [message('m2', '2026-01-01T00:02:00.000Z'), message('m1', '2026-01-01T00:01:00.000Z')];
+  const laterPoll = [message('m4', '2026-01-01T00:04:00.000Z'), message('m3', '2026-01-01T00:03:00.000Z')];
+
+  // Simulates the worst completion order: user pages back while polling is
+  // in flight, then the poll returns. Every loaded message remains visible.
+  let visible = mergeOrderChatMessages([], firstPoll);
+  visible = mergeOrderChatMessages(visible, olderPage);
+  visible = mergeOrderChatMessages(visible, laterPoll);
+  expect(visible.map((item) => item.messageId)).toEqual(['m1', 'm2', 'm3', 'm4']);
+});
+
+test('chat pagination cursor and ambiguous-send retry preserve server history and exact intent', () => {
+  const initialized = preserveOlderChatCursor(null, 'order-1', null, 'older-page-1');
+  const afterPaging = preserveOlderChatCursor(initialized.initializedOrderId, 'order-1', 'older-page-2', 'newest-page-cursor');
+  expect(afterPaging).toEqual({ initializedOrderId: 'order-1', cursor: 'older-page-2' });
+
+  const first = pendingOrderChatSend(null, 'request-1', 'رسالة 😀');
+  // A changed draft/new random candidate after an ambiguous network error
+  // cannot alter the durable request ID or original text.
+  expect(pendingOrderChatSend(first, 'request-2', 'نص مختلف')).toEqual(first);
+  expect(Array.from(first.text).length).toBe(7);
 });

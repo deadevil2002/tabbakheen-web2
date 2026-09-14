@@ -44,6 +44,9 @@ import {
   decidePaymentViaWorker,
   submitRatingViaWorker,
   updateDriverAvailabilityViaWorker,
+  createDeliveryComplaintViaWorker,
+  getMyComplaintsViaWorker,
+  type ComplaintRef as WorkerComplaintRef,
 } from '@/services/pushApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { fsSubscribeByRole, fsUpdateUser } from '@/services/firestoreUsers';
@@ -53,11 +56,6 @@ import {
   fsSubscribeAvailableDeliveries,
   fsSubscribeAppSettings,
 } from '@/services/firestoreOrders';
-import {
-  fsCreateComplaint,
-  fsSubscribeMyComplaints,
-  type ComplaintRef,
-} from '@/services/firestoreComplaints';
 
 const OFFERS_KEY = 'tabbakheen_offers';
 const ORDERS_KEY = 'tabbakheen_orders';
@@ -69,6 +67,8 @@ const APP_SETTINGS_KEY = 'tabbakheen_app_settings';
 
 const SUSPENDED_ACCOUNT_MESSAGE =
   'تم إيقاف حسابك مؤقتًا. يمكنك تقديم اعتراض من خلال رابط الاعتراض المرسل لك.';
+
+type ComplaintRef = Pick<WorkerComplaintRef, 'orderId' | 'source' | 'complaintStatus'>;
 
 const isComplaintActive = (complaintStatus?: string): boolean =>
   complaintStatus !== 'resolved' && complaintStatus !== 'closed';
@@ -258,13 +258,23 @@ export const [DataProvider, useData] = createContextHook(() => {
     console.log('[DataContext] Setting up order subscriptions for', authUser.role, authUser.uid);
     const unsubs: (() => void)[] = [];
 
-    const complaintField =
-      authUser.role === 'driver'
-        ? 'driverUid'
-        : authUser.role === 'provider'
-          ? 'providerUid'
-          : 'customerUid';
-    unsubs.push(fsSubscribeMyComplaints(complaintField, authUser.uid, setMyComplaints));
+    // Complaints are private Worker DTOs. Do not query participant UID fields
+    // directly: that legacy pattern can expose another participant's report.
+    let complaintsActive = true;
+    const refreshMyComplaints = async () => {
+      try {
+        const complaints = await getMyComplaintsViaWorker();
+        if (complaintsActive) setMyComplaints(complaints);
+      } catch {
+        if (complaintsActive) setMyComplaints([]);
+      }
+    };
+    void refreshMyComplaints();
+    const complaintPoll = setInterval(() => { void refreshMyComplaints(); }, 30_000);
+    unsubs.push(() => {
+      complaintsActive = false;
+      clearInterval(complaintPoll);
+    });
 
     if (authUser.role === 'driver') {
       unsubs.push(
@@ -758,28 +768,30 @@ export const [DataProvider, useData] = createContextHook(() => {
         source,
         target: opts?.target ?? '',
       };
-      console.log('[DataContext] raiseDeliveryComplaint', {
-        orderId: order.id,
-        source,
-        type,
-        fb,
-        payloadKeys: Object.keys(payload),
-      });
       const alreadyActive = myComplaints.some(
         (c) => c.orderId === order.id && isComplaintActive(c.complaintStatus),
       );
       if (alreadyActive) {
-        console.log('[DataContext] Active complaint already exists for order, skipping:', order.id);
+        console.log('[DataContext] Active complaint already exists; skipped');
         return;
       }
       if (fb) {
-        await fsCreateComplaint(payload);
+        const complaintType = type as 'customer_rejected_receipt' | 'delivery_not_confirmed' | 'customer_complaint' | 'provider_complaint';
+        if (!['customer_rejected_receipt', 'delivery_not_confirmed', 'customer_complaint', 'provider_complaint'].includes(complaintType)) {
+          throw new Error('Unsupported complaint type');
+        }
+        await createDeliveryComplaintViaWorker(
+          order.id,
+          complaintType,
+          opts?.note ?? '',
+          opts?.target,
+        );
         setMyComplaints((prev) =>
           prev.some((c) => c.orderId === order.id && c.source === source)
             ? prev
             : [...prev, { orderId: order.id, source, complaintStatus: 'pending' }],
         );
-        console.log('[DataContext] Delivery complaint created in delivery_complaints:', order.id);
+        console.log('[DataContext] Delivery complaint created');
         return;
       }
       setMyComplaints((prev) =>
@@ -787,7 +799,7 @@ export const [DataProvider, useData] = createContextHook(() => {
           ? prev
           : [...prev, { orderId: order.id, source, complaintStatus: 'pending' }],
       );
-      console.log('[DataContext] Delivery complaint (local, not persisted):', JSON.stringify(payload));
+      console.log('[DataContext] Delivery complaint retained locally');
     },
     [fb, myComplaints],
   );

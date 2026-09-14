@@ -26,6 +26,17 @@ async function authorizedWorkerRequest<T>(path: string, body: Record<string, unk
   return data as T;
 }
 
+async function authorizedWorkerGet<T>(path: string): Promise<T> {
+  const idToken = await getIdToken();
+  if (!idToken) throw new Error('Not authenticated');
+  const response = await fetch(`${PUSH_API_URL}${path}`, {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  const data = await response.json();
+  if (!response.ok || !data?.success) throw new Error(data?.error || 'Request failed');
+  return data as T;
+}
+
 export interface OrderContact {
   phone: string;
 }
@@ -36,6 +47,226 @@ export interface OrderPaymentInstructions {
   bankName?: string;
   accountName?: string;
   iban?: string;
+}
+
+export type OrderChatRole = 'customer' | 'provider';
+
+export interface OrderChatMessage {
+  messageId: string;
+  orderId: string;
+  senderUid: string;
+  senderRole: OrderChatRole;
+  text: string;
+  createdAt: string;
+  sequence: number;
+  type: 'text';
+}
+
+export interface OrderChatPage {
+  writable: boolean;
+  messages: OrderChatMessage[];
+  lastReadSequence: number;
+  unreadVisibleCount: number;
+  unreadMayExistOutsidePage: boolean;
+  nextCursor: string | null;
+}
+
+export interface PendingOrderChatSend {
+  requestId: string;
+  text: string;
+}
+
+/** A poll can merge newer messages, but may never rewind older-page progress. */
+export function preserveOlderChatCursor(
+  initializedOrderId: string | null,
+  orderId: string,
+  currentCursor: string | null,
+  newestPageCursor: string | null,
+): { initializedOrderId: string; cursor: string | null } {
+  return initializedOrderId === orderId
+    ? { initializedOrderId: orderId, cursor: currentCursor }
+    : { initializedOrderId: orderId, cursor: newestPageCursor };
+}
+
+/** Retrying after an ambiguous network failure must reuse byte-for-byte intent. */
+export function pendingOrderChatSend(
+  existing: PendingOrderChatSend | null,
+  requestId: string,
+  text: string,
+): PendingOrderChatSend {
+  return existing ?? { requestId, text };
+}
+
+/** Stable UI merge for a polling/page race: no fetched message is discarded. */
+export function mergeOrderChatMessages(
+  existing: OrderChatMessage[],
+  incoming: OrderChatMessage[],
+): OrderChatMessage[] {
+  const byId = new Map<string, OrderChatMessage>();
+  for (const message of [...existing, ...incoming]) byId.set(message.messageId, message);
+  return [...byId.values()].sort((a, b) => a.sequence - b.sequence || a.createdAt.localeCompare(b.createdAt));
+}
+
+function parseChatPage(data: {
+  writable?: unknown;
+  messages?: unknown;
+  lastReadSequence?: unknown;
+  unreadVisibleCount?: unknown;
+  unreadMayExistOutsidePage?: unknown;
+  nextCursor?: unknown;
+}): OrderChatPage {
+  const messages = Array.isArray(data.messages)
+    ? data.messages
+      .filter((message): message is Record<string, unknown> => !!message && typeof message === 'object')
+      .filter((message) =>
+        typeof message.messageId === 'string'
+        && typeof message.orderId === 'string'
+        && typeof message.senderUid === 'string'
+        && (message.senderRole === 'customer' || message.senderRole === 'provider')
+        && typeof message.text === 'string'
+        && typeof message.createdAt === 'string'
+        && message.type === 'text',
+      )
+      .map((message) => ({
+        messageId: message.messageId as string,
+        orderId: message.orderId as string,
+        senderUid: message.senderUid as string,
+        senderRole: message.senderRole as OrderChatRole,
+        text: message.text as string,
+        createdAt: message.createdAt as string,
+        sequence: typeof message.sequence === 'number' && Number.isInteger(message.sequence) && message.sequence >= 0 ? message.sequence : 0,
+        type: 'text' as const,
+      }))
+    : [];
+  return {
+    writable: data.writable === true,
+    messages,
+    lastReadSequence: typeof data.lastReadSequence === 'number' && Number.isInteger(data.lastReadSequence) && data.lastReadSequence >= 0 ? data.lastReadSequence : 0,
+    unreadVisibleCount: typeof data.unreadVisibleCount === 'number' && Number.isInteger(data.unreadVisibleCount) && data.unreadVisibleCount >= 0 ? data.unreadVisibleCount : 0,
+    unreadMayExistOutsidePage: data.unreadMayExistOutsidePage === true,
+    nextCursor: typeof data.nextCursor === 'string' ? data.nextCursor : null,
+  };
+}
+
+/** Server-authoritative, bounded page of order negotiation messages. */
+export async function getOrderChat(orderId: string, cursor?: string | null): Promise<OrderChatPage> {
+  const query = cursor ? `?limit=30&cursor=${encodeURIComponent(cursor)}` : '?limit=30';
+  const data = await authorizedWorkerGet<{
+    writable?: unknown;
+    messages?: unknown;
+    lastReadSequence?: unknown;
+    unreadVisibleCount?: unknown;
+    unreadMayExistOutsidePage?: unknown;
+    nextCursor?: unknown;
+  }>(`/orders/${encodeURIComponent(orderId)}/chat${query}`);
+  return parseChatPage(data);
+}
+
+export async function sendOrderChatMessage(
+  orderId: string,
+  requestId: string,
+  text: string,
+): Promise<OrderChatMessage> {
+  const data = await authorizedWorkerRequest<{ message?: unknown }>('/orders/chat/send', {
+    orderId,
+    requestId,
+    text,
+  });
+  const page = parseChatPage({ messages: data.message ? [data.message] : [] });
+  const message = page.messages[0];
+  if (!message) throw new Error('Chat message response was invalid');
+  return message;
+}
+
+/** Acknowledgement time is assigned and fenced by the Worker, not the client. */
+export async function markOrderChatRead(
+  orderId: string,
+  lastVisibleMessageId: string,
+  contiguousFromSequence: number,
+): Promise<number> {
+  const data = await authorizedWorkerRequest<{ lastReadSequence?: unknown }>('/orders/chat/read', {
+    orderId,
+    lastVisibleMessageId,
+    contiguousFromSequence,
+  });
+  if (typeof data.lastReadSequence !== 'number' || !Number.isInteger(data.lastReadSequence) || data.lastReadSequence < 0) throw new Error('Chat read response was invalid');
+  return data.lastReadSequence;
+}
+
+export interface ComplaintRef {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  source: string;
+  target: string;
+  type: string;
+  complaintStatus: string;
+  note: string;
+  adminNote: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function getMyComplaintsViaWorker(): Promise<ComplaintRef[]> {
+  const data = await authorizedWorkerGet<{ complaints?: unknown }>('/complaints/mine');
+  if (!Array.isArray(data.complaints)) return [];
+  return data.complaints
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .filter((item) => typeof item.orderId === 'string' && typeof item.source === 'string' && typeof item.complaintStatus === 'string')
+    .map((item) => ({
+      id: typeof item.id === 'string' ? item.id : '',
+      orderId: item.orderId as string,
+      orderNumber: typeof item.orderNumber === 'string' ? item.orderNumber : '',
+      source: item.source as string,
+      target: typeof item.target === 'string' ? item.target : '',
+      type: typeof item.type === 'string' ? item.type : '',
+      complaintStatus: item.complaintStatus as string,
+      note: typeof item.note === 'string' ? item.note : '',
+      adminNote: typeof item.adminNote === 'string' ? item.adminNote : '',
+      createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
+      updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : '',
+    }));
+}
+
+export async function createDeliveryComplaintViaWorker(
+  orderId: string,
+  type: 'customer_rejected_receipt' | 'delivery_not_confirmed' | 'customer_complaint' | 'provider_complaint',
+  note: string,
+  target?: 'customer' | 'provider' | 'driver',
+): Promise<ComplaintRef> {
+  const data = await authorizedWorkerRequest<{ complaint?: unknown }>('/complaints/create', {
+    orderId,
+    type,
+    note,
+    ...(target ? { target } : {}),
+  });
+  const complaint = data.complaint as Record<string, unknown> | undefined;
+  if (!complaint || typeof complaint.orderId !== 'string' || typeof complaint.source !== 'string' || typeof complaint.complaintStatus !== 'string') throw new Error('Complaint response was invalid');
+  return {
+    id: typeof complaint.id === 'string' ? complaint.id : '',
+    orderId: complaint.orderId,
+    orderNumber: typeof complaint.orderNumber === 'string' ? complaint.orderNumber : '',
+    source: complaint.source,
+    target: typeof complaint.target === 'string' ? complaint.target : '',
+    type: typeof complaint.type === 'string' ? complaint.type : '',
+    complaintStatus: complaint.complaintStatus,
+    note: typeof complaint.note === 'string' ? complaint.note : '',
+    adminNote: typeof complaint.adminNote === 'string' ? complaint.adminNote : '',
+    createdAt: typeof complaint.createdAt === 'string' ? complaint.createdAt : '',
+    updatedAt: typeof complaint.updatedAt === 'string' ? complaint.updatedAt : '',
+  };
+}
+
+export async function reportOrderChat(
+  orderId: string,
+  messageId?: string,
+  note?: string,
+): Promise<void> {
+  await authorizedWorkerRequest('/orders/chat/report', {
+    orderId,
+    ...(messageId ? { messageId } : {}),
+    ...(note?.trim() ? { note: note.trim() } : {}),
+  });
 }
 
 export interface CreateOrderRequest {
@@ -166,8 +397,8 @@ export async function getOrderContact(orderId: string, target: 'provider' | 'dri
       purpose: 'contact',
     });
     return typeof data.phone === 'string' && data.phone.length > 0 ? { phone: data.phone } : null;
-  } catch (error) {
-    console.log('[PushAPI] order contact unavailable:', error);
+  } catch {
+    console.log('[PushAPI] order contact unavailable');
     return null;
   }
 }
@@ -189,8 +420,8 @@ export async function getOrderPaymentInstructions(orderId: string): Promise<Orde
       ...(typeof data.accountName === 'string' ? { accountName: data.accountName } : {}),
       ...(typeof data.iban === 'string' ? { iban: data.iban } : {}),
     };
-  } catch (error) {
-    console.log('[PushAPI] payment instructions unavailable:', error);
+  } catch {
+    console.log('[PushAPI] payment instructions unavailable');
     return null;
   }
 }
@@ -246,10 +477,9 @@ export async function sendPushNotification(
   try {
     const idToken = await getIdToken();
     if (!idToken) {
-      console.log(`[PushAPI] No auth token — skipping ${event} for order ${orderId}`);
+      console.log('[PushAPI] No auth token; notification skipped');
       return;
     }
-    console.log(`[PushAPI] Sending ${event} for order ${orderId}`);
     const response = await fetch(`${PUSH_API_URL}/notify`, {
       method: 'POST',
       headers: {
@@ -258,10 +488,9 @@ export async function sendPushNotification(
       },
       body: JSON.stringify({ event, orderId }),
     });
-    const data = await response.json();
-    console.log(`[PushAPI] Response:`, JSON.stringify(data));
-  } catch (e) {
-    console.log(`[PushAPI] Error sending ${event}:`, e);
+    await response.json();
+  } catch {
+    console.log('[PushAPI] Notification request failed');
   }
 }
 
@@ -284,7 +513,6 @@ export async function getDeliveryQuote(
 ): Promise<DeliveryQuote> {
   const idToken = await getIdToken();
   if (!idToken) throw new Error('Not authenticated');
-  console.log(`[PushAPI] Getting delivery quote for order ${orderId}`);
   const response = await fetch(`${PUSH_API_URL}/delivery-quote`, {
     method: 'POST',
     headers: {
@@ -294,7 +522,6 @@ export async function getDeliveryQuote(
     body: JSON.stringify({ orderId }),
   });
   const data = await response.json();
-  console.log(`[PushAPI] Delivery quote response:`, JSON.stringify(data));
   if (!data.success) {
     throw new Error(data.error || 'Failed to get delivery quote');
   }
@@ -312,7 +539,6 @@ export async function finalizeDeliveryMethod(
 ): Promise<DeliveryFinalizeResult> {
   const idToken = await getIdToken();
   if (!idToken) throw new Error('Not authenticated');
-  console.log(`[PushAPI] Finalizing delivery: orderId=${orderId} method=${method}`);
   const response = await fetch(`${PUSH_API_URL}/finalize-delivery`, {
     method: 'POST',
     headers: {
@@ -322,7 +548,6 @@ export async function finalizeDeliveryMethod(
     body: JSON.stringify({ orderId, method }),
   });
   const data = await response.json();
-  console.log(`[PushAPI] Finalize delivery response:`, JSON.stringify(data));
   if (!data.success) {
     throw new Error(data.error || 'Failed to finalize delivery');
   }

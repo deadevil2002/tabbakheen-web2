@@ -7,7 +7,7 @@ import Colors from '@/constants/colors';
 import { commonStyles as cs } from '@/constants/sharedStyles';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { fsSubscribeComplaintsByCreator, type CustomerComplaint } from '@/services/firestoreComplaints';
+import { getMyComplaintsViaWorker, type ComplaintRef } from '@/services/pushApi';
 import { formatDate } from '@/utils/helpers';
 
 const TYPE_LABELS: Record<'ar' | 'en', Record<string, string>> = {
@@ -37,7 +37,7 @@ export default function MyComplaintsView() {
   const r = isRTL;
   const BackIcon = isRTL ? ArrowRight : ArrowLeft;
 
-  const [complaints, setComplaints] = useState<CustomerComplaint[]>([]);
+  const [complaints, setComplaints] = useState<ComplaintRef[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -47,11 +47,23 @@ export default function MyComplaintsView() {
       return;
     }
     setLoading(true);
-    const unsub = fsSubscribeComplaintsByCreator(user.role, user.uid, (items) => {
-      setComplaints(items);
-      setLoading(false);
-    });
-    return () => unsub();
+    let active = true;
+    const load = async () => {
+      try {
+        const items = await getMyComplaintsViaWorker();
+        if (active) setComplaints(items);
+      } catch {
+        if (active) setComplaints([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void load();
+    const poll = setInterval(() => { void load(); }, 30_000);
+    return () => {
+      active = false;
+      clearInterval(poll);
+    };
   }, [user]);
 
   const statusLabel = (s: string): string => {
@@ -68,18 +80,18 @@ export default function MyComplaintsView() {
 
   const L: 'ar' | 'en' = locale === 'ar' ? 'ar' : 'en';
 
-  const targetLabel = (c: CustomerComplaint): string => {
+  const targetLabel = (c: ComplaintRef): string => {
     if (c.target === 'provider' || c.target === 'driver') return PARTY_LABELS[L][c.target];
     if (c.type === 'customer_rejected_receipt') return PARTY_LABELS[L].driver;
     return '-';
   };
 
-  const typeLabel = (c: CustomerComplaint): string => {
+  const typeLabel = (c: ComplaintRef): string => {
     if (!c.type) return '-';
     return TYPE_LABELS[L][c.type] ?? c.type;
   };
 
-  const fmt = (ms: number | null): string => (ms ? formatDate(new Date(ms).toISOString(), locale) : '-');
+  const fmt = (value: string): string => (value ? formatDate(value, locale) : '-');
 
   return (
     <View style={styles.container}>

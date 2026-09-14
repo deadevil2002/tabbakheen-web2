@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { RatingStars } from '@/components/RatingStars';
+import { OrderChat } from '@/components/OrderChat';
 import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor, formatSaudiPhoneForWhatsApp } from '@/utils/helpers';
 import { getOrderPickupNavigationTarget } from '@/utils/orderPickupNavigation';
 import MapLocationPicker from '@/components/MapLocationPicker';
@@ -434,6 +435,8 @@ export default function CustomerOrderDetailScreen() {
           {order.note ? <><View style={cs.divider} /><Text style={[cs.label, r && cs.rtlText]}>{t('noteLabel')}</Text><Text style={[cs.noteText, r && cs.rtlText]}>{order.note}</Text></> : null}
           {order.providerComment ? <><View style={cs.divider} /><Text style={[cs.label, r && cs.rtlText]}>{t('providerNote')}</Text><Text style={[cs.noteText, r && cs.rtlText]}>{order.providerComment}</Text></> : null}
         </View>
+
+        <OrderChat orderId={order.id} currentUid={user?.uid ?? ''} isRTL={r} locale={locale} />
 
         {order.paymentStatus !== 'unpaid' && order.paymentStatus !== 'paid' && (
           <View style={cs.sectionCard}>

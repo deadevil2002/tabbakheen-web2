@@ -12,6 +12,7 @@ import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
+import { OrderChat } from '@/components/OrderChat';
 import { formatPrice, formatDate, getPaymentMethodColor, getPaymentStatusColor } from '@/utils/helpers';
 import { sendLocalNotification } from '@/services/notifications';
 import { getOrderContact } from '@/services/pushApi';
@@ -244,6 +245,8 @@ export default function ProviderOrderDetailScreen() {
             </View>
           </View>
         )}
+
+        <OrderChat orderId={order.id} currentUid={user?.uid ?? ''} isRTL={r} locale={locale} />
 
         {order.status === 'pending' && (
           <View style={[cs.sectionCard, { shadowOpacity: 0 }]}>
