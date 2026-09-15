@@ -14,6 +14,10 @@ import type { Offer } from '@/types';
 const COLLECTION = 'offers';
 
 function toOffer(id: string, d: Record<string, any>): Offer {
+  let availabilityType: 'immediate' | 'preorder' = 'immediate';
+  if (d.availabilityType === 'preorder') {
+    availabilityType = 'preorder';
+  }
   return {
     id,
     providerUid: d.providerId ?? d.providerUid ?? '',
@@ -23,6 +27,7 @@ function toOffer(id: string, d: Record<string, any>): Offer {
     imageUrl: d.imageUrl ?? '',
     isAvailable: d.isAvailable ?? true,
     category: d.category ?? undefined,
+    availabilityType,
     createdAt:
       d.createdAt?.toDate?.()?.toISOString?.() ??
       d.createdAt ??

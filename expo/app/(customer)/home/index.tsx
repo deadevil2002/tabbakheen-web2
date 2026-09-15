@@ -42,14 +42,13 @@ import { formatPrice, formatDistance } from '@/utils/helpers';
 import { distanceToPublicProvider } from '@/utils/publicLocation';
 import { hasOfferImage } from '@/utils/offerPresentation';
 import { createWhatsAppUrl } from '@/utils/supportLinks';
+import { filterOffers, CategoryFilter, OrderTypeFilter } from '@/utils/homeFilter';
 
 const WHATSAPP_MESSAGE = 'السلام عليكم حبيت استفسر عن المساحة الاعلانية في تطبيق طباخين';
 
 const OFFERS_VIEW_MODE_KEY = 'customer_home_offers_view_mode';
 
 type ViewMode = 'grid' | 'list';
-
-type CategoryFilter = 'all' | OfferCategory;
 
 interface CategoryItem {
   key: CategoryFilter;
@@ -79,6 +78,12 @@ const CATEGORY_KEYS: { key: CategoryFilter; i18nKey: string }[] = [
   { key: 'other', i18nKey: 'categoryOther' },
 ];
 
+const ORDER_TYPE_KEYS = [
+  { key: 'all', ar: 'الكل', en: 'All' },
+  { key: 'immediate', ar: 'فوري', en: 'Immediate' },
+  { key: 'preorder', ar: 'طلب مسبق', en: 'Preorder' },
+] as const;
+
 export default function CustomerHomeScreen() {
   const router = useRouter();
   const { t, isRTL, locale, toggleLocale } = useLocale();
@@ -90,6 +95,7 @@ export default function CustomerHomeScreen() {
   const [search, setSearch] = useState<string>('');
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
+  const [orderType, setOrderType] = useState<OrderTypeFilter>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
 
   useEffect(() => {
@@ -132,24 +138,12 @@ export default function CustomerHomeScreen() {
   );
 
   const filteredOffers = useMemo(() => {
-    let result = availableOffers;
-
-    if (selectedCategory !== 'all') {
-      result = result.filter((o) => {
-        const cat = o.category || 'other';
-        return cat === selectedCategory;
-      });
-    }
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (o) => o.title.toLowerCase().includes(q) || o.description.toLowerCase().includes(q),
-      );
-    }
-
-    return result;
-  }, [availableOffers, search, selectedCategory]);
+    return filterOffers(availableOffers, {
+      category: selectedCategory,
+      orderType,
+      search,
+    });
+  }, [availableOffers, search, selectedCategory, orderType]);
 
   const handleOfferPress = useCallback(
     (offer: Offer) => {
@@ -289,41 +283,75 @@ export default function CustomerHomeScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
         }
       >
-        {/* Category filter bar */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryScroll}
-          style={styles.categoryScrollView}
-        >
-          {CATEGORY_KEYS.map((item) => {
-            const isActive = selectedCategory === item.key;
-            const IconComp = CATEGORY_ICON_MAP[item.key];
-            return (
-              <Pressable
-                key={item.key}
-                style={[
-                  styles.categoryChip,
-                  isActive && styles.categoryChipActive,
-                ]}
-                onPress={() => setSelectedCategory(item.key)}
-              >
-                <IconComp
-                  size={CATEGORY_ICON_SIZE}
-                  color={isActive ? Colors.white : Colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.categoryChipLabel,
-                    isActive && styles.categoryChipLabelActive,
-                  ]}
+        {/* Order Type Section */}
+        <View style={styles.orderTypeSection}>
+          <Text style={[styles.filterSectionLabel, isRTL && styles.rtlText]}>
+            {locale === 'ar' ? 'نوع الطلب' : 'Order Type'}
+          </Text>
+          <View style={[styles.segmentedControl, isRTL && styles.rowRTL]}>
+            {ORDER_TYPE_KEYS.map((item) => {
+              const isActive = orderType === item.key;
+              return (
+                <Pressable
+                  key={item.key}
+                  style={[styles.segmentBtn, isActive && styles.segmentBtnActive]}
+                  onPress={() => setOrderType(item.key)}
+                  testID={`order-type-${item.key}`}
                 >
-                  {t(item.i18nKey as any)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+                  <Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>
+                    {locale === 'ar' ? item.ar : item.en}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* Category filter bar */}
+        <View style={styles.categorySection}>
+          <Text style={[styles.filterSectionLabel, isRTL && styles.rtlText]}>
+            {locale === 'ar' ? 'التصنيفات' : 'Categories'}
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryScroll}
+            style={styles.categoryScrollView}
+          >
+            {CATEGORY_KEYS.map((item) => {
+              const isActive = selectedCategory === item.key;
+              const IconComp = CATEGORY_ICON_MAP[item.key];
+              const label = item.key === 'all'
+                ? (locale === 'ar' ? 'جميع الأصناف' : 'All Categories')
+                : t(item.i18nKey as any);
+
+              return (
+                <Pressable
+                  key={item.key}
+                  style={[
+                    styles.categoryChip,
+                    isActive && styles.categoryChipActive,
+                  ]}
+                  onPress={() => setSelectedCategory(item.key)}
+                  testID={`category-${item.key}`}
+                >
+                  <IconComp
+                    size={CATEGORY_ICON_SIZE}
+                    color={isActive ? Colors.white : Colors.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.categoryChipLabel,
+                      isActive && styles.categoryChipLabelActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
 
         {/* Ad Banner */}
         {(appSettings.bannerEnabled !== false) && hasOfferImage(appSettings.bannerImageUrl) ? (
@@ -496,9 +524,53 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  categoryScrollView: {
-    marginTop: 14,
+  orderTypeSection: {
+    paddingHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  categorySection: {
     marginBottom: 6,
+  },
+  filterSectionLabel: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.text,
+    marginBottom: 10,
+    paddingHorizontal: 20,
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: Colors.surfaceSecondary,
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
+  },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+  },
+  segmentBtnActive: {
+    backgroundColor: Colors.primary,
+    shadowColor: Colors.shadow.color,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  segmentText: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.textSecondary,
+  },
+  segmentTextActive: {
+    color: Colors.white,
+  },
+  categoryScrollView: {
+    // Label takes horizontal padding, so this doesn't need to add space unless we want it below the label.
   },
   categoryScroll: {
     paddingHorizontal: 20,

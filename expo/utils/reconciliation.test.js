@@ -12,6 +12,11 @@ const {
   offersReturnPath,
   shouldReopenOfferDraft,
 } = await import('./offerCreationNavigation');
+const {
+  updateCategory,
+  updateOrderType,
+  filterOffers,
+} = await import('./homeFilter');
 
 test('offer image presentation never treats an empty image as uploaded media', () => {
   expect(hasOfferImage('')).toBe(false);
@@ -64,4 +69,65 @@ test('a rejecting geocoder clears stale city text for a changed point', async ()
     true,
     async () => { throw new Error('geocoder unavailable'); },
   )).resolves.toBe('');
+});
+
+test('category and order type filters maintain independent state and do not mutually reset', () => {
+  const initialState = { category: 'all', orderType: 'all', search: '' };
+
+  // فوري + حلويات
+  let state = updateOrderType(initialState, 'immediate');
+  expect(state.orderType).toBe('immediate');
+  expect(state.category).toBe('all');
+
+  state = updateCategory(state, 'dessert');
+  expect(state.orderType).toBe('immediate');
+  expect(state.category).toBe('dessert');
+
+  // طلب مسبق + رئيسي
+  state = updateOrderType(state, 'preorder');
+  expect(state.orderType).toBe('preorder');
+  expect(state.category).toBe('dessert');
+
+  state = updateCategory(state, 'main');
+  expect(state.orderType).toBe('preorder');
+  expect(state.category).toBe('main');
+
+  // الكل + جميع الأصناف
+  state = updateOrderType(state, 'all');
+  expect(state.orderType).toBe('all');
+  expect(state.category).toBe('main');
+
+  state = updateCategory(state, 'all');
+  expect(state.orderType).toBe('all');
+  expect(state.category).toBe('all');
+
+  // الكل + مقبلات
+  state = updateCategory(state, 'appetizer');
+  expect(state.orderType).toBe('all');
+  expect(state.category).toBe('appetizer');
+});
+
+test('offers are correctly filtered by both order type and category independently', () => {
+  const offers = [
+    { id: '1', title: 'A', description: '', category: 'dessert', availabilityType: 'immediate' },
+    { id: '2', title: 'B', description: '', category: 'main', availabilityType: 'preorder' },
+    { id: '3', title: 'C', description: '', category: 'appetizer' },
+    { id: '4', title: 'D', description: '', category: 'dessert', availabilityType: 'preorder' },
+    { id: '5', title: 'E', description: '', category: 'main', availabilityType: 'immediate' },
+  ];
+
+  let filtered = filterOffers(offers, { category: 'dessert', orderType: 'immediate', search: '' });
+  expect(filtered.map((o) => o.id)).toEqual(['1']);
+
+  filtered = filterOffers(offers, { category: 'main', orderType: 'preorder', search: '' });
+  expect(filtered.map((o) => o.id)).toEqual(['2']);
+
+  filtered = filterOffers(offers, { category: 'all', orderType: 'all', search: '' });
+  expect(filtered.map((o) => o.id)).toEqual(['1', '2', '3', '4', '5']);
+
+  filtered = filterOffers(offers, { category: 'appetizer', orderType: 'all', search: '' });
+  expect(filtered.map((o) => o.id)).toEqual(['3']);
+
+  filtered = filterOffers(offers, { category: 'all', orderType: 'immediate', search: '' });
+  expect(filtered.map((o) => o.id)).toEqual(['1', '3', '5']);
 });

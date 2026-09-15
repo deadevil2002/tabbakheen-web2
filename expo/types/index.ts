@@ -140,6 +140,7 @@ export interface Offer {
   imageUrl: string;
   isAvailable: boolean;
   category?: OfferCategory;
+  availabilityType?: 'immediate' | 'preorder';
   createdAt: string;
 }
 
