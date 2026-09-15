@@ -1,8 +1,8 @@
 import { AppAlert } from '@/components/AppDialog';
-import React, { useCallback, useState, useMemo, useEffect } from 'react';
+import React, { useCallback, useState, useMemo, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, TextInput, Switch, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { LogOut, Globe, Mail, Phone, MapPin, ChevronLeft, ChevronRight, UserCircle, Shield, Info, CreditCard, Building2, Crown, AlertTriangle, Check, Camera, Navigation, BadgeCheck, FileText } from 'lucide-react-native';
 import Colors from '@/constants/colors';
@@ -22,9 +22,14 @@ import { verifyCommercialRegistration, submitFreelanceCertificate, setPublicLoca
 import { fsGetVerificationCrNumber, fsSubscribeToFreelanceCertificate } from '@/services/firestoreUsers';
 import type { FreelanceCertReview } from '@/services/firestoreUsers';
 import { VERIFIED_BLUE } from '@/components/VerifiedBadge';
+import * as Location from 'expo-location';
+import { getInstalledAppVersion } from '@/utils/appVersion';
+import { resolvePublicLocationCity, shouldReverseGeocodePublicLocation, samePublicLocationCoordinates } from '@/utils/publicLocation';
+import { offersReturnPath } from '@/utils/offerCreationNavigation';
 
 export default function ProviderSettingsScreen() {
   const router = useRouter();
+  const { openPublicLocation, returnTo, openCreate } = useLocalSearchParams<{ openPublicLocation?: string; returnTo?: string; openCreate?: string }>();
   const { t, isRTL, locale, toggleLocale } = useLocale();
   const { user, logout, updateUser } = useAuth();
   const { getSubscription, isProviderSubscriptionValid, updateProviderPaymentMethods } = useData();
@@ -49,6 +54,8 @@ export default function ProviderSettingsScreen() {
   const [publicLocation, setPublicLocation] = useState<PublicLocation | null>(user?.publicLocation ?? null);
   const [publicLocationCity, setPublicLocationCity] = useState<string>(user?.publicLocation?.city ?? '');
   const [isPublicLocationEnabled, setIsPublicLocationEnabled] = useState<boolean>(user?.publicLocationEnabled === true);
+  const [manualPublicLocationRequired, setManualPublicLocationRequired] = useState<boolean>(false);
+  const selectedPublicLocationRef = useRef<{ lat: number; lng: number; cityEditedAfterSelection: boolean } | null>(null);
   const [isSavingPublicLocation, setIsSavingPublicLocation] = useState<boolean>(false);
   const [crNumber, setCrNumber] = useState<string>('');
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
@@ -61,6 +68,11 @@ export default function ProviderSettingsScreen() {
   const [freelanceCert, setFreelanceCert] = useState<FreelanceCertReview | null>(null);
   const verificationStatus = user?.verificationStatus;
   const flReviewStatus = freelanceCert?.reviewStatus;
+  const appVersion = getInstalledAppVersion();
+
+  useEffect(() => {
+    if (openPublicLocation === '1') setShowPublicLocationPicker(true);
+  }, [openPublicLocation]);
 
   useEffect(() => {
     let active = true;
@@ -108,11 +120,52 @@ export default function ProviderSettingsScreen() {
     AppAlert.alert(t('success'), t('locationSaved'));
   }, [updateUser, t]);
 
-  const handleSavePublicLocation = useCallback(async (coords: { lat: number; lng: number }) => {
-    const city = publicLocationCity.trim();
+  const handlePublicLocationCityChange = useCallback((city: string) => {
+    if (selectedPublicLocationRef.current) {
+      selectedPublicLocationRef.current.cityEditedAfterSelection = true;
+    }
+    setPublicLocationCity(city);
+  }, []);
+
+  const handlePublicLocationCoordinatesChange = useCallback((coords: { lat: number; lng: number }) => {
+    const current = selectedPublicLocationRef.current;
+    if (!current || !samePublicLocationCoordinates(current, coords)) {
+      selectedPublicLocationRef.current = { ...coords, cityEditedAfterSelection: false };
+      setManualPublicLocationRequired(false);
+    }
+  }, []);
+
+  const handleSavePublicLocation = useCallback(async (coords: { lat: number; lng: number }): Promise<boolean> => {
+    const selection = selectedPublicLocationRef.current;
+    const shouldReverseGeocode = shouldReverseGeocodePublicLocation(
+      user?.publicLocation ?? null,
+      coords,
+      selection
+        ? samePublicLocationCoordinates(selection, coords) && selection.cityEditedAfterSelection
+        : false,
+    );
+    let city = publicLocationCity.trim();
+    if (shouldReverseGeocode) {
+      // A changed point must never retain the previous point's city while the
+      // asynchronous geocoder is pending or if it rejects.
+      city = '';
+      setPublicLocationCity('');
+      city = await resolvePublicLocationCity('', true, () => Location.reverseGeocodeAsync({
+          latitude: coords.lat,
+          longitude: coords.lng,
+        }));
+      if (city) setPublicLocationCity(city);
+    }
     if (!city) {
-      AppAlert.alert(t('error'), locale === 'ar' ? 'أدخل المدينة لموقع الاكتشاف العام.' : 'Enter the city for the public discovery location.');
-      return;
+      setPublicLocation({ ...coords, city: '' });
+      setPublicLocationCity('');
+      setManualPublicLocationRequired(true);
+      selectedPublicLocationRef.current = { ...coords, cityEditedAfterSelection: false };
+      setShowPublicLocationPicker(false);
+      AppAlert.alert(t('error'), locale === 'ar'
+        ? 'تعذر تحديد المدينة تلقائياً. أدخل اسم المدينة في الحقل ثم اضغط حفظ موقع الظهور.'
+        : 'We could not find the city automatically. Enter a city label, then press Save public location.');
+      return false;
     }
     const selected: PublicLocation = { ...coords, city };
     setIsSavingPublicLocation(true);
@@ -120,18 +173,25 @@ export default function ProviderSettingsScreen() {
       await setPublicLocationPreference(true, selected);
       setPublicLocation(selected);
       setIsPublicLocationEnabled(true);
+      setManualPublicLocationRequired(false);
+      selectedPublicLocationRef.current = { ...coords, cityEditedAfterSelection: false };
+      if (returnTo === 'offers') {
+        router.replace(offersReturnPath(openCreate === '1') as any);
+      }
     } catch (error) {
       console.log('[ProviderSettings] Public-location update error:', error);
       AppAlert.alert(t('error'), locale === 'ar' ? 'تعذر تحديث موقع الاكتشاف العام.' : 'Unable to update public discovery location.');
+      return false;
     } finally {
       setIsSavingPublicLocation(false);
     }
-  }, [publicLocationCity, t, locale]);
+    return true;
+  }, [publicLocationCity, t, locale, returnTo, router, openCreate, user?.publicLocation]);
 
   const handlePublicLocationToggle = useCallback(async (enabled: boolean) => {
     if (enabled) {
       if (!publicLocation || !publicLocationCity.trim()) {
-        AppAlert.alert(t('error'), locale === 'ar' ? 'اختر موقع الاكتشاف العام وأدخل المدينة أولاً.' : 'Choose a public discovery location and enter its city first.');
+        AppAlert.alert(t('error'), locale === 'ar' ? 'اختر موقع ظهورك للعملاء أولاً.' : 'Choose your public discovery location first.');
         return;
       }
       setIsSavingPublicLocation(true);
@@ -438,30 +498,13 @@ export default function ProviderSettingsScreen() {
           )}
         </View>
 
-        <Pressable style={({ pressed }) => [s.paySettingsBtn, pressed && { backgroundColor: Colors.background }]} onPress={() => setShowLocationPicker(true)}>
-          <View style={[s.paySettingsHeader, r && cs.rowRTL]}>
-            <Navigation size={20} color={user?.location ? Colors.success : Colors.primary} />
-            <View style={cs.flex1}>
-              <Text style={[s.paySettingsTitle, r && cs.rtlText]}>{locale === 'ar' ? 'موقع الحساب الخاص' : 'Private account location'}</Text>
-              <Text style={[s.paySettingsDesc, r && cs.rtlText]}>
-                {locale === 'ar' ? 'هذا الموقع خاص بحسابك ولا يظهر للعملاء على الخريطة.' : 'This location is private to your account and is never shown to customers on the map.'}
-              </Text>
-            </View>
-            {user?.location ? (
-              <Check size={18} color={Colors.success} />
-            ) : (
-              <MapPin size={18} color={Colors.textTertiary} />
-            )}
-          </View>
-        </Pressable>
-
-        <View style={[s.paySettingsBtn, { paddingVertical: 14 }]}>
+        <View style={[s.paySettingsBtn, s.publicLocationPrimary]}>
           <View style={[s.paySettingsHeader, r && cs.rowRTL]}>
             <Globe size={20} color={Colors.primary} />
             <View style={cs.flex1}>
-              <Text style={[s.paySettingsTitle, r && cs.rtlText]}>{locale === 'ar' ? 'إظهار موقعي للعملاء في الخريطة' : 'Show my location to customers on the map'}</Text>
+              <Text style={[s.paySettingsTitle, r && cs.rtlText]}>{locale === 'ar' ? 'موقع ظهوري للعملاء' : 'My public discovery location'}</Text>
               <Text style={[s.paySettingsDesc, r && cs.rtlText]}>
-                {locale === 'ar' ? 'اختر الموقع الذي ترغب أن يظهر للعملاء عند البحث عن مقدمي الخدمة. لا يلزم أن يكون موقع منزلك.' : 'Choose the location you want customers to see when searching for providers. It does not need to be your home location.'}
+                {locale === 'ar' ? 'هذا هو الموقع الذي يظهر للعملاء عند البحث عن مقدمي الخدمة.' : 'This is the location customers see when searching for providers.'}
               </Text>
             </View>
             <Switch
@@ -473,10 +516,10 @@ export default function ProviderSettingsScreen() {
           </View>
           <TextInput
             style={[cs.formInput, r && cs.inputRTL, { marginTop: 12 }]}
-            placeholder={locale === 'ar' ? 'مدينة موقع الاكتشاف العام' : 'Public discovery location city'}
+            placeholder={locale === 'ar' ? 'مدينة موقع الظهور للعملاء (اختياري عند استخدام الخريطة)' : 'Public discovery city (optional when using the map)'}
             placeholderTextColor={Colors.textTertiary}
             value={publicLocationCity}
-            onChangeText={setPublicLocationCity}
+            onChangeText={handlePublicLocationCityChange}
             editable={!isSavingPublicLocation}
             textAlign={r ? 'right' : 'left'}
           />
@@ -487,10 +530,41 @@ export default function ProviderSettingsScreen() {
           >
             <MapPin size={18} color={Colors.primary} />
             <Text style={[s.publicLocationButtonText, r && cs.rtlText]}>
-              {publicLocation ? (locale === 'ar' ? 'تغيير موقع الاكتشاف العام' : 'Change public discovery location') : (locale === 'ar' ? 'اختيار موقع الاكتشاف العام' : 'Choose public discovery location')}
+              {publicLocation ? (locale === 'ar' ? 'تغيير موقع الظهور للعملاء' : 'Change public discovery location') : (locale === 'ar' ? 'اختيار موقع الظهور للعملاء' : 'Choose public discovery location')}
             </Text>
           </Pressable>
+          {manualPublicLocationRequired ? (
+            <Pressable
+              style={({ pressed }) => [s.publicLocationSaveButton, r && cs.rowRTL, pressed && { opacity: 0.8 }]}
+              onPress={() => {
+                if (publicLocation) void handleSavePublicLocation(publicLocation);
+              }}
+              disabled={!publicLocationCity.trim() || isSavingPublicLocation || !publicLocation}
+            >
+              <Check size={18} color={Colors.white} />
+              <Text style={[s.publicLocationSaveButtonText, r && cs.rtlText]}>
+                {locale === 'ar' ? 'حفظ موقع الظهور' : 'Save public location'}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
+
+        <Pressable style={({ pressed }) => [s.paySettingsBtn, pressed && { backgroundColor: Colors.background }]} onPress={() => setShowLocationPicker(true)}>
+          <View style={[s.paySettingsHeader, r && cs.rowRTL]}>
+            <Navigation size={20} color={user?.location ? Colors.success : Colors.primary} />
+            <View style={cs.flex1}>
+              <Text style={[s.paySettingsTitle, r && cs.rtlText]}>{locale === 'ar' ? 'موقعي الخاص' : 'My private location'}</Text>
+              <Text style={[s.paySettingsDesc, r && cs.rtlText]}>
+                {locale === 'ar' ? 'هذا الموقع خاص بحسابك ولا يظهر للعملاء على الخريطة.' : 'This location is private to your account and is never shown to customers on the map.'}
+              </Text>
+            </View>
+            {user?.location ? (
+              <Check size={18} color={Colors.success} />
+            ) : (
+              <MapPin size={18} color={Colors.textTertiary} />
+            )}
+          </View>
+        </Pressable>
 
         <Pressable style={({ pressed }) => [s.paySettingsBtn, pressed && { backgroundColor: Colors.background }]} onPress={() => setShowPaymentSettings(!showPaymentSettings)}>
           <View style={[s.paySettingsHeader, r && cs.rowRTL]}>
@@ -552,7 +626,7 @@ export default function ProviderSettingsScreen() {
         <Pressable style={({ pressed }) => [cs.logoutBtn, pressed && cs.btnPressed]} onPress={handleLogout}>
           <LogOut size={20} color={Colors.error} /><Text style={cs.logoutText}>{t('logout')}</Text>
         </Pressable>
-        <Text style={cs.versionText}>{t('version')} 1.0.0 • {t('poweredBy')}</Text>
+        <Text style={cs.versionText}>{t('version')} {appVersion} • {t('poweredBy')}</Text>
         <View style={cs.bottomSpacer} />
       </ScrollView>
       <SupportDialog visible={showSupport} onClose={() => setShowSupport(false)} />
@@ -569,6 +643,7 @@ export default function ProviderSettingsScreen() {
         visible={showPublicLocationPicker}
         onClose={() => setShowPublicLocationPicker(false)}
         onSave={handleSavePublicLocation}
+        onCoordinatesChange={handlePublicLocationCoordinatesChange}
         initialLocation={publicLocation}
         title={locale === 'ar' ? 'موقع الاكتشاف العام' : 'Public discovery location'}
         hint={locale === 'ar' ? 'هذا الموقع سيظهر للعملاء عند البحث عن مقدمي الخدمة.' : 'This location will be visible to customers searching for providers.'}
@@ -621,11 +696,14 @@ const s = StyleSheet.create({
   uploadBtnText: { fontSize: 14, fontWeight: '600' as const, color: Colors.primary },
   certPreview: { width: '100%', height: 160, borderRadius: 12, marginTop: 12, backgroundColor: Colors.background },
   paySettingsBtn: { backgroundColor: Colors.surface, borderRadius: 16, marginHorizontal: 20, padding: 16, marginBottom: 4 },
+  publicLocationPrimary: { borderWidth: 1, borderColor: Colors.primaryFaded },
   paySettingsHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   paySettingsTitle: { fontSize: 15, fontWeight: '700' as const, color: Colors.text, marginBottom: 2 },
   paySettingsDesc: { fontSize: 12, color: Colors.textTertiary },
   publicLocationButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: Colors.primary, borderRadius: 12, marginTop: 10, paddingVertical: 11 },
   publicLocationButtonText: { color: Colors.primary, fontSize: 14, fontWeight: '700' as const },
+  publicLocationSaveButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.primary, borderRadius: 12, marginTop: 10, paddingVertical: 11 },
+  publicLocationSaveButtonText: { color: Colors.white, fontSize: 14, fontWeight: '700' as const },
   payForm: { backgroundColor: Colors.surface, borderRadius: 16, marginHorizontal: 20, padding: 16, marginBottom: 16, marginTop: 4 },
   toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   toggleLabel: { fontSize: 15, fontWeight: '600' as const, color: Colors.text },

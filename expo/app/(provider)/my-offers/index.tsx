@@ -25,12 +25,17 @@ import { useData } from '@/contexts/DataContext';
 import { EmptyState } from '@/components/EmptyState';
 import { Offer, OfferCategory } from '@/types';
 import { formatPrice } from '@/utils/helpers';
-import { FOOD_IMAGES } from '@/mocks/data';
 import { pickImageFreeAspect } from '@/utils/imagePicker';
 import { uploadOfferImage } from '@/services/cloudinary';
+import { hasEnabledPublicLocation } from '@/utils/publicLocation';
+import { hasOfferImage } from '@/utils/offerPresentation';
+import { publicLocationSettingsPath, shouldReopenOfferDraft } from '@/utils/offerCreationNavigation';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 
 export default function ProviderOffersScreen() {
   const { t, isRTL, locale } = useLocale();
+  const router = useRouter();
+  const { openCreate } = useLocalSearchParams<{ openCreate?: string }>();
   const { user } = useAuth();
   const { getOffersByProvider, createOffer, updateOffer, deleteOffer } = useData();
 
@@ -41,6 +46,14 @@ export default function ProviderOffersScreen() {
   const [newImageUrl, setNewImageUrl] = useState<string>('');
   const [isUploadingImage, setIsUploadingImage] = useState<boolean>(false);
   const [newCategory, setNewCategory] = useState<OfferCategory>('main');
+  const [publishReminderShown, setPublishReminderShown] = useState<boolean>(false);
+
+  useFocusEffect(useCallback(() => {
+    if (shouldReopenOfferDraft(openCreate)) {
+      setShowCreate(true);
+      router.setParams({ openCreate: undefined });
+    }
+  }, [openCreate, router]));
 
   const CATEGORIES: OfferCategory[] = ['main', 'dessert', 'appetizer', 'pastry', 'drinks', 'other'];
   const categoryLabelKey: Record<OfferCategory, string> = {
@@ -57,24 +70,52 @@ export default function ProviderOffersScreen() {
     [user, getOffersByProvider],
   );
 
+  const openPublicLocationSettings = useCallback(() => {
+    router.push(publicLocationSettingsPath(false) as any);
+  }, [router]);
+  const openPublicLocationForCreate = useCallback(() => {
+    // Close the modal before navigation; this keeps the draft state in this
+    // screen while avoiding a modal overlay over Settings. The return query
+    // reopens it without resetting any draft fields.
+    setShowCreate(false);
+    router.push(publicLocationSettingsPath(true) as any);
+  }, [router]);
+
   const handleToggleAvailability = useCallback(
     async (offer: Offer) => {
+      if (!offer.isAvailable && (!user || !hasEnabledPublicLocation(user))) {
+        AppAlert.alert(
+          locale === 'ar' ? 'حدد موقع ظهورك أولاً' : 'Set your public location first',
+          locale === 'ar'
+            ? 'قبل تفعيل العرض، لازم تحدد موقع ظهورك للعملاء.'
+            : 'Set your public discovery location before activating this offer.',
+          [
+            { text: locale === 'ar' ? 'إلغاء' : 'Cancel', style: 'cancel' },
+            { text: locale === 'ar' ? 'تحديد الموقع' : 'Set location', onPress: openPublicLocationSettings },
+          ],
+        );
+        return;
+      }
       await updateOffer(offer.id, { isAvailable: !offer.isAvailable });
     },
-    [updateOffer],
+    [locale, openPublicLocationSettings, updateOffer, user],
   );
 
   const handleDelete = useCallback(
     (offer: Offer) => {
       AppAlert.alert(
         t('deleteOffer'),
-        locale === 'ar' ? 'هل أنت متأكد من حذف هذا العرض؟' : 'Are you sure you want to delete this offer?',
+        locale === 'ar' ? 'هل أنت متأكد من حذف هذا العرض؟ لا يمكن التراجع عن الحذف.' : 'Are you sure you want to delete this offer? This cannot be undone.',
         [
           { text: t('cancel'), style: 'cancel' },
           {
             text: t('delete'),
             style: 'destructive',
-            onPress: () => deleteOffer(offer.id),
+            onPress: () => {
+              void deleteOffer(offer.id).catch(() => {
+                AppAlert.alert(t('error'), locale === 'ar' ? 'تعذر حذف العرض.' : 'Unable to delete the offer.');
+              });
+            },
           },
         ],
       );
@@ -98,6 +139,50 @@ export default function ProviderOffersScreen() {
     }
   }, [t]);
 
+  const publishOffer = useCallback(async () => {
+    if (!user) return;
+    try {
+      await createOffer({
+        providerUid: user.uid,
+        title: newTitle.trim(),
+        description: newDescription.trim(),
+        price: parseFloat(newPrice),
+        imageUrl: newImageUrl.trim(),
+        isAvailable: true,
+        category: newCategory,
+      });
+
+      setNewTitle('');
+      setNewDescription('');
+      setNewPrice('');
+      setNewImageUrl('');
+      setNewCategory('main');
+      setPublishReminderShown(false);
+      setShowCreate(false);
+    } catch (e) {
+      console.log('[Offers] Create offer error:', e);
+      AppAlert.alert(t('error'), t('offerCreateError'));
+    }
+  }, [newTitle, newDescription, newPrice, newImageUrl, user, createOffer, t, newCategory]);
+
+  const handleOpenCreate = useCallback(() => {
+    setPublishReminderShown(false);
+    if (!user || !hasEnabledPublicLocation(user)) {
+      AppAlert.alert(
+        locale === 'ar' ? 'حدد موقع ظهورك أولاً' : 'Set your public location first',
+        locale === 'ar'
+          ? 'قبل إضافة عرضك، لازم تحدد موقع ظهورك للعملاء عشان يقدرون يلقونك ويطلبون منك.'
+          : 'Before adding an offer, set the public discovery location customers use to find you.',
+        [
+          { text: locale === 'ar' ? 'إلغاء' : 'Cancel', style: 'cancel' },
+          { text: locale === 'ar' ? 'تحديد الموقع' : 'Set location', onPress: openPublicLocationForCreate },
+        ],
+      );
+      return;
+    }
+    setShowCreate(true);
+  }, [locale, openPublicLocationForCreate, user]);
+
   const handleCreate = useCallback(async () => {
     if (!newTitle.trim() || !newPrice.trim() || !user) {
       AppAlert.alert(t('error'), locale === 'ar' ? 'يرجى ملء الحقول المطلوبة' : 'Please fill required fields');
@@ -109,33 +194,38 @@ export default function ProviderOffersScreen() {
       return;
     }
 
-    try {
-      await createOffer({
-        providerUid: user.uid,
-        title: newTitle.trim(),
-        description: newDescription.trim(),
-        price,
-        imageUrl: newImageUrl.trim() || FOOD_IMAGES[Math.floor(Math.random() * FOOD_IMAGES.length)],
-        isAvailable: true,
-        category: newCategory,
-      });
-
-      setNewTitle('');
-      setNewDescription('');
-      setNewPrice('');
-      setNewImageUrl('');
-      setNewCategory('main');
-      setShowCreate(false);
-    } catch (e) {
-      console.log('[Offers] Create offer error:', e);
-      AppAlert.alert(t('error'), t('offerCreateError'));
+    if (!hasEnabledPublicLocation(user)) {
+      openPublicLocationForCreate();
+      return;
     }
-  }, [newTitle, newDescription, newPrice, newImageUrl, user, createOffer, t, locale]);
+    if (!publishReminderShown) {
+      setPublishReminderShown(true);
+      AppAlert.alert(
+        locale === 'ar' ? 'تأكيد موقع الظهور' : 'Confirm public location',
+        locale === 'ar'
+          ? 'تأكد أن موقع ظهورك للعملاء صحيح قبل نشر العرض. تقدر تغيّره لاحقاً من الإعدادات.'
+          : 'Make sure your public discovery location is correct before publishing. You can change it later in Settings.',
+        [
+          { text: locale === 'ar' ? 'تعديل الموقع' : 'Edit location', onPress: openPublicLocationForCreate },
+          { text: locale === 'ar' ? 'الموقع صحيح — نشر العرض' : 'Location is correct — publish', onPress: () => { void publishOffer(); } },
+        ],
+      );
+      return;
+    }
+    await publishOffer();
+  }, [newTitle, newPrice, user, locale, t, openPublicLocationForCreate, publishReminderShown, publishOffer]);
 
   const renderOffer = useCallback(
     ({ item }: { item: Offer }) => (
       <View style={styles.offerCard}>
-        <Image source={{ uri: item.imageUrl }} style={styles.offerImage} contentFit="cover" />
+        {hasOfferImage(item.imageUrl) ? (
+          <Image source={{ uri: item.imageUrl }} style={styles.offerImage} contentFit="cover" />
+        ) : (
+          <View style={[styles.offerImage, styles.noImageState]}>
+            <ImageIcon size={28} color={Colors.textTertiary} />
+            <Text style={styles.noImageText}>{locale === 'ar' ? 'لا توجد صورة' : 'No image'}</Text>
+          </View>
+        )}
         <View style={styles.offerContent}>
           <View style={[styles.offerHeader, isRTL && styles.rowRTL]}>
             <Text style={[styles.offerTitle, isRTL && styles.rtlText]} numberOfLines={1}>
@@ -179,7 +269,7 @@ export default function ProviderOffersScreen() {
           <Text style={[styles.headerTitle, isRTL && styles.rtlText]}>{t('myOffers')}</Text>
           <Pressable
             style={({ pressed }) => [styles.addBtn, pressed && styles.addBtnPressed]}
-            onPress={() => setShowCreate(true)}
+            onPress={handleOpenCreate}
           >
             <Plus size={20} color={Colors.white} />
             <Text style={styles.addBtnText}>{t('addOffer')}</Text>
@@ -372,6 +462,17 @@ const styles = StyleSheet.create({
   offerImage: {
     width: '100%',
     height: 150,
+  },
+  noImageState: {
+    backgroundColor: Colors.surfaceSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  noImageText: {
+    color: Colors.textTertiary,
+    fontSize: 12,
+    fontWeight: '600' as const,
   },
   offerContent: {
     padding: 16,

@@ -7,15 +7,12 @@ import {
   Pressable,
   Modal,
   Linking,
-  Alert,
-  Platform,
 } from 'react-native';
 import { MessageCircle, Mail, X } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
-
-const WHATSAPP_NUMBER = '966570758881';
-const SUPPORT_EMAIL = 'tabbakheen@gmail.com';
+import { useData } from '@/contexts/DataContext';
+import { createWhatsAppUrl } from '@/utils/supportLinks';
 
 interface SupportDialogProps {
   visible: boolean;
@@ -24,17 +21,20 @@ interface SupportDialogProps {
 
 export default function SupportDialog({ visible, onClose }: SupportDialogProps) {
   const { t, isRTL } = useLocale();
+  const { appSettings } = useData();
 
   const handleWhatsApp = async () => {
-    const url = `https://wa.me/${WHATSAPP_NUMBER}`;
+    const url = createWhatsAppUrl(appSettings.supportWhatsapp);
+    if (!url) {
+      AppAlert.alert(t('error'), t('whatsappError'));
+      return;
+    }
     try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
-        onClose();
-      } else {
-        AppAlert.alert(t('error'), t('whatsappError'));
-      }
+      // HTTPS links are intentionally opened directly. Android package
+      // visibility can make canOpenURL return false even when the browser can
+      // open the URL successfully.
+      await Linking.openURL(url);
+      onClose();
     } catch {
       AppAlert.alert(t('error'), t('whatsappError'));
     }
@@ -42,20 +42,16 @@ export default function SupportDialog({ visible, onClose }: SupportDialogProps) 
 
   const handleEmail = async () => {
     const subject = encodeURIComponent(t('supportEmailSubject'));
-    const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}`;
+    const email = appSettings.supportEmail?.trim();
+    if (!email) {
+      AppAlert.alert(t('error'), t('emailError'));
+      return;
+    }
+    const url = `mailto:${email}?subject=${subject}`;
     try {
-      if (Platform.OS === 'web') {
-        window.open(url, '_blank');
-        onClose();
-        return;
-      }
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
-        onClose();
-      } else {
-        AppAlert.alert(t('error'), t('emailError'));
-      }
+      // Do not gate mailto on canOpenURL: it has false negatives on Android.
+      await Linking.openURL(url);
+      onClose();
     } catch {
       AppAlert.alert(t('error'), t('emailError'));
     }

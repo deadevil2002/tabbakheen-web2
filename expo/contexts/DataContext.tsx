@@ -44,6 +44,7 @@ import {
   decidePaymentViaWorker,
   submitRatingViaWorker,
   updateDriverAvailabilityViaWorker,
+  deleteOfferViaWorker,
   createDeliveryComplaintViaWorker,
   getMyComplaintsViaWorker,
   type ComplaintRef as WorkerComplaintRef,
@@ -308,6 +309,9 @@ export const [DataProvider, useData] = createContextHook(() => {
       if (authUser?.accountStatus === 'suspended') {
         throw new Error(SUSPENDED_ACCOUNT_MESSAGE);
       }
+      if (authUser?.role === 'provider' && !hasEnabledPublicLocation(authUser)) {
+        throw new Error('PUBLIC_LOCATION_REQUIRED');
+      }
       if (fb) {
         const id = await fsCreateOffer(offer);
         const newOffer: Offer = { ...offer, id, createdAt: new Date().toISOString() };
@@ -336,7 +340,7 @@ export const [DataProvider, useData] = createContextHook(() => {
   const deleteOffer = useCallback(
     async (id: string) => {
       if (fb) {
-        await fsUpdateOffer(id, { isAvailable: false });
+        await deleteOfferViaWorker(id);
         return;
       }
       const updated = offers.filter((o) => o.id !== id);

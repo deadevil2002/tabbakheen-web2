@@ -254,6 +254,7 @@ export interface DeliveryPricing {
 export interface AppSettings {
   bannerImageUrl: string;
   bannerEnabled?: boolean;
+  bannerWhatsapp?: string;
   supportEmail: string;
   supportWhatsapp: string;
   deliveryPricing: DeliveryPricing;

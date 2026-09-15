@@ -7,6 +7,7 @@ import {
   getOrderChat,
   markOrderChatRead,
   mergeOrderChatMessages,
+  findReconciledOrderChatMessage,
   pendingOrderChatSend,
   preserveOlderChatCursor,
   reportOrderChat,
@@ -143,12 +144,29 @@ export function OrderChat({ orderId, currentUid, isRTL, locale }: OrderChatProps
       setDraft('');
       setPendingMessage(null);
     } catch (error) {
+      // A timeout can happen after the Worker committed the idempotent
+      // request. Re-fetch once before exposing a retry action; matching the
+      // server request/message id prevents duplicate sends and preserves the
+      // authoritative timestamp.
+      try {
+        const page = await getOrderChat(orderId);
+        const reconciled = findReconciledOrderChatMessage(page.messages, outgoing, currentUid);
+        if (reconciled) {
+          setMessages((previous) => mergeOrderChatMessages(previous, page.messages));
+          setDraft('');
+          setPendingMessage(null);
+          return;
+        }
+      } catch {
+        // Keep the genuine transport failure below when reconciliation is
+        // unavailable.
+      }
       const message = error instanceof Error ? error.message : '';
       AppAlert.alert('', message || (locale === 'ar' ? 'تعذر إرسال الرسالة، حاول مرة أخرى' : 'Unable to send the message. Please try again.'));
     } finally {
       setSending(false);
     }
-  }, [draft, locale, orderId, pendingMessage, sending]);
+  }, [currentUid, draft, locale, orderId, pendingMessage, sending]);
 
   const report = useCallback(() => {
     AppAlert.alert(

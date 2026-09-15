@@ -7,9 +7,8 @@ import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { AccountGateResult } from '@/utils/accountGating';
-
-const SUPPORT_EMAIL = 'tabbakheen@gmail.com';
-const WHATSAPP_NUMBER = '966570758881';
+import { useData } from '@/contexts/DataContext';
+import { createWhatsAppUrl } from '@/utils/supportLinks';
 const APPEAL_BASE_URL = 'https://tabbakheen-api.tabbakheen.workers.dev/appeal';
 
 interface AccountGateScreenProps {
@@ -19,6 +18,7 @@ interface AccountGateScreenProps {
 export default function AccountGateScreen({ gateResult }: AccountGateScreenProps) {
   const { t, isRTL, locale } = useLocale();
   const { user, logout } = useAuth();
+  const { appSettings } = useData();
   const router = useRouter();
 
   const handleLogout = async () => {
@@ -114,35 +114,34 @@ export default function AccountGateScreen({ gateResult }: AccountGateScreenProps
             style={({ pressed }) => [styles.contactRow, isRTL && styles.rowRTL, pressed && styles.contactRowPressed]}
             onPress={async () => {
               const subject = encodeURIComponent(locale === 'ar' ? 'دعم تطبيق طباخين' : 'Tabbakheen App Support');
-              const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}`;
+              const email = appSettings.supportEmail?.trim();
+              if (!email) return;
+              const url = `mailto:${email}?subject=${subject}`;
               try {
-                if (Platform.OS === 'web') { window.open(url, '_blank'); return; }
-                const canOpen = await Linking.canOpenURL(url);
-                if (canOpen) { await Linking.openURL(url); }
+                await Linking.openURL(url);
               } catch { /* ignore */ }
             }}
           >
             <View style={[styles.contactIcon, { backgroundColor: Colors.infoLight }]}>
               <Mail size={18} color={Colors.info} />
             </View>
-            <Text style={[styles.contactValue, isRTL && styles.rtlText]}>{SUPPORT_EMAIL}</Text>
+            <Text style={[styles.contactValue, isRTL && styles.rtlText]}>{appSettings.supportEmail}</Text>
           </Pressable>
 
           <Pressable
             style={({ pressed }) => [styles.contactRow, isRTL && styles.rowRTL, pressed && styles.contactRowPressed]}
             onPress={async () => {
-              const url = `https://wa.me/${WHATSAPP_NUMBER}`;
+              const url = createWhatsAppUrl(appSettings.supportWhatsapp);
+              if (!url) return;
               try {
-                if (Platform.OS === 'web') { window.open(url, '_blank'); return; }
-                const canOpen = await Linking.canOpenURL(url);
-                if (canOpen) { await Linking.openURL(url); }
+                await Linking.openURL(url);
               } catch { /* ignore */ }
             }}
           >
             <View style={[styles.contactIcon, { backgroundColor: '#E7F5EC' }]}>
               <MessageCircle size={18} color="#25D366" />
             </View>
-            <Text style={[styles.contactValue, isRTL && styles.rtlText]}>+{WHATSAPP_NUMBER.replace('966', '966 ')}</Text>
+            <Text style={[styles.contactValue, isRTL && styles.rtlText]}>{appSettings.supportWhatsapp}</Text>
           </Pressable>
         </View>
 

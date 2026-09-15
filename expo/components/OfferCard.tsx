@@ -7,6 +7,7 @@ import { VerifiedBadge } from '@/components/VerifiedBadge';
 import { Offer, User } from '@/types';
 import { useLocale } from '@/contexts/LocaleContext';
 import { formatPrice } from '@/utils/helpers';
+import { hasOfferImage } from '@/utils/offerPresentation';
 
 interface OfferCardProps {
   offer: Offer;
@@ -29,7 +30,13 @@ function OfferCardComponent({ offer, provider, onPress, compact }: OfferCardProp
         onPress={handlePress}
         testID={`offer-card-${offer.id}`}
       >
-        <Image source={{ uri: offer.imageUrl }} style={styles.compactImage} contentFit="cover" />
+        {hasOfferImage(offer.imageUrl) ? (
+          <Image source={{ uri: offer.imageUrl }} style={styles.compactImage} contentFit="cover" />
+        ) : (
+          <View style={[styles.compactImage, styles.noImageState]}>
+            <Text style={styles.noImageText}>{locale === 'ar' ? 'لا توجد صورة' : 'No image'}</Text>
+          </View>
+        )}
         <View style={styles.compactContent}>
           <Text style={[styles.compactTitle, isRTL && styles.rtlText]} numberOfLines={1}>
             {offer.title}
@@ -57,7 +64,13 @@ function OfferCardComponent({ offer, provider, onPress, compact }: OfferCardProp
       testID={`offer-card-${offer.id}`}
     >
       <View style={styles.imageContainer}>
-        <Image source={{ uri: offer.imageUrl }} style={styles.image} contentFit="cover" />
+        {hasOfferImage(offer.imageUrl) ? (
+          <Image source={{ uri: offer.imageUrl }} style={styles.image} contentFit="cover" />
+        ) : (
+          <View style={[styles.image, styles.noImageState]}>
+            <Text style={styles.noImageText}>{locale === 'ar' ? 'لا توجد صورة' : 'No image'}</Text>
+          </View>
+        )}
         <View style={styles.priceTag}>
           <Text style={styles.priceText}>{formatPrice(offer.price, locale)}</Text>
         </View>
@@ -213,6 +226,16 @@ const styles = StyleSheet.create({
   compactImage: {
     width: '100%',
     height: 110,
+  },
+  noImageState: {
+    backgroundColor: Colors.surfaceSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noImageText: {
+    color: Colors.textTertiary,
+    fontSize: 12,
+    fontWeight: '600' as const,
   },
   compactContent: {
     padding: 10,

@@ -11,10 +11,12 @@ import { ArrowLeft, ArrowRight, UtensilsCrossed } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useRouter } from 'expo-router';
+import { getInstalledAppVersion } from '@/utils/appVersion';
 
 export default function AboutScreen() {
   const router = useRouter();
   const { t, isRTL } = useLocale();
+  const appVersion = getInstalledAppVersion();
 
   const BackArrow = isRTL ? ArrowRight : ArrowLeft;
 
@@ -71,7 +73,7 @@ export default function AboutScreen() {
         </View>
 
         <Text style={styles.versionText}>
-          {t('version')} 1.0.0
+          {t('version')} {appVersion}
         </Text>
         <Text style={styles.poweredText}>
           {t('poweredBy')}

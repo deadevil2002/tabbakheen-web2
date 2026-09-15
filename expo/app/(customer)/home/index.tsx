@@ -40,13 +40,10 @@ import { useData } from '@/contexts/DataContext';
 import { Offer, OfferCategory } from '@/types';
 import { formatPrice, formatDistance } from '@/utils/helpers';
 import { distanceToPublicProvider } from '@/utils/publicLocation';
+import { hasOfferImage } from '@/utils/offerPresentation';
+import { createWhatsAppUrl } from '@/utils/supportLinks';
 
-const FALLBACK_BANNER_URL =
-  'https://res.cloudinary.com/dv6n9vnly/image/upload/v1769698754/67e13686-c891-4d70-96da-f11ac94351ca_zlsh8x.png';
-const WHATSAPP_NUMBER = '966570758881';
-const WHATSAPP_MESSAGE = encodeURIComponent(
-  'السلام عليكم حبيت استفسر عن المساحة الاعلانية في تطبيق طباخين',
-);
+const WHATSAPP_MESSAGE = 'السلام عليكم حبيت استفسر عن المساحة الاعلانية في تطبيق طباخين';
 
 const OFFERS_VIEW_MODE_KEY = 'customer_home_offers_view_mode';
 
@@ -167,7 +164,11 @@ export default function CustomerHomeScreen() {
   }, []);
 
   const handleAdBannerPress = useCallback(async () => {
-    const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${WHATSAPP_MESSAGE}`;
+    const url = createWhatsAppUrl(appSettings.bannerWhatsapp, WHATSAPP_MESSAGE);
+    if (!url) {
+      AppAlert.alert(t('error'), t('adBannerWhatsappError'));
+      return;
+    }
     try {
       if (Platform.OS === 'web') {
         window.open(url, '_blank');
@@ -178,7 +179,7 @@ export default function CustomerHomeScreen() {
       console.log('[Home] WhatsApp open error:', e);
       AppAlert.alert(t('error'), t('adBannerWhatsappError'));
     }
-  }, [t]);
+  }, [appSettings.bannerWhatsapp, t]);
 
   const Arrow = isRTL ? ChevronLeft : ChevronRight;
 
@@ -199,7 +200,14 @@ export default function CustomerHomeScreen() {
           testID={`offer-card-${offer.id}`}
         >
           <View style={styles.offerImageWrap}>
-            <Image source={{ uri: offer.imageUrl }} style={[styles.offerImage, isList && styles.offerImageList]} contentFit="cover" />
+            {hasOfferImage(offer.imageUrl) ? (
+              <Image source={{ uri: offer.imageUrl }} style={[styles.offerImage, isList && styles.offerImageList]} contentFit="cover" />
+            ) : (
+              <View style={[styles.offerImage, isList && styles.offerImageList, styles.noImageState]}>
+                <UtensilsCrossed size={28} color={Colors.textTertiary} />
+                <Text style={styles.noImageText}>{locale === 'ar' ? 'لا توجد صورة' : 'No image'}</Text>
+              </View>
+            )}
             <View style={styles.offerPriceTag}>
               <Text style={styles.offerPriceText}>{formatPrice(offer.price, locale)}</Text>
             </View>
@@ -318,13 +326,13 @@ export default function CustomerHomeScreen() {
         </ScrollView>
 
         {/* Ad Banner */}
-        {(appSettings.bannerEnabled !== false) && (appSettings.bannerImageUrl || FALLBACK_BANNER_URL) ? (
+        {(appSettings.bannerEnabled !== false) && hasOfferImage(appSettings.bannerImageUrl) ? (
           <Pressable
             style={({ pressed }) => [styles.adBannerContainer, pressed && styles.adBannerPressed]}
             onPress={handleAdBannerPress}
           >
             <Image
-              source={{ uri: appSettings.bannerImageUrl || FALLBACK_BANNER_URL }}
+              source={{ uri: appSettings.bannerImageUrl }}
               style={styles.adBannerImage}
               contentFit="cover"
             />
@@ -665,6 +673,17 @@ const styles = StyleSheet.create({
   },
   offerImageList: {
     height: 200,
+  },
+  noImageState: {
+    backgroundColor: Colors.surfaceSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  noImageText: {
+    color: Colors.textTertiary,
+    fontSize: 12,
+    fontWeight: '600' as const,
   },
   offerPriceTag: {
     position: 'absolute',

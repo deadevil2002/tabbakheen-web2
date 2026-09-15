@@ -35,11 +35,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import SupportDialog from '@/components/SupportDialog';
 import { pickImageFromGallery } from '@/utils/imagePicker';
 import { uploadProviderAvatar } from '@/services/cloudinary';
+import { getInstalledAppVersion } from '@/utils/appVersion';
 
 export default function CustomerProfileScreen() {
   const router = useRouter();
   const { t, isRTL, locale, toggleLocale } = useLocale();
   const { user, logout, updateUser } = useAuth();
+  const appVersion = getInstalledAppVersion();
 
   const Arrow = isRTL ? ChevronLeft : ChevronRight;
   const [showSupport, setShowSupport] = useState<boolean>(false);
@@ -270,7 +272,7 @@ export default function CustomerProfileScreen() {
         </Pressable>
 
         <Text style={styles.versionText}>
-          {t('version')} 1.0.0 • {t('poweredBy')}
+          {t('version')} {appVersion} • {t('poweredBy')}
         </Text>
 
         <View style={styles.bottomSpacer} />

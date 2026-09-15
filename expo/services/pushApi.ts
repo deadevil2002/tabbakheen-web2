@@ -107,6 +107,20 @@ export function mergeOrderChatMessages(
   return [...byId.values()].sort((a, b) => a.sequence - b.sequence || a.createdAt.localeCompare(b.createdAt));
 }
 
+/** Matches an ambiguous send against the Worker idempotency document. */
+export function findReconciledOrderChatMessage(
+  messages: OrderChatMessage[],
+  pending: PendingOrderChatSend,
+  senderUid: string,
+): OrderChatMessage | null {
+  return messages.find(
+    (message) =>
+      message.messageId === pending.requestId
+      && message.senderUid === senderUid
+      && message.text === pending.text,
+  ) ?? null;
+}
+
 function parseChatPage(data: {
   writable?: unknown;
   messages?: unknown;
@@ -438,6 +452,11 @@ export async function setPublicLocationPreference(
     publicLocationEnabled,
     ...(publicLocationEnabled ? { publicLocation } : {}),
   });
+}
+
+/** Deletes the provider's own offer through the ownership-checked Worker path. */
+export async function deleteOfferViaWorker(offerId: string): Promise<void> {
+  await authorizedWorkerRequest(`/offers/${encodeURIComponent(offerId)}/delete`, {});
 }
 
 export async function syncMyPublicProfile(): Promise<void> {

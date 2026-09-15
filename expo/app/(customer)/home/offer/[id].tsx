@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
-import { ArrowLeft, ArrowRight, MapPin, ShoppingCart, CreditCard, Banknote, Building2 } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight, MapPin, ShoppingCart, CreditCard, Banknote, Building2, ImageIcon } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -24,6 +24,7 @@ import { PaymentMethod } from '@/types';
 import { requireAuth } from '@/utils/authGuard';
 import LoginRequired from '@/components/LoginRequired';
 import { getProviderPaymentAvailability } from '@/services/pushApi';
+import { hasOfferImage } from '@/utils/offerPresentation';
 
 export default function OfferDetailsScreen() {
   const router = useRouter();
@@ -109,7 +110,14 @@ export default function OfferDetailsScreen() {
 
   return (
     <View style={styles.container}>
-      <Image source={{ uri: offer.imageUrl }} style={styles.heroImage} contentFit="cover" />
+      {hasOfferImage(offer.imageUrl) ? (
+        <Image source={{ uri: offer.imageUrl }} style={styles.heroImage} contentFit="cover" />
+      ) : (
+        <View style={[styles.heroImage, styles.noImageState]}>
+          <ImageIcon size={44} color={Colors.textTertiary} />
+          <Text style={styles.noImageText}>{locale === 'ar' ? 'لا توجد صورة لهذا العرض' : 'No image for this offer'}</Text>
+        </View>
+      )}
 
       <SafeAreaView style={styles.backButtonSafe} edges={['top']}>
         <Pressable style={styles.backButton} onPress={() => router.back()}>
@@ -312,6 +320,17 @@ const styles = StyleSheet.create({
   heroImage: {
     width: '100%',
     height: 260,
+  },
+  noImageState: {
+    backgroundColor: Colors.surfaceSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  noImageText: {
+    color: Colors.textTertiary,
+    fontSize: 14,
+    fontWeight: '600' as const,
   },
   backButtonSafe: {
     position: 'absolute',

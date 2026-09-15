@@ -42,7 +42,8 @@ const RIYADH_LNG = 46.6753;
 interface MapLocationPickerProps {
   visible: boolean;
   onClose: () => void;
-  onSave: (coords: { lat: number; lng: number }) => Promise<void>;
+  onSave: (coords: { lat: number; lng: number }) => Promise<boolean | void>;
+  onCoordinatesChange?: (coords: { lat: number; lng: number }) => void;
   initialLocation?: { lat: number; lng: number } | null;
   title?: string;
   hint?: string;
@@ -53,6 +54,7 @@ export default function MapLocationPicker({
   visible,
   onClose,
   onSave,
+  onCoordinatesChange,
   initialLocation,
   title,
   hint,
@@ -98,6 +100,7 @@ export default function MapLocationPicker({
               lng: position.coords.longitude,
             };
             setPinCoords(coords);
+            onCoordinatesChange?.(coords);
             animateToCoords(coords.lat, coords.lng);
             setLocating(false);
             console.log('[MapLocationPicker] Web GPS:', coords);
@@ -128,6 +131,7 @@ export default function MapLocationPicker({
       });
       const coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
       setPinCoords(coords);
+      onCoordinatesChange?.(coords);
       animateToCoords(coords.lat, coords.lng);
       console.log('[MapLocationPicker] Device GPS:', coords);
     } catch (e) {
@@ -136,13 +140,13 @@ export default function MapLocationPicker({
     } finally {
       setLocating(false);
     }
-  }, [t, animateToCoords]);
+  }, [t, animateToCoords, onCoordinatesChange]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await onSave(pinCoords);
-      onClose();
+      const shouldClose = await onSave(pinCoords);
+      if (shouldClose !== false) onClose();
     } catch (e) {
       console.log('[MapLocationPicker] Save error:', e);
       AppAlert.alert(t('error'), t('locationError'));
@@ -155,8 +159,9 @@ export default function MapLocationPicker({
     const center = e?.nativeEvent?.center;
     if (Array.isArray(center) && center.length >= 2) {
       setPinCoords({ lat: center[1], lng: center[0] });
+      onCoordinatesChange?.({ lat: center[1], lng: center[0] });
     }
-  }, []);
+  }, [onCoordinatesChange]);
 
   const handleMapReady = useCallback(() => {
     setMapReady(true);
